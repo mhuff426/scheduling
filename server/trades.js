@@ -79,20 +79,75 @@ export function canTakeShift(db, schedule, slot, user, ignore = []) {
   return null;
 }
 
-// Both directions of a swap must be safe, each side ignoring the shift they
-// are giving up. On success the two assignments simply change owners.
-function executeSwap(db, schedule, aAssign, bAssign) {
+// A swap is valid when both people can take the other's shift, each ignoring
+// the shift they give up. Returns the first blocking reason, or null.
+export function swapValid(db, schedule, aAssign, bAssign) {
   const aUser = db.users.find((u) => u.id === aAssign.userId);
   const bUser = db.users.find((u) => u.id === bAssign.userId);
-  const errA = canTakeShift(db, schedule, bAssign, aUser, [aAssign]);
-  if (errA) return errA;
-  const errB = canTakeShift(db, schedule, aAssign, bUser, [bAssign]);
-  if (errB) return errB;
+  if (!aUser || !bUser) return 'One of the employees no longer exists.';
+  return (
+    canTakeShift(db, schedule, bAssign, aUser, [aAssign]) ||
+    canTakeShift(db, schedule, aAssign, bUser, [bAssign])
+  );
+}
+
+// Both directions of a swap must be safe. On success the two assignments
+// simply change owners.
+function executeSwap(db, schedule, aAssign, bAssign) {
+  const err = swapValid(db, schedule, aAssign, bAssign);
+  if (err) return err;
   const tmp = aAssign.userId;
   aAssign.userId = bAssign.userId;
   bAssign.userId = tmp;
   refreshSchedule(db, schedule);
   return null;
+}
+
+// The candidate's future shifts that would form a valid swap against `offered`
+// (owned by offeredUserId). Used to populate the UI's offer/partner pickers.
+export function eligibleSwapShifts(db, schedule, offered, offeredUserId, candidateUserId) {
+  const offeredAssign = findAssignment(schedule, offeredUserId, offered);
+  if (!offeredAssign) return [];
+  return schedule.assignments
+    .filter((a) => a.userId === candidateUserId && isFuture(a.date))
+    .filter((a) => !swapValid(db, schedule, offeredAssign, a))
+    .map((a) => ({ date: a.date, shiftTypeId: a.shiftTypeId }));
+}
+
+// Everything the Trades screen needs to gate its actions for one viewer, in a
+// single read: which of their shifts can answer each open swap, and whether
+// they can claim each open giveaway.
+export function tradeOptions(db, scheduleId, userId) {
+  const schedule = db.schedules.find((s) => s.id === scheduleId);
+  if (!schedule) return { respond: {}, claim: {} };
+  const respond = {};
+  const claim = {};
+  for (const t of db.trades || []) {
+    if (t.scheduleId !== scheduleId || t.status !== 'open') continue;
+    if (t.type === 'open' && t.fromUserId !== userId) {
+      respond[t.id] = eligibleSwapShifts(db, schedule, t.offered, t.fromUserId, userId);
+    } else if (t.type === 'giveaway' && t.fromUserId !== userId) {
+      const claimer = db.users.find((u) => u.id === userId);
+      const reason = claimer ? canTakeShift(db, schedule, t.offered, claimer) : 'User not found.';
+      claim[t.id] = { ok: !reason, reason: reason || null };
+    }
+  }
+  return { respond, claim };
+}
+
+// Feasible partners for a proposed direct swap of `offered` (owned by userId):
+// every other employee who has at least one shift forming a valid swap, with
+// those shifts listed.
+export function swapPartners(db, scheduleId, userId, offered) {
+  const schedule = db.schedules.find((s) => s.id === scheduleId);
+  if (!schedule) return [];
+  const partners = [];
+  for (const u of includedUsers(db, schedule)) {
+    if (u.id === userId) continue;
+    const shifts = eligibleSwapShifts(db, schedule, offered, userId, u.id);
+    if (shifts.length) partners.push({ userId: u.id, shifts });
+  }
+  return partners;
 }
 
 // Would losing `offered` drop the giver below their requirement, counting the
@@ -185,9 +240,17 @@ export function respondToOpenTrade(db, tradeId, { userId, date, shiftTypeId }) {
   const schedule = db.schedules.find((s) => s.id === trade.scheduleId);
   if (!schedule) return { error: 'Schedule no longer exists.', code: 404 };
   const slot = { date, shiftTypeId };
-  if (!findAssignment(schedule, userId, slot))
+  const myAssign = findAssignment(schedule, userId, slot);
+  if (!myAssign)
     return { error: 'You can only offer a shift that is currently yours.', code: 400 };
   if (!isFuture(date)) return { error: 'Only future shifts can be offered.', code: 400 };
+  const offeredAssign = findAssignment(schedule, trade.fromUserId, trade.offered);
+  if (!offeredAssign) {
+    expire(db, trade, 'the offered shift is no longer available.');
+    return { error: 'That shift is no longer available — the trade has expired.', code: 409 };
+  }
+  const bad = swapValid(db, schedule, offeredAssign, myAssign);
+  if (bad) return { error: `${bad} — you can't cover that shift.`, code: 400 };
 
   trade.responses = trade.responses.filter((r) => r.userId !== userId);
   trade.responses.push({ userId, date, shiftTypeId, at: new Date().toISOString() });

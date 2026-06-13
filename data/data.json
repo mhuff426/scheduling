@@ -2461,6 +2461,12 @@
       "userId": "u-mq8tqqj0-2lrq6",
       "date": "2027-04-03",
       "type": "preferred"
+    },
+    {
+      "id": "t-mqcctbra-kr65m",
+      "userId": "u-mq8tkj7h-95721",
+      "date": "2026-07-06",
+      "type": "vacation"
     }
   ],
   "schedules": [
@@ -2771,7 +2777,7 @@
         {
           "date": "2026-07-12",
           "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tlpb8-x030k"
+          "userId": "u-mq8tqqj0-2lrq6"
         },
         {
           "date": "2026-07-12",
@@ -3001,7 +3007,7 @@
         {
           "date": "2026-07-21",
           "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tqqj0-2lrq6"
+          "userId": "u-mq8tlpb8-x030k"
         },
         {
           "date": "2026-07-21",
@@ -4787,8 +4793,10 @@
       "warnings": [
         "Open shift: Backup on 2026-07-27 — no one available. Consider outside help or reassigning.",
         "Open shift: Backup on 2026-08-01 — no one available. Consider outside help or reassigning.",
+        "Matt who sucks was scheduled on 2026-07-12 despite preferring it off.",
         "Matt who sucks was scheduled on 2026-07-17 despite preferring it off.",
         "Ale Gabella was scheduled on 2026-07-20 despite preferring it off.",
+        "Ale Gabella was scheduled on 2026-07-21 despite preferring it off.",
         "Matt who sucks was scheduled on 2026-08-26 despite preferring it off.",
         "Other Person was scheduled on 2026-08-28 despite preferring it off.",
         "Matt who sucks was scheduled on 2026-09-13 despite preferring it off.",
@@ -4798,7 +4806,7 @@
         "Priya Nair returns on 2026-08-25 with only 1 day off after a 5-day stretch (ideally 2).",
         "Priya Nair returns on 2026-09-19 with only 1 day off after a 8-day stretch (ideally 2).",
         "George returns on 2026-08-06 with only 1 day off after a 6-day stretch (ideally 2).",
-        "Matt who sucks returns on 2026-08-02 with only 1 day off after a 11-day stretch (ideally 2).",
+        "Matt who sucks returns on 2026-08-02 with only 1 day off after a 10-day stretch (ideally 2).",
         "Matt who sucks returns on 2026-08-22 with only 1 day off after a 5-day stretch (ideally 2).",
         "Sharan returns on 2026-09-25 with only 1 day off after a 6-day stretch (ideally 2).",
         "Evee Lopez returns on 2026-07-22 with only 1 day off after a 8-day stretch (ideally 2).",
@@ -4943,6 +4951,91 @@
       "claimedBy": null,
       "createdAt": "2026-06-13T02:06:42.507Z",
       "resolvedAt": "2026-06-13T02:09:33.565Z"
+    },
+    {
+      "id": "tr-mqccsq75-hegk4",
+      "scheduleId": "sch-mqccsozb-xyjmc",
+      "type": "open",
+      "status": "completed",
+      "fromUserId": "u-mq8tr54q-jwp4p",
+      "offered": {
+        "date": "2026-07-06",
+        "shiftTypeId": "s-mq8tm6w1-jvk5j"
+      },
+      "toUserId": null,
+      "requested": null,
+      "responses": [
+        {
+          "userId": "u-mq8tle5q-wb2ly",
+          "date": "2026-07-13",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "at": "2026-06-13T13:32:30.907Z"
+        }
+      ],
+      "claimedBy": null,
+      "createdAt": "2026-06-13T12:50:40.673Z",
+      "resolvedAt": "2026-06-13T13:32:39.163Z"
+    },
+    {
+      "id": "tr-mqcctbv8-pbdt1",
+      "scheduleId": "sch-mqccsozb-xyjmc",
+      "type": "giveaway",
+      "status": "cancelled",
+      "fromUserId": "u-mq8tr54q-jwp4p",
+      "offered": {
+        "date": "2026-07-06",
+        "shiftTypeId": "s-mq8tm6w1-jvk5j"
+      },
+      "toUserId": null,
+      "requested": null,
+      "responses": [],
+      "claimedBy": null,
+      "createdAt": "2026-06-13T12:51:08.756Z",
+      "resolvedAt": "2026-06-13T13:32:42.965Z"
+    },
+    {
+      "id": "tr-mqcepmde-bxbzj",
+      "scheduleId": "sch-mqbpptgq-wftfi",
+      "type": "open",
+      "status": "open",
+      "fromUserId": "u-mq8tqqj0-2lrq6",
+      "offered": {
+        "date": "2026-07-10",
+        "shiftTypeId": "s-mq8tmjmy-30eij"
+      },
+      "toUserId": null,
+      "requested": null,
+      "responses": [
+        {
+          "userId": "u-mq8tljk2-lumtw",
+          "date": "2026-07-02",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "at": "2026-06-13T13:44:48.280Z"
+        }
+      ],
+      "claimedBy": null,
+      "createdAt": "2026-06-13T13:44:14.978Z",
+      "resolvedAt": null
+    },
+    {
+      "id": "tr-mqcepvzp-mr283",
+      "scheduleId": "sch-mqbpptgq-wftfi",
+      "type": "direct",
+      "status": "completed",
+      "fromUserId": "u-mq8tqqj0-2lrq6",
+      "offered": {
+        "date": "2026-07-21",
+        "shiftTypeId": "s-mq8tm6w1-jvk5j"
+      },
+      "toUserId": "u-mq8tlpb8-x030k",
+      "requested": {
+        "date": "2026-07-12",
+        "shiftTypeId": "s-mq8tmjmy-30eij"
+      },
+      "responses": [],
+      "claimedBy": null,
+      "createdAt": "2026-06-13T13:44:27.445Z",
+      "resolvedAt": "2026-06-13T13:45:08.840Z"
     }
   ],
   "notifications": [
@@ -5279,7 +5372,7 @@
       "userId": "u-mq8tljk2-lumtw",
       "message": "George wants to swap their Acc Day on 2026-08-11 — offer one of your shifts in Trades.",
       "tradeId": "tr-mqbpsksr-y364x",
-      "read": false,
+      "read": true,
       "createdAt": "2026-06-13T02:06:42.507Z"
     },
     {
@@ -5367,7 +5460,7 @@
       "userId": "u-mq8tlpb8-x030k",
       "message": "George withdrew their trade for Acc Day on 2026-08-11.",
       "tradeId": "tr-mqbpsksr-y364x",
-      "read": false,
+      "read": true,
       "createdAt": "2026-06-13T02:09:33.565Z"
     },
     {
@@ -5375,8 +5468,248 @@
       "userId": "u-mq8tle5q-wb2ly",
       "message": "George withdrew their trade for Acc Day on 2026-08-11.",
       "tradeId": "tr-mqbpsksr-y364x",
-      "read": false,
+      "read": true,
       "createdAt": "2026-06-13T02:09:33.565Z"
+    },
+    {
+      "id": "n-mqccsq75-giqjj",
+      "userId": "u-mq8tkj7h-95721",
+      "message": "George wants to swap their Chemo Service on 2026-07-06 — offer one of your shifts in Trades.",
+      "tradeId": "tr-mqccsq75-hegk4",
+      "read": true,
+      "createdAt": "2026-06-13T12:50:40.673Z"
+    },
+    {
+      "id": "n-mqccsq75-8zszy",
+      "userId": "u-mq8tle5q-wb2ly",
+      "message": "George wants to swap their Chemo Service on 2026-07-06 — offer one of your shifts in Trades.",
+      "tradeId": "tr-mqccsq75-hegk4",
+      "read": true,
+      "createdAt": "2026-06-13T12:50:40.673Z"
+    },
+    {
+      "id": "n-mqccsq75-pgg2e",
+      "userId": "u-mq8tljk2-lumtw",
+      "message": "George wants to swap their Chemo Service on 2026-07-06 — offer one of your shifts in Trades.",
+      "tradeId": "tr-mqccsq75-hegk4",
+      "read": true,
+      "createdAt": "2026-06-13T12:50:40.673Z"
+    },
+    {
+      "id": "n-mqccsq75-7rynz",
+      "userId": "u-mq8tlpb8-x030k",
+      "message": "George wants to swap their Chemo Service on 2026-07-06 — offer one of your shifts in Trades.",
+      "tradeId": "tr-mqccsq75-hegk4",
+      "read": true,
+      "createdAt": "2026-06-13T12:50:40.673Z"
+    },
+    {
+      "id": "n-mqccsq75-msoe1",
+      "userId": "u-mq8tnifi-13va6",
+      "message": "George wants to swap their Chemo Service on 2026-07-06 — offer one of your shifts in Trades.",
+      "tradeId": "tr-mqccsq75-hegk4",
+      "read": false,
+      "createdAt": "2026-06-13T12:50:40.673Z"
+    },
+    {
+      "id": "n-mqccsq75-dkuej",
+      "userId": "u-mq8tqqj0-2lrq6",
+      "message": "George wants to swap their Chemo Service on 2026-07-06 — offer one of your shifts in Trades.",
+      "tradeId": "tr-mqccsq75-hegk4",
+      "read": true,
+      "createdAt": "2026-06-13T12:50:40.673Z"
+    },
+    {
+      "id": "n-mqccsq75-8m7vn",
+      "userId": "u-mq8tqxv4-wgn5p",
+      "message": "George wants to swap their Chemo Service on 2026-07-06 — offer one of your shifts in Trades.",
+      "tradeId": "tr-mqccsq75-hegk4",
+      "read": false,
+      "createdAt": "2026-06-13T12:50:40.673Z"
+    },
+    {
+      "id": "n-mqccsq75-p06t7",
+      "userId": "u-mq8xwhzj-tvgh4",
+      "message": "George wants to swap their Chemo Service on 2026-07-06 — offer one of your shifts in Trades.",
+      "tradeId": "tr-mqccsq75-hegk4",
+      "read": false,
+      "createdAt": "2026-06-13T12:50:40.673Z"
+    },
+    {
+      "id": "n-mqccsq75-dwmws",
+      "userId": "u-mqaxr0so-h7xoy",
+      "message": "George wants to swap their Chemo Service on 2026-07-06 — offer one of your shifts in Trades.",
+      "tradeId": "tr-mqccsq75-hegk4",
+      "read": false,
+      "createdAt": "2026-06-13T12:50:40.673Z"
+    },
+    {
+      "id": "n-mqcctbv8-65lxq",
+      "userId": "u-mq8tkj7h-95721",
+      "message": "George is giving up their Chemo Service on 2026-07-06 — first to claim it takes it.",
+      "tradeId": "tr-mqcctbv8-pbdt1",
+      "read": true,
+      "createdAt": "2026-06-13T12:51:08.756Z"
+    },
+    {
+      "id": "n-mqcctbv8-a0f1e",
+      "userId": "u-mq8tle5q-wb2ly",
+      "message": "George is giving up their Chemo Service on 2026-07-06 — first to claim it takes it.",
+      "tradeId": "tr-mqcctbv8-pbdt1",
+      "read": true,
+      "createdAt": "2026-06-13T12:51:08.756Z"
+    },
+    {
+      "id": "n-mqcctbv8-egs01",
+      "userId": "u-mq8tljk2-lumtw",
+      "message": "George is giving up their Chemo Service on 2026-07-06 — first to claim it takes it.",
+      "tradeId": "tr-mqcctbv8-pbdt1",
+      "read": true,
+      "createdAt": "2026-06-13T12:51:08.756Z"
+    },
+    {
+      "id": "n-mqcctbv8-7zlw8",
+      "userId": "u-mq8tlpb8-x030k",
+      "message": "George is giving up their Chemo Service on 2026-07-06 — first to claim it takes it.",
+      "tradeId": "tr-mqcctbv8-pbdt1",
+      "read": true,
+      "createdAt": "2026-06-13T12:51:08.756Z"
+    },
+    {
+      "id": "n-mqcctbv8-fd9xk",
+      "userId": "u-mq8tnifi-13va6",
+      "message": "George is giving up their Chemo Service on 2026-07-06 — first to claim it takes it.",
+      "tradeId": "tr-mqcctbv8-pbdt1",
+      "read": false,
+      "createdAt": "2026-06-13T12:51:08.756Z"
+    },
+    {
+      "id": "n-mqcctbv8-nitnm",
+      "userId": "u-mq8tqqj0-2lrq6",
+      "message": "George is giving up their Chemo Service on 2026-07-06 — first to claim it takes it.",
+      "tradeId": "tr-mqcctbv8-pbdt1",
+      "read": true,
+      "createdAt": "2026-06-13T12:51:08.756Z"
+    },
+    {
+      "id": "n-mqcctbv8-k1zkl",
+      "userId": "u-mq8tqxv4-wgn5p",
+      "message": "George is giving up their Chemo Service on 2026-07-06 — first to claim it takes it.",
+      "tradeId": "tr-mqcctbv8-pbdt1",
+      "read": false,
+      "createdAt": "2026-06-13T12:51:08.756Z"
+    },
+    {
+      "id": "n-mqcctbv8-r41e3",
+      "userId": "u-mq8xwhzj-tvgh4",
+      "message": "George is giving up their Chemo Service on 2026-07-06 — first to claim it takes it.",
+      "tradeId": "tr-mqcctbv8-pbdt1",
+      "read": false,
+      "createdAt": "2026-06-13T12:51:08.756Z"
+    },
+    {
+      "id": "n-mqcctbv8-nqrd7",
+      "userId": "u-mqaxr0so-h7xoy",
+      "message": "George is giving up their Chemo Service on 2026-07-06 — first to claim it takes it.",
+      "tradeId": "tr-mqcctbv8-pbdt1",
+      "read": false,
+      "createdAt": "2026-06-13T12:51:08.756Z"
+    },
+    {
+      "id": "n-mqceaj3v-9hlsk",
+      "userId": "u-mq8tr54q-jwp4p",
+      "message": "Evee Lopez offered their Acc Day on 2026-07-13 for your Chemo Service on 2026-07-06.",
+      "tradeId": "tr-mqccsq75-hegk4",
+      "read": true,
+      "createdAt": "2026-06-13T13:32:30.907Z"
+    },
+    {
+      "id": "n-mqceaph8-s2xqj",
+      "userId": "u-mq8tle5q-wb2ly",
+      "message": "George accepted your offer — you now work Chemo Service on 2026-07-06 and they took your Acc Day on 2026-07-13.",
+      "tradeId": "tr-mqccsq75-hegk4",
+      "read": true,
+      "createdAt": "2026-06-13T13:32:39.164Z"
+    },
+    {
+      "id": "n-mqcepmde-ganfa",
+      "userId": "u-mq8tle5q-wb2ly",
+      "message": "Matt who sucks wants to swap their Acc Day on 2026-07-10 — offer one of your shifts in Trades.",
+      "tradeId": "tr-mqcepmde-bxbzj",
+      "read": true,
+      "createdAt": "2026-06-13T13:44:14.978Z"
+    },
+    {
+      "id": "n-mqcepmde-qqglz",
+      "userId": "u-mq8tljk2-lumtw",
+      "message": "Matt who sucks wants to swap their Acc Day on 2026-07-10 — offer one of your shifts in Trades.",
+      "tradeId": "tr-mqcepmde-bxbzj",
+      "read": true,
+      "createdAt": "2026-06-13T13:44:14.978Z"
+    },
+    {
+      "id": "n-mqcepmde-c62cg",
+      "userId": "u-mq8tlpb8-x030k",
+      "message": "Matt who sucks wants to swap their Acc Day on 2026-07-10 — offer one of your shifts in Trades.",
+      "tradeId": "tr-mqcepmde-bxbzj",
+      "read": true,
+      "createdAt": "2026-06-13T13:44:14.978Z"
+    },
+    {
+      "id": "n-mqcepmde-s6bc2",
+      "userId": "u-mq8tnifi-13va6",
+      "message": "Matt who sucks wants to swap their Acc Day on 2026-07-10 — offer one of your shifts in Trades.",
+      "tradeId": "tr-mqcepmde-bxbzj",
+      "read": false,
+      "createdAt": "2026-06-13T13:44:14.978Z"
+    },
+    {
+      "id": "n-mqcepmde-zzu0f",
+      "userId": "u-mq8tr54q-jwp4p",
+      "message": "Matt who sucks wants to swap their Acc Day on 2026-07-10 — offer one of your shifts in Trades.",
+      "tradeId": "tr-mqcepmde-bxbzj",
+      "read": false,
+      "createdAt": "2026-06-13T13:44:14.978Z"
+    },
+    {
+      "id": "n-mqcepmde-u05e9",
+      "userId": "u-mq8xwhzj-tvgh4",
+      "message": "Matt who sucks wants to swap their Acc Day on 2026-07-10 — offer one of your shifts in Trades.",
+      "tradeId": "tr-mqcepmde-bxbzj",
+      "read": false,
+      "createdAt": "2026-06-13T13:44:14.978Z"
+    },
+    {
+      "id": "n-mqcepmde-asj87",
+      "userId": "u-mqaxr0so-h7xoy",
+      "message": "Matt who sucks wants to swap their Acc Day on 2026-07-10 — offer one of your shifts in Trades.",
+      "tradeId": "tr-mqcepmde-bxbzj",
+      "read": false,
+      "createdAt": "2026-06-13T13:44:14.978Z"
+    },
+    {
+      "id": "n-mqcepvzp-ggjkg",
+      "userId": "u-mq8tlpb8-x030k",
+      "message": "Matt who sucks proposes swapping their Chemo Service on 2026-07-21 for your Acc Day on 2026-07-12.",
+      "tradeId": "tr-mqcepvzp-mr283",
+      "read": true,
+      "createdAt": "2026-06-13T13:44:27.445Z"
+    },
+    {
+      "id": "n-mqceqc2g-cmm0f",
+      "userId": "u-mq8tqqj0-2lrq6",
+      "message": "Sharan offered their Kay 3 on 2026-07-02 for your Acc Day on 2026-07-10.",
+      "tradeId": "tr-mqcepmde-bxbzj",
+      "read": true,
+      "createdAt": "2026-06-13T13:44:48.280Z"
+    },
+    {
+      "id": "n-mqceqrxk-js2rz",
+      "userId": "u-mq8tqqj0-2lrq6",
+      "message": "Ale Gabella accepted your swap — you now work Acc Day on 2026-07-12 and they took your Chemo Service on 2026-07-21.",
+      "tradeId": "tr-mqcepvzp-mr283",
+      "read": true,
+      "createdAt": "2026-06-13T13:45:08.840Z"
     }
   ]
 }

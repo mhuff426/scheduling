@@ -10,7 +10,7 @@ import {
 import {
   canTakeShift, createTrade, respondToOpenTrade, withdrawResponse,
   acceptOpenResponse, acceptDirect, rejectDirect, claimGiveaway, cancelTrade,
-  setExtraElection,
+  setExtraElection, tradeOptions, swapPartners,
 } from './trades.js';
 import { buildIcs } from './ics.js';
 
@@ -385,6 +385,20 @@ app.post('/api/trades/:id/claim', (req, res) =>
 
 app.post('/api/trades/:id/cancel', (req, res) =>
   tradeResult(res, cancelTrade(loadDb(), req.params.id, req.body))
+);
+
+// Read-only eligibility lookups so the UI only offers feasible trades.
+app.get('/api/schedules/:id/trade-options', (req, res) =>
+  res.json(tradeOptions(loadDb(), req.params.id, req.query.userId))
+);
+
+app.get('/api/schedules/:id/swap-partners', (req, res) =>
+  res.json(
+    swapPartners(loadDb(), req.params.id, req.query.userId, {
+      date: req.query.date,
+      shiftTypeId: req.query.shiftTypeId,
+    })
+  )
 );
 
 // Split your extra days (worked beyond required) into extra vacation and

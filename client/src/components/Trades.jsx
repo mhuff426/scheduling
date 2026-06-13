@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { api } from '../api.js';
 import { prettyDate, formatTime, todayYmd } from '../dates.js';
 import { settlementFor, vacationSummary, shiftWeight } from '../shiftMath.js';
@@ -7,6 +7,20 @@ export default function Trades({ db, currentUser, act }) {
   const schedules = [...db.schedules].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const [scheduleId, setScheduleId] = useState(schedules[0]?.id || null);
   const schedule = schedules.find((s) => s.id === scheduleId) || schedules[0];
+
+  // Server-computed eligibility for this viewer: which shifts can answer each
+  // open swap, and which giveaways they can claim. Refetched whenever the
+  // schedule, user, or underlying state changes.
+  const [options, setOptions] = useState({ respond: {}, claim: {} });
+  useEffect(() => {
+    if (!schedule) return;
+    let live = true;
+    api
+      .tradeOptions(schedule.id, currentUser.id)
+      .then((o) => { if (live) setOptions(o); })
+      .catch(() => { if (live) setOptions({ respond: {}, claim: {} }); });
+    return () => { live = false; };
+  }, [schedule?.id, currentUser.id, db]);
 
   const shiftById = useMemo(
     () => Object.fromEntries(db.shiftTypes.map((s) => [s.id, s])),
@@ -56,7 +70,6 @@ export default function Trades({ db, currentUser, act }) {
     (t) => t.type === 'giveaway' && t.status === 'completed' && t.claimedBy === me
   ).length;
 
-  const workingOn = (date) => schedule.assignments.some((a) => a.userId === me && a.date === date);
 
 
   return (
@@ -123,9 +136,11 @@ export default function Trades({ db, currentUser, act }) {
                           Withdraw
                         </button>
                       </div>
+                    ) : (options.respond[t.id] || []).length === 0 ? (
+                      <span className="muted small">You have no shift you can offer for this — it'd leave you double-booked or short on rest.</span>
                     ) : (
                       <OfferPicker
-                        shifts={futureShiftsOf(me)} slotLabel={slotLabel} slotKey={slotKey}
+                        shifts={options.respond[t.id]} slotLabel={slotLabel} slotKey={slotKey}
                         onOffer={(key) =>
                           act(() => api.respondTrade(t.id, { userId: me, ...slotFromKey(key) }))
                         }
@@ -146,8 +161,8 @@ export default function Trades({ db, currentUser, act }) {
                     <strong>{userById[t.fromUserId]?.name}</strong> is giving up their{' '}
                     <strong>{slotLabel(t.offered)}</strong>.
                   </div>
-                  {workingOn(t.offered.date) ? (
-                    <span className="muted small">You already work that day.</span>
+                  {options.claim[t.id] && !options.claim[t.id].ok ? (
+                    <span className="muted small">{options.claim[t.id].reason}</span>
                   ) : (
                     <button className="btn primary sm" onClick={() => act(() => api.claimTrade(t.id, { userId: me }))}>
                       Take this shift
@@ -243,10 +258,26 @@ function StartTrade({ db, act, me, schedule, futureShiftsOf, slotLabel, slotKey,
   const [mode, setMode] = useState('open');
   const [targetUserId, setTargetUserId] = useState('');
   const [targetShiftKey, setTargetShiftKey] = useState('');
+  // Feasible direct-swap partners for the chosen offered shift, from the
+  // server (only employees who can take it, with the shifts I can take back).
+  const [partners, setPartners] = useState([]);
 
   const myShifts = futureShiftsOf(me.id);
-  const others = db.users.filter((u) => u.id !== me.id);
-  const targetShifts = targetUserId ? futureShiftsOf(targetUserId) : [];
+  const userById = Object.fromEntries(db.users.map((u) => [u.id, u]));
+
+  useEffect(() => {
+    setTargetUserId('');
+    setTargetShiftKey('');
+    if (mode !== 'direct' || !shiftKey) { setPartners([]); return; }
+    let live = true;
+    api
+      .swapPartners(schedule.id, me.id, slotFromKey(shiftKey))
+      .then((p) => { if (live) setPartners(p); })
+      .catch(() => { if (live) setPartners([]); });
+    return () => { live = false; };
+  }, [mode, shiftKey, schedule.id, me.id, db]);
+
+  const targetShifts = partners.find((p) => p.userId === targetUserId)?.shifts || [];
 
   // A giveaway only costs a vacation day when losing the shift would drop you
   // below your required shifts for this block (mirrors the server's check).
@@ -309,11 +340,17 @@ function StartTrade({ db, act, me, schedule, futureShiftsOf, slotLabel, slotKey,
           {mode === 'open' && (
             <p className="muted small">Everyone is notified; coworkers counter-offer one of their shifts and you pick. No vacation used.</p>
           )}
-          {mode === 'direct' && (
+          {mode === 'direct' && !shiftKey && (
+            <p className="muted small">Pick one of your shifts above to see who can swap for it.</p>
+          )}
+          {mode === 'direct' && shiftKey && partners.length === 0 && (
+            <p className="muted small">No coworker can swap for this shift right now (everyone's either working, resting, or has no shift you could take back).</p>
+          )}
+          {mode === 'direct' && shiftKey && partners.length > 0 && (
             <div className="row spread">
               <select value={targetUserId} onChange={(e) => { setTargetUserId(e.target.value); setTargetShiftKey(''); }}>
                 <option value="">— swap with… —</option>
-                {others.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                {partners.map((p) => <option key={p.userId} value={p.userId}>{userById[p.userId]?.name}</option>)}
               </select>
               {targetUserId && (
                 <select value={targetShiftKey} onChange={(e) => setTargetShiftKey(e.target.value)}>

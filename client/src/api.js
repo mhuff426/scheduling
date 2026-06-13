@@ -31,5 +31,13 @@ export const api = {
   cancelTrade: (id, body) => request('POST', `/api/trades/${id}/cancel`, body),
   markNotificationsRead: (userId) => request('PUT', '/api/notifications/read', { userId }),
   electExtra: (scheduleId, body) => request('PUT', `/api/schedules/${scheduleId}/extra-election`, body),
+  tradeOptions: (scheduleId, userId) =>
+    request('GET', `/api/schedules/${scheduleId}/trade-options?userId=${encodeURIComponent(userId)}`),
+  swapPartners: (scheduleId, userId, slot) =>
+    request(
+      'GET',
+      `/api/schedules/${scheduleId}/swap-partners?userId=${encodeURIComponent(userId)}` +
+        `&date=${encodeURIComponent(slot.date)}&shiftTypeId=${encodeURIComponent(slot.shiftTypeId)}`
+    ),
   deleteSchedule: (id) => request('DELETE', `/api/schedules/${id}`),
 };

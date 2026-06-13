@@ -3,7 +3,7 @@ import assert from 'assert';
 import {
   createTrade, respondToOpenTrade, withdrawResponse, acceptOpenResponse,
   acceptDirect, rejectDirect, claimGiveaway, cancelTrade, extraShifts, canTakeShift,
-  setExtraElection,
+  setExtraElection, tradeOptions, swapPartners,
 } from './trades.js';
 import { vacationUsed, vacationAvailable } from './db.js';
 
@@ -118,7 +118,7 @@ const notesFor = (db, uid) => db.notifications.filter((n) => n.userId === uid).m
   assert.strictEqual(trade.responses.length, 0);
 }
 
-// ---- safety: swap blocked by 8h rest / double-day; schedule unchanged ----
+// ---- safety: ineligible responses are blocked fail-fast; schedule unchanged ----
 {
   const db = mkDb(
     [mkUser('a', 'Ann'), mkUser('b', 'Ben'), mkUser('c', 'Cy')],
@@ -134,14 +134,15 @@ const notesFor = (db, uid) => db.notifications.filter((n) => n.userId === uid).m
     scheduleId: 'sch1', fromUserId: 'a', type: 'open',
     offered: { date: '2099-01-07', shiftTypeId: 'day' },
   });
-  respondToOpenTrade(db, trade.id, { userId: 'b', date: '2099-01-20', shiftTypeId: 'eve' });
-  const r1 = acceptOpenResponse(db, trade.id, { userId: 'a', responseUserId: 'b' });
-  assert.ok(r1.error && r1.error.includes('8 hours'), `expected rest block, got: ${r1.error}`);
-  assert.strictEqual(trade.status, 'open', 'trade survives a failed accept');
-  assert.strictEqual(owner(db, '2099-01-07', 'day'), 'a', 'schedule unchanged');
-  respondToOpenTrade(db, trade.id, { userId: 'c', date: '2099-01-15', shiftTypeId: 'eve' });
-  const r2 = acceptOpenResponse(db, trade.id, { userId: 'a', responseUserId: 'c' });
+  // Ben can't take the 7th (night ends 06:00 -> <8h rest) — respond rejected.
+  const r1 = respondToOpenTrade(db, trade.id, { userId: 'b', date: '2099-01-20', shiftTypeId: 'eve' });
+  assert.ok(r1.error && r1.error.includes('rest'), `expected rest block, got: ${r1.error}`);
+  // Cy already works the 7th — respond rejected.
+  const r2 = respondToOpenTrade(db, trade.id, { userId: 'c', date: '2099-01-15', shiftTypeId: 'eve' });
   assert.ok(r2.error && r2.error.includes('already works'), `expected double-day block, got: ${r2.error}`);
+  assert.strictEqual(trade.responses.length, 0, 'no ineligible responses recorded');
+  assert.strictEqual(trade.status, 'open', 'trade still open');
+  assert.strictEqual(owner(db, '2099-01-07', 'day'), 'a', 'schedule unchanged');
 }
 
 // ---- giveaway above required: costs nothing, claim transfers + tracks extra ----
@@ -313,6 +314,89 @@ const notesFor = (db, uid) => db.notifications.filter((n) => n.userId === uid).m
     offered: { date: '2020-01-05', shiftTypeId: 'day' },
   });
   assert.ok(notMine.error && notMine.error.includes('currently yours'), 'ownership enforced');
+}
+
+// ===== eligibility filtering =====
+
+// ---- respondToOpenTrade rejects ineligible offers fail-fast ----
+{
+  const db = mkDb(
+    [mkUser('a', 'Ann'), mkUser('b', 'Ben')],
+    [
+      A('a', '2099-01-07', 'day'),     // Ann's open shift (08-16)
+      A('b', '2099-01-06', 'night'),   // Ben works night ending 06:00 on the 7th
+      A('b', '2099-01-20', 'eve'),     // Ben's only other (offerable) shift
+      A('b', '2099-01-21', 'day'),     // Ben already works the 21st
+      A('a', '2099-01-21', 'eve'),     // Ann works the 21st too (double-day if swapped)
+    ]
+  );
+  const { trade } = createTrade(db, {
+    scheduleId: 'sch1', fromUserId: 'a', type: 'open',
+    offered: { date: '2099-01-07', shiftTypeId: 'day' },
+  });
+  // Ben offering the 20th: Ann can take it, but Ben can't take the 7th day
+  // shift (his night ends 06:00 that day -> <8h rest). Rejected fail-fast.
+  const rest = respondToOpenTrade(db, trade.id, { userId: 'b', date: '2099-01-20', shiftTypeId: 'eve' });
+  assert.ok(rest.error && rest.error.includes('rest'), `expected rest block, got: ${rest.error}`);
+  assert.strictEqual(trade.responses.length, 0, 'no response recorded on rejection');
+  // Ben offering the 21st: he already works the 7th? no — but Ann works the
+  // 21st, so she can't take it back (double-day). Rejected.
+  const dbl = respondToOpenTrade(db, trade.id, { userId: 'b', date: '2099-01-21', shiftTypeId: 'day' });
+  assert.ok(dbl.error && dbl.error.includes('already works'), `expected double-day block, got: ${dbl.error}`);
+  assert.strictEqual(trade.responses.length, 0, 'still no responses');
+}
+
+// ---- tradeOptions: a must-off coworker can't respond/claim; free one can ----
+{
+  // Ben has a must-have-off on the 7th, so he can't take Ann's 7th shift no
+  // matter which of his shifts he offers (vacation isn't freed by a swap).
+  const db = mkDb(
+    [mkUser('a', 'Ann'), mkUser('b', 'Ben'), mkUser('c', 'Cy')],
+    [
+      A('a', '2099-01-07', 'day'),   // Ann offers this (open + giveaway)
+      A('b', '2099-01-15', 'day'),   // Ben has a shift to (try to) offer
+      A('c', '2099-01-18', 'day'),   // Cy is free on the 7th, has an offerable shift
+    ],
+    [{ id: 'm1', userId: 'b', date: '2099-01-07', type: 'vacation' }]
+  );
+  const open = createTrade(db, {
+    scheduleId: 'sch1', fromUserId: 'a', type: 'open',
+    offered: { date: '2099-01-07', shiftTypeId: 'day' },
+  }).trade;
+  const give = createTrade(db, {
+    scheduleId: 'sch1', fromUserId: 'a', type: 'giveaway',
+    offered: { date: '2099-01-07', shiftTypeId: 'day' },
+  }).trade;
+
+  const optsBen = tradeOptions(db, 'sch1', 'b');
+  assert.deepStrictEqual(optsBen.respond[open.id], [], 'Ben is off the 7th -> no offerable shift');
+  assert.strictEqual(optsBen.claim[give.id].ok, false, 'Ben cannot claim the 7th');
+  assert.ok(optsBen.claim[give.id].reason.includes('vacation'), 'reason surfaced');
+
+  const optsCy = tradeOptions(db, 'sch1', 'c');
+  assert.strictEqual(optsCy.respond[open.id].length, 1, 'Cy can offer her 18th for the 7th');
+  assert.strictEqual(optsCy.respond[open.id][0].date, '2099-01-18');
+  assert.strictEqual(optsCy.claim[give.id].ok, true, 'Cy can claim the 7th');
+}
+
+// ---- swapPartners: only feasible partners + their valid shifts, never self ----
+{
+  const db = mkDb(
+    [mkUser('a', 'Ann'), mkUser('b', 'Ben'), mkUser('c', 'Cy')],
+    [
+      A('a', '2099-01-07', 'day'),   // Ann's offered shift
+      A('b', '2099-01-15', 'day'),   // Ben is off the 7th -> can't take it -> excluded
+      A('c', '2099-01-18', 'day'),   // Cy free on 7th, Ann free on 18th -> valid
+      A('c', '2099-01-09', 'eve'),   // also valid
+    ],
+    [{ id: 'm1', userId: 'b', date: '2099-01-07', type: 'vacation' }]
+  );
+  const partners = swapPartners(db, 'sch1', 'a', { date: '2099-01-07', shiftTypeId: 'day' });
+  assert.ok(!partners.some((p) => p.userId === 'a'), 'never includes the requester');
+  assert.ok(!partners.some((p) => p.userId === 'b'), 'excludes Ben (off the 7th)');
+  const cy = partners.find((p) => p.userId === 'c');
+  assert.ok(cy, 'includes feasible partner Cy');
+  assert.strictEqual(cy.shifts.length, 2, 'lists Cy\'s two valid shifts');
 }
 
 console.log('All trade tests passed.');
