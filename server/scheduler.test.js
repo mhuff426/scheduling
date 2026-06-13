@@ -4,7 +4,7 @@ import {
   generateSchedule, buildSlots, isOvernight, restOk,
   computeCaps, preferenceStandings, DEMOTED_CLAIM,
   isGrouped, runBounds, nightCapOk, effectiveMaximums, weightOf,
-  recoveryNeed,
+  recoveryNeed, effectiveMinimums, requiredFor,
 } from './scheduler.js';
 
 const mkUser = (id, name, extra = {}) => ({
@@ -15,6 +15,15 @@ const mkDb = (users, shiftTypes, timeOff = []) => ({
   settings: { maxVacationPerDay: 2, overnightWeight: 1.5 },
   meta: { rotationCursor: 0 },
 });
+
+// Migration helper: the old global `minShifts: N` meant "every included user
+// has floor N". Per-user `requiredShifts` is now the floor (and the target),
+// so applying N to every user without an explicit requiredShifts reproduces
+// the old global behavior. Users that already set requiredShifts keep theirs.
+const allMin = (db, n) => {
+  db.users.forEach((u) => { if (u.requiredShifts === undefined) u.requiredShifts = n; });
+  return db;
+};
 
 const day = { id: 'day', name: 'Day', startTime: '08:00', endTime: '16:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
 const eve = { id: 'eve', name: 'Evening', startTime: '16:00', endTime: '00:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
@@ -50,7 +59,8 @@ assert.ok(
       { id: 't2', userId: 'b', date: '2026-06-03', type: 'preferred' },
     ]
   );
-  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-07', minShifts: 2 });
+  allMin(db, 2); // every user has a floor of 2 (old global minShifts: 2)
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-07' });
   assert.ok(!r.assignments.some((x) => x.userId === 'a' && x.date === '2026-06-01'), 'vacation scheduled over');
   const seen = new Set();
   for (const x of r.assignments) {
@@ -66,7 +76,7 @@ assert.ok(
 // ---- rest rule end-to-end: night worker can't take next morning's day shift
 {
   const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [night, day]);
-  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-02', minShifts: 0 });
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-02' });
   for (const a of r.assignments.filter((x) => x.shiftTypeId === 'day')) {
     const prevNight = r.assignments.find(
       (x) => x.shiftTypeId === 'night' && x.userId === a.userId &&
@@ -87,27 +97,32 @@ assert.ok(
     [day],
     [{ id: 't1', userId: 'a', date: '2026-06-01', type: 'vacation' }]
   );
-  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-03', minShifts: 3 });
+  allMin(db, 3); // both A and B have a floor of 3 (old global minShifts: 3)
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-03' });
   // A's min is 2 (3 - 1 vacation day) and only 3 slots exist; A working 2 of 3 is satisfiable.
   assert.ok(!r.warnings.some((w) => w.startsWith('A has')), `A should meet reduced min: ${JSON.stringify(r.warnings)}`);
   assert.ok(r.warnings.some((w) => w.startsWith('B has')), 'B cannot reach 3 with only 1 slot left — expect warning');
 }
 
-// ---- desired shifts get priority for extras
+// ---- a higher required floor draws the extras (merged: required is the target)
 {
+  // Old "desired shifts get priority" test. desiredShifts was merged into
+  // requiredShifts, so A is now REQUIRED 4 — still reaches 4, just because it
+  // is now A's floor/target rather than a soft want. B and C have floor 1.
   const db = mkDb(
-    [mkUser('a', 'A', { desiredShifts: 4 }), mkUser('b', 'B'), mkUser('c', 'C')],
+    [mkUser('a', 'A', { requiredShifts: 4 }), mkUser('b', 'B'), mkUser('c', 'C')],
     [day]
   );
-  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-06', minShifts: 1 });
-  assert.strictEqual(r.counts['a'], 4, `A wanted 4, got ${r.counts['a']}`);
+  allMin(db, 1); // B and C floor 1 (old global minShifts: 1); A keeps its 4
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-06' });
+  assert.strictEqual(r.counts['a'], 4, `A required 4, got ${r.counts['a']}`);
   assert.strictEqual(r.counts['b'] + r.counts['c'], 2);
 }
 
 // ---- overnight shifts distributed evenly
 {
   const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [night]);
-  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-04', minShifts: 0 });
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-04' });
   assert.strictEqual(r.counts['a'], 2, 'overnights uneven');
   assert.strictEqual(r.counts['b'], 2, 'overnights uneven');
 }
@@ -116,7 +131,7 @@ assert.ok(
 {
   const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [day]);
   db.meta.rotationCursor = 1;
-  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-03', minShifts: 0 });
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-03' });
   assert.strictEqual(typeof r.nextRotationCursor, 'number');
   assert.strictEqual(r.nextRotationCursor, (1 + 3) % 2);
 }
@@ -131,7 +146,7 @@ assert.ok(
       { id: 't2', userId: 'b', date: '2026-06-01', type: 'preferred' },
     ]
   );
-  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-02', minShifts: 0 });
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-02' });
   assert.ok(r.assignments.some((x) => x.userId === 'b' && x.date === '2026-06-01'), 'preferred-off worker should cover when alone');
   assert.ok(r.warnings.some((w) => w.includes('despite preferring')), 'missing override warning');
 }
@@ -139,8 +154,9 @@ assert.ok(
 // ---- per-block roster: excluded people get no shifts and no warnings
 {
   const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B'), mkUser('c', 'C')], [day]);
+  allMin(db, 2); // a, b (and the excluded c) all have a floor of 2
   const r = generateSchedule(db, {
-    startDate: '2026-06-01', endDate: '2026-06-04', minShifts: 2, userIds: ['a', 'b'],
+    startDate: '2026-06-01', endDate: '2026-06-04', userIds: ['a', 'b'],
   });
   assert.strictEqual(r.counts['c'] || 0, 0, 'excluded user was scheduled');
   assert.ok(!r.warnings.some((w) => w.startsWith('C ')), 'excluded user should not trigger minimum warnings');
@@ -184,7 +200,7 @@ const JULY = { startDate: '2026-07-01', endDate: '2026-07-14', userIds: null };
   for (let n = 1; n <= 8; n++) timeOff.push(pref('a', n));
   timeOff.push(pref('b', 7), pref('b', 8));
   const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [day], timeOff);
-  const r = generateSchedule(db, { startDate: '2026-07-01', endDate: '2026-07-10', minShifts: 0 });
+  const r = generateSchedule(db, { startDate: '2026-07-01', endDate: '2026-07-10' });
   for (const d of [D(7), D(8)]) {
     const a = r.assignments.find((x) => x.date === d);
     assert.strictEqual(a.userId, 'a', `demoted claim (A) must lose to normal preference (B) on ${d}`);
@@ -234,14 +250,14 @@ const JULY = { startDate: '2026-07-01', endDate: '2026-07-14', userIds: null };
     [pref('a', 1), pref('b', 1)]
   );
   db.schedules = history;
-  const r = generateSchedule(db, { startDate: '2026-07-01', endDate: '2026-07-01', minShifts: 0 });
+  const r = generateSchedule(db, { startDate: '2026-07-01', endDate: '2026-07-01' });
   assert.strictEqual(r.assignments[0].userId, 'a', 'lower standing must be overridden first');
 }
 
 // ---- generation snapshots raw asks for future standing
 {
   const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [day], [pref('a', 1), pref('a', 2)]);
-  const r = generateSchedule(db, { startDate: '2026-07-01', endDate: '2026-07-07', minShifts: 0 });
+  const r = generateSchedule(db, { startDate: '2026-07-01', endDate: '2026-07-07' });
   assert.deepStrictEqual(r.preferenceStats.asks, { a: 2, b: 0 });
   assert.strictEqual(r.preferenceStats.median, 1);
 }
@@ -277,7 +293,7 @@ assert.deepStrictEqual(runBounds({ minRun: 5, maxRun: null }), { min: 5, max: In
   const chemo = { id: 'chemo', name: 'Chemo', startTime: '09:00', endTime: '17:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1, minRun: 3, maxRun: 4 };
   const users = [mkUser('a', 'A'), mkUser('b', 'B'), mkUser('c', 'C')];
   const db = mkDb(users, [chemo]);
-  const r = generateSchedule(db, { startDate: '2026-08-01', endDate: '2026-08-08', minShifts: 0 });
+  const r = generateSchedule(db, { startDate: '2026-08-01', endDate: '2026-08-08' });
   const runs = runLengths(r.assignments, 'chemo');
   assert.ok(Math.max(...runs) <= 4, `no run may exceed maxRun 4; got ${runs}`);
   assert.ok(runs.some((x) => x >= 3), `at least one run should reach minRun 3; got ${runs}`);
@@ -293,7 +309,7 @@ assert.deepStrictEqual(runBounds({ minRun: 5, maxRun: null }), { min: 5, max: In
   const chemo = { id: 'chemo', name: 'Chemo', startTime: '09:00', endTime: '17:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1, minRun: 5, maxRun: 7 };
   const users = [...'abcdef'].map((c) => mkUser(c, c.toUpperCase()));
   const db = mkDb(users, [chemo]);
-  const r = generateSchedule(db, { startDate: '2026-08-01', endDate: '2026-08-21', minShifts: 0 });
+  const r = generateSchedule(db, { startDate: '2026-08-01', endDate: '2026-08-21' });
   const distinct = new Set(r.assignments.map((a) => a.userId)).size;
   assert.ok(distinct >= 3, `21 days of runs ≤7 should touch ≥3 people, not monopolize; got ${distinct}`);
   assert.ok(Math.max(...runLengths(r.assignments, 'chemo')) <= 7, 'runs must respect maxRun 7');
@@ -321,7 +337,7 @@ assert.deepStrictEqual(runBounds({ minRun: 5, maxRun: null }), { min: 5, max: In
 {
   const night = { id: 'night', name: 'Night', startTime: '22:00', endTime: '06:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
   const db = mkDb([mkUser('a', 'A', { maxConsecutiveNights: 2 })], [night]);
-  const r = generateSchedule(db, { startDate: '2026-08-01', endDate: '2026-08-04', minShifts: 0 });
+  const r = generateSchedule(db, { startDate: '2026-08-01', endDate: '2026-08-04' });
   // A works nights 1 and 2, must rest night 3 (would be the 3rd in a row), works night 4.
   assert.ok(!r.assignments.some((a) => a.date === '2026-08-03'), 'the 3rd consecutive night must not be assigned');
   assert.strictEqual(r.unfilled.filter((s) => s.date === '2026-08-03').length, 1, 'night 3 should be open');
@@ -329,48 +345,57 @@ assert.deepStrictEqual(runBounds({ minRun: 5, maxRun: null }), { min: 5, max: In
 
 // ===== maximum shifts =====
 
-// ---- effective max resolution: override > block max > unlimited
+// ---- effective max resolution: per-user override, else unlimited
 {
   const db = { users: [mkUser('a', 'A', { maxShiftsOverride: 2 }), mkUser('b', 'B')] };
-  const withBlock = effectiveMaximums(db, { maxShifts: 5 });
-  assert.strictEqual(withBlock.get('a'), 2, 'override beats block max');
-  assert.strictEqual(withBlock.get('b'), 5, 'no override falls back to block max');
-  const noBlock = effectiveMaximums(db, { maxShifts: null });
-  assert.strictEqual(noBlock.get('a'), 2);
-  assert.strictEqual(noBlock.get('b'), Infinity, 'no cap anywhere = unlimited');
+  const maxs = effectiveMaximums(db);
+  assert.strictEqual(maxs.get('a'), 2, 'override sets the ceiling');
+  assert.strictEqual(maxs.get('b'), Infinity, 'no override = unlimited');
 }
 
-// ---- block max is a hard cap; uncoverable slots go open
+// ---- a per-user max is a hard cap; uncoverable slots go open
 {
-  const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [day]);
-  const r = generateSchedule(db, { startDate: '2026-08-01', endDate: '2026-08-10', minShifts: 0, maxShifts: 3 });
+  // Old "block max is a hard cap" test: the global maxShifts: 3 is now a
+  // per-user maxShiftsOverride: 3 on everyone.
+  const db = mkDb([mkUser('a', 'A', { maxShiftsOverride: 3 }), mkUser('b', 'B', { maxShiftsOverride: 3 })], [day]);
+  const r = generateSchedule(db, { startDate: '2026-08-01', endDate: '2026-08-10' });
   assert.ok(Object.values(r.counts).every((c) => c <= 3), `nobody may exceed 3: ${JSON.stringify(r.counts)}`);
   assert.strictEqual(r.assignments.length, 6, 'two people × max 3 = 6 assignments');
   assert.strictEqual(r.unfilled.length, 4, 'remaining 4 slots must go open');
 }
 
-// ---- per-employee override wins over the block max
+// ---- a lower per-user override caps that person independently of others
 {
-  const db = mkDb([mkUser('a', 'A', { maxShiftsOverride: 1 }), mkUser('b', 'B')], [day]);
-  const r = generateSchedule(db, { startDate: '2026-08-01', endDate: '2026-08-10', minShifts: 0, maxShifts: 3 });
+  // Old "per-employee override wins over the block max": A override 1, the
+  // former block max 3 is now B's own override 3.
+  const db = mkDb([mkUser('a', 'A', { maxShiftsOverride: 1 }), mkUser('b', 'B', { maxShiftsOverride: 3 })], [day]);
+  const r = generateSchedule(db, { startDate: '2026-08-01', endDate: '2026-08-10' });
   assert.strictEqual(r.counts['a'], 1, `A capped at override 1, got ${r.counts['a']}`);
-  assert.strictEqual(r.counts['b'], 3, `B capped at block max 3, got ${r.counts['b']}`);
+  assert.strictEqual(r.counts['b'], 3, `B capped at override 3, got ${r.counts['b']}`);
 }
 
 // ---- a ceiling below the floor lowers the floor (no impossible-minimum warnings)
 {
-  const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [day]);
-  const r = generateSchedule(db, { startDate: '2026-08-01', endDate: '2026-08-10', minShifts: 5, maxShifts: 2 });
+  // Old global minShifts: 5, maxShifts: 2 -> per-user required 5, max 2.
+  const db = mkDb(
+    [mkUser('a', 'A', { requiredShifts: 5, maxShiftsOverride: 2 }),
+     mkUser('b', 'B', { requiredShifts: 5, maxShiftsOverride: 2 })],
+    [day]
+  );
+  const r = generateSchedule(db, { startDate: '2026-08-01', endDate: '2026-08-10' });
   assert.ok(Object.values(r.counts).every((c) => c === 2), `everyone hits exactly the cap: ${JSON.stringify(r.counts)}`);
   assert.ok(!r.warnings.some((w) => w.includes('minimum shifts')), `no min warnings when capped below the floor: ${JSON.stringify(r.warnings)}`);
 }
 
-// ---- desired shifts beyond the cap don't warn
+// ---- a high required floor beyond the cap doesn't warn (clamped to the cap)
 {
-  const db = mkDb([mkUser('a', 'A', { desiredShifts: 6 }), mkUser('b', 'B')], [day]);
-  const r = generateSchedule(db, { startDate: '2026-08-01', endDate: '2026-08-10', minShifts: 0, maxShifts: 2 });
+  // Old "desired shifts beyond the cap don't warn": desiredShifts: 6 is merged
+  // into requiredShifts: 6, capped by maxShiftsOverride: 2. A reaches the cap
+  // and no shortfall warning fires (the floor is clamped to the ceiling).
+  const db = mkDb([mkUser('a', 'A', { requiredShifts: 6, maxShiftsOverride: 2 }), mkUser('b', 'B')], [day]);
+  const r = generateSchedule(db, { startDate: '2026-08-01', endDate: '2026-08-10' });
   assert.strictEqual(r.counts['a'], 2);
-  assert.ok(!r.warnings.some((w) => w.includes('requested')), 'no desired-shifts warning past the cap');
+  assert.ok(!r.warnings.some((w) => w.includes('minimum shifts')), 'no shortfall warning past the cap');
 }
 
 // ===== per-shift-type weights =====
@@ -394,7 +419,8 @@ assert.deepStrictEqual(runBounds({ minRun: 5, maxRun: null }), { min: 5, max: In
   const standby = { id: 'sb', name: 'Standby', startTime: '08:00', endTime: '16:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1, weight: 0 };
   const work = { id: 'wk', name: 'Work', startTime: '17:00', endTime: '21:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
   const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [work, standby]);
-  const r = generateSchedule(db, { startDate: '2026-08-01', endDate: '2026-08-04', minShifts: 2 });
+  allMin(db, 2); // both have a floor of 2 counting shifts (old global minShifts: 2)
+  const r = generateSchedule(db, { startDate: '2026-08-01', endDate: '2026-08-04' });
   assert.strictEqual(r.assignments.length, 8, 'standby slots are still filled');
   assert.strictEqual(r.counts['a'], 2, `counts exclude standby: ${JSON.stringify(r.counts)}`);
   assert.strictEqual(r.counts['b'], 2, `counts exclude standby: ${JSON.stringify(r.counts)}`);
@@ -405,8 +431,8 @@ assert.deepStrictEqual(runBounds({ minRun: 5, maxRun: null }), { min: 5, max: In
 {
   const standby = { id: 'sb', name: 'Standby', startTime: '08:00', endTime: '16:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1, weight: 0 };
   const work = { id: 'wk', name: 'Work', startTime: '17:00', endTime: '21:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
-  const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [work, standby]);
-  const r = generateSchedule(db, { startDate: '2026-08-01', endDate: '2026-08-04', minShifts: 0, maxShifts: 1 });
+  const db = mkDb([mkUser('a', 'A', { maxShiftsOverride: 1 }), mkUser('b', 'B', { maxShiftsOverride: 1 })], [work, standby]);
+  const r = generateSchedule(db, { startDate: '2026-08-01', endDate: '2026-08-04' });
   const standbyAssigned = r.assignments.filter((a) => a.shiftTypeId === 'sb').length;
   assert.strictEqual(standbyAssigned, 4, 'all standby slots fill despite max 1');
   const workAssigned = r.assignments.filter((a) => a.shiftTypeId === 'wk').length;
@@ -420,7 +446,7 @@ assert.deepStrictEqual(runBounds({ minRun: 5, maxRun: null }), { min: 5, max: In
   const light = { id: 'lt', name: 'Light', startTime: '17:00', endTime: '21:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
   // 2026-06-01 is a Monday: 1 heavy (weight 3) + 7 light (weight 1) over a week.
   const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [heavy, light]);
-  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-07', minShifts: 0 });
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-07' });
   const heavyUser = r.assignments.find((a) => a.shiftTypeId === 'hv').userId;
   const lightOfHeavyUser = r.assignments.filter((a) => a.shiftTypeId === 'lt' && a.userId === heavyUser).length;
   const lightOfOther = 7 - lightOfHeavyUser;
@@ -450,7 +476,7 @@ assert.deepStrictEqual(runBounds({ minRun: 5, maxRun: null }), { min: 5, max: In
 
   for (const order of [[t1, t2, filler], [t2, t1, filler]]) {
     const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B'), mkUser('c', 'C')], order);
-    const r = generateSchedule(db, { startDate: '2026-08-02', endDate: '2026-08-19', minShifts: 0 });
+    const r = generateSchedule(db, { startDate: '2026-08-02', endDate: '2026-08-19' });
     for (const typeId of ['t1', 't2']) {
       const { runs } = runStats(r.assignments, typeId);
       // Every run except the final (block-truncated) one must reach minRun —
@@ -485,12 +511,14 @@ assert.strictEqual(recoveryNeed(9), 2);
 {
   const W = { id: 'w', name: 'W', startTime: '08:00', endTime: '16:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
   // B is away days 1-5 so A works a 5-day stretch; A is away day 6 so B covers.
-  // Day 7: A would win on desired-shifts priority, but owes 1 more recovery day.
+  // Day 7: A has the higher load (5 vs 1) AND owes a recovery day, so rested B
+  // wins. (desiredShifts was removed; with no required floor on either, the
+  // recovery penalty and load balance decide — recovery still beats A here.)
   const timeOff = [];
   for (let n = 1; n <= 5; n++) timeOff.push({ id: `v${n}`, userId: 'b', date: `2026-09-0${n}`, type: 'vacation' });
   timeOff.push({ id: 'va', userId: 'a', date: '2026-09-06', type: 'vacation' });
-  const db = mkDb([mkUser('a', 'A', { desiredShifts: 7 }), mkUser('b', 'B')], [W], timeOff);
-  const r = generateSchedule(db, { startDate: '2026-09-01', endDate: '2026-09-07', minShifts: 0 });
+  const db = mkDb([mkUser('a', 'A', { requiredShifts: null }), mkUser('b', 'B')], [W], timeOff);
+  const r = generateSchedule(db, { startDate: '2026-09-01', endDate: '2026-09-07' });
   const day7 = r.assignments.find((x) => x.date === '2026-09-07');
   assert.strictEqual(day7.userId, 'b', 'rested B must beat early-returning A on day 7');
 }
@@ -502,7 +530,7 @@ assert.strictEqual(recoveryNeed(9), 2);
   for (let n = 1; n <= 7; n++) timeOff.push({ id: `v${n}`, userId: 'b', date: `2026-09-0${n}`, type: 'vacation' });
   timeOff.push({ id: 'va', userId: 'a', date: '2026-09-06', type: 'vacation' });
   const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [W], timeOff);
-  const r = generateSchedule(db, { startDate: '2026-09-01', endDate: '2026-09-07', minShifts: 0 });
+  const r = generateSchedule(db, { startDate: '2026-09-01', endDate: '2026-09-07' });
   const day7 = r.assignments.find((x) => x.date === '2026-09-07');
   assert.strictEqual(day7?.userId, 'a', 'coverage beats recovery when nobody else can work');
   assert.ok(
@@ -515,10 +543,11 @@ assert.strictEqual(recoveryNeed(9), 2);
 {
   const G = { id: 'g', name: 'G', startTime: '09:00', endTime: '17:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1, minRun: 3, maxRun: 3 };
   const X = { id: 'x', name: 'X', startTime: '18:00', endTime: '22:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
-  const db = mkDb([mkUser('a', 'A', { desiredShifts: 9 }), mkUser('b', 'B'), mkUser('c', 'C')], [G, X]);
-  const r = generateSchedule(db, { startDate: '2026-09-01', endDate: '2026-09-04', minShifts: 0 });
-  // A's G run is days 1-3; despite wanting many shifts, A must not be handed
-  // the X shift on day 4 with zero days off after a 3-day stretch.
+  const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B'), mkUser('c', 'C')], [G, X]);
+  const r = generateSchedule(db, { startDate: '2026-09-01', endDate: '2026-09-04' });
+  // A's G run is days 1-3; A must not be handed the X shift on day 4 with zero
+  // days off after a 3-day stretch — a rested teammate takes it instead.
+  // (desiredShifts was removed; the recovery penalty alone keeps A off day 4.)
   const aRun = r.assignments.filter((x) => x.userId === 'a' && x.shiftTypeId === 'g').map((x) => x.date);
   assert.deepStrictEqual(aRun, ['2026-09-01', '2026-09-02', '2026-09-03'], `A's run: ${aRun}`);
   assert.ok(
@@ -531,11 +560,11 @@ assert.strictEqual(recoveryNeed(9), 2);
 
 // ---- shortfall caused by must-offs is charged as vacation, not warned
 {
-  const db = mkDb([mkUser('a', 'A')], [day], [
+  const db = mkDb([mkUser('a', 'A', { requiredShifts: 5 })], [day], [
     { id: 'm1', userId: 'a', date: '2026-06-02', type: 'vacation' },
     { id: 'm2', userId: 'a', date: '2026-06-03', type: 'vacation' },
   ]);
-  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-05', minShifts: 5 });
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-05' });
   assert.strictEqual(r.counts['a'], 3, 'works the other 3 days');
   assert.deepStrictEqual(r.vacationCharged, { a: 2 }, 'the 2 must-off days are charged');
   assert.ok(!r.warnings.some((w) => w.includes('minimum shifts')), 'covered shortfall does not warn');
@@ -544,7 +573,8 @@ assert.strictEqual(recoveryNeed(9), 2);
 // ---- uncovered shortfall still warns with charge-aware copy
 {
   const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [day]);
-  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-04', minShifts: 4 });
+  allMin(db, 4); // both required 4 (old global minShifts: 4)
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-04' });
   assert.deepStrictEqual(r.vacationCharged, {}, 'no must-offs -> no charges');
   assert.strictEqual(
     r.warnings.filter((w) => w.includes('2 short')).length, 2,
@@ -561,7 +591,7 @@ assert.strictEqual(recoveryNeed(9), 2);
     { id: 'mb', userId: 'b', date: '2026-06-03', type: 'vacation' }, // b is hard-off the 3rd
   ];
   const db = mkDb([mkUser('a', 'A', { vacationDays: 1 }), mkUser('b', 'B')], [day], timeOff);
-  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-05', minShifts: 0 });
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-05' });
   // a asked for 3 must-offs with only 1 vacation day available -> all soft.
   // b covers the 2nd and 4th, but on the 3rd b is hard-off, so coverage
   // schedules a over their downgraded day.
@@ -575,6 +605,149 @@ assert.strictEqual(recoveryNeed(9), 2);
     'downgraded days still honored when someone else can cover'
   );
   assert.strictEqual(r.unfilled.length, 0, 'nothing goes open');
+}
+
+// ===== per-employee required & max shifts (new feature) =====
+
+// ---- (1) per-user requiredShifts drives each person's floor independently
+{
+  // 7 day-slots over a week; A required 2, B required 4. Each reaches their own
+  // floor, and the spare slot doesn't push anyone past their target.
+  const db = mkDb(
+    [mkUser('a', 'A', { requiredShifts: 2 }), mkUser('b', 'B', { requiredShifts: 4 })],
+    [day]
+  );
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-07' });
+  assert.ok(r.counts['a'] >= 2, `A should reach its own floor of 2, got ${r.counts['a']}`);
+  assert.ok(r.counts['b'] >= 4, `B should reach its own floor of 4, got ${r.counts['b']}`);
+  assert.ok(
+    !r.warnings.some((w) => /minimum shifts/.test(w)),
+    `both floors are satisfiable: ${JSON.stringify(r.warnings)}`
+  );
+}
+
+// ---- (2) per-user maxShiftsOverride caps each person independently
+{
+  // 10 day-slots. A is capped at 2; B has no cap and soaks up the rest.
+  const db = mkDb(
+    [mkUser('a', 'A', { maxShiftsOverride: 2 }), mkUser('b', 'B')],
+    [day]
+  );
+  const r = generateSchedule(db, { startDate: '2026-08-01', endDate: '2026-08-10' });
+  assert.strictEqual(r.counts['a'], 2, `A must never exceed its max of 2, got ${r.counts['a']}`);
+  assert.ok(r.counts['b'] > 2, `uncapped B should go higher than A's cap, got ${r.counts['b']}`);
+  assert.strictEqual(r.counts['a'] + r.counts['b'], 10, 'all 10 slots fill (B covers the remainder)');
+}
+
+// ---- (3) blank required (null) = 0: no shortfall warning, no vacation charged
+{
+  // A has a real floor and a must-off; B has blank required and a must-off.
+  // Only A should ever be warned/charged; B's null required is 0.
+  const db = mkDb(
+    [mkUser('a', 'A', { requiredShifts: 5 }), mkUser('b', 'B', { requiredShifts: null })],
+    [day],
+    [
+      { id: 'ma', userId: 'a', date: '2026-06-02', type: 'vacation' },
+      { id: 'mb', userId: 'b', date: '2026-06-02', type: 'vacation' },
+    ]
+  );
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-03' });
+  assert.ok(!r.warnings.some((w) => w.startsWith('B has')), `blank-required B gets no shortfall warning: ${JSON.stringify(r.warnings)}`);
+  assert.strictEqual(r.vacationCharged['b'], undefined, 'no vacation charged to a user with no required floor');
+}
+
+// ---- (4) requiredShifts > maxShiftsOverride is clamped to the max (no warning)
+{
+  const db = mkDb([mkUser('a', 'A', { requiredShifts: 8, maxShiftsOverride: 3 }), mkUser('b', 'B')], [day]);
+  const r = generateSchedule(db, { startDate: '2026-08-01', endDate: '2026-08-10' });
+  assert.strictEqual(r.counts['a'], 3, `effective floor clamps to the max of 3, got ${r.counts['a']}`);
+  assert.ok(
+    !r.warnings.some((w) => w.startsWith('A has')),
+    `no warning for failing to reach the impossible required: ${JSON.stringify(r.warnings)}`
+  );
+}
+
+// ---- (5) vacation charging uses per-user required (vacationCharged map)
+{
+  // A requires 5 over a 5-day block but files 2 must-off days inside it, so A
+  // can only work 3. The 2-day shortfall is charged to vacation.
+  const db = mkDb([mkUser('a', 'A', { requiredShifts: 5, vacationDays: 10 })], [day], [
+    { id: 'm1', userId: 'a', date: '2026-06-02', type: 'vacation' },
+    { id: 'm2', userId: 'a', date: '2026-06-04', type: 'vacation' },
+  ]);
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-05' });
+  assert.strictEqual(r.counts['a'], 3, 'A works the 3 non-must-off days');
+  assert.deepStrictEqual(r.vacationCharged, { a: 2 }, 'the 2 must-off shortfall days are charged as vacation');
+  assert.ok(!r.warnings.some((w) => w.includes('minimum shifts')), 'charged shortfall does not also warn');
+}
+
+// ---- (5b) vacation charge is capped by the per-user max
+{
+  // A requires 5 but is capped at 3 (effective floor 3); files 4 must-offs over
+  // a 7-day block. Works 3, shortfall against the clamped floor of 3 is 0 -> no
+  // charge. (Charge follows the clamped required, not the raw 5.)
+  const db = mkDb([mkUser('a', 'A', { requiredShifts: 5, maxShiftsOverride: 3, vacationDays: 10 })], [day], [
+    { id: 'm1', userId: 'a', date: '2026-06-02', type: 'vacation' },
+    { id: 'm2', userId: 'a', date: '2026-06-03', type: 'vacation' },
+    { id: 'm3', userId: 'a', date: '2026-06-05', type: 'vacation' },
+  ]);
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-07' });
+  // 7 days minus 3 must-off = 4 workable, capped at 3 -> A works 3, meets the
+  // clamped floor of 3, so nothing is charged.
+  assert.strictEqual(r.counts['a'], 3, `A capped at 3, got ${r.counts['a']}`);
+  assert.deepStrictEqual(r.vacationCharged, {}, 'no charge once the clamped floor is met');
+}
+
+// ---- (6) effectiveMaximums / effectiveMinimums
+{
+  const db = mkDb(
+    [mkUser('a', 'A', { maxShiftsOverride: 4, requiredShifts: 3 }),
+     mkUser('b', 'B', { maxShiftsOverride: null, requiredShifts: 2 })],
+    [day],
+    [{ id: 'm1', userId: 'a', date: '2026-06-02', type: 'vacation' }]
+  );
+  const maxs = effectiveMaximums(db);
+  assert.strictEqual(maxs.get('a'), 4, 'set override returns the number');
+  assert.strictEqual(maxs.get('b'), Infinity, 'blank/null override returns Infinity');
+
+  const mins = effectiveMinimums(db, { startDate: '2026-06-01', endDate: '2026-06-07' }, new Set());
+  assert.strictEqual(mins.get('a'), 2, "A's required 3 minus 1 must-off day = 2");
+  assert.strictEqual(mins.get('b'), 2, "B's required 2 with no must-offs = 2");
+
+  // softOff members keep their full required (their must-offs were downgraded).
+  const minsSoft = effectiveMinimums(db, { startDate: '2026-06-01', endDate: '2026-06-07' }, new Set(['a']));
+  assert.strictEqual(minsSoft.get('a'), 3, 'a soft-off user does not subtract must-off days');
+}
+
+// ---- (7) requiredFor computes from the user, not the schedule; 0 if unknown
+{
+  const db = mkDb(
+    [mkUser('a', 'A', { requiredShifts: 3 }),
+     mkUser('b', 'B', { requiredShifts: 9, maxShiftsOverride: 4 })],
+    [day]
+  );
+  // Pass a deliberately empty/irrelevant schedule to prove it is ignored.
+  const schedule = { assignments: [], unfilled: [], userIds: ['a', 'b'] };
+  assert.strictEqual(requiredFor(db, schedule, 'a'), 3, 'plain required read from the user');
+  assert.strictEqual(requiredFor(db, schedule, 'b'), 4, 'required clamped to the per-user max');
+  assert.strictEqual(requiredFor(db, schedule, 'nobody'), 0, 'unknown user id returns 0');
+}
+
+// ---- (8) regression: desiredShifts is no longer consulted
+{
+  // The removed soft target must not raise a floor or produce a warning. A has
+  // a stale desiredShifts: 9 and a blank required; B is a normal teammate.
+  const db = mkDb(
+    [mkUser('a', 'A', { desiredShifts: 9, requiredShifts: null }), mkUser('b', 'B')],
+    [day]
+  );
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-07' });
+  assert.ok(
+    !r.warnings.some((w) => w.startsWith('A has') || w.includes('requested')),
+    `desiredShifts must not create any floor/target warning: ${JSON.stringify(r.warnings)}`
+  );
+  // A has no guaranteed shifts: floor 0 means A may end up with as few as 0.
+  assert.strictEqual(requiredFor(db, { assignments: [] }, 'a'), 0, 'desiredShifts does not raise the required floor');
 }
 
 console.log('All scheduler tests passed.');

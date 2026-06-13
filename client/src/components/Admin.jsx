@@ -409,7 +409,8 @@ function GenerateSchedule({ db, act }) {
       <h2>✨ Generate Schedule</h2>
       <p className="muted small">
         Fills every shift in the range. Vacation days are never scheduled over; preferred-off days are
-        avoided when coverage allows; everyone is pushed toward the minimum shift count.
+        avoided when coverage allows; each employee is pushed toward their required shift count (set per
+        person in the roster).
       </p>
       {!cadence ? (
         <p className="muted small">Set a schedule cadence in Settings first.</p>
