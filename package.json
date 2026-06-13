@@ -8,7 +8,8 @@
     "api": "node server/index.js",
     "build": "vite build",
     "start": "node server/index.js",
-    "test": "node server/scheduler.test.js && node server/trades.test.js"
+    "test": "node server/scheduler.test.js && node server/trades.test.js && node server/blocks.test.js",
+    "test:e2e": "playwright test --config=playwright.config.cjs"
   },
   "dependencies": {
     "express": "^4.19.2",
@@ -16,6 +17,7 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@vitejs/plugin-react": "^4.3.1",
     "concurrently": "^8.2.2",
     "vite": "^5.4.8"

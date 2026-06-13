@@ -13,6 +13,7 @@ import {
   setExtraElection, tradeOptions, swapPartners,
 } from './trades.js';
 import { buildIcs } from './ics.js';
+import { isValidCadence, blockRange, currentBlockIndex, todayYmd } from '../shared/blocks.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -174,6 +175,23 @@ app.put('/api/settings', (req, res) => {
     db.settings.maxVacationPerDay = Math.max(1, Number(maxVacationPerDay) || 1);
   if (overnightWeight !== undefined)
     db.settings.overnightWeight = Math.max(1, Number(overnightWeight) || 1.5);
+  if (req.body.cadence !== undefined) {
+    const c = req.body.cadence;
+    if (!isValidCadence(c))
+      return res.status(400).json({ error: 'Invalid cadence: need an anchor date, a positive whole number, and a unit.' });
+    const existing = db.settings.cadence;
+    const changed = !existing
+      || existing.anchorDate !== c.anchorDate
+      || existing.lengthUnit !== c.lengthUnit
+      || existing.lengthValue !== c.lengthValue;
+    // Changing an existing cadence requires a strictly-future anchor; the very
+    // first setup may start today or later.
+    if (changed && existing && c.anchorDate <= todayYmd())
+      return res.status(400).json({ error: 'A new schedule start date must be in the future.' });
+    if (changed && !existing && c.anchorDate < todayYmd())
+      return res.status(400).json({ error: 'The schedule start date cannot be in the past.' });
+    db.settings.cadence = { anchorDate: c.anchorDate, lengthUnit: c.lengthUnit, lengthValue: c.lengthValue };
+  }
   saveDb();
   res.json(db.settings);
 });
@@ -222,15 +240,23 @@ app.delete('/api/timeoff/:id', (req, res) => {
 // ---- schedules ----
 app.post('/api/schedules', (req, res) => {
   const db = loadDb();
-  const { startDate, endDate, minShifts } = req.body;
-  if (!isDate(startDate) || !isDate(endDate))
-    return res.status(400).json({ error: 'Start and end dates are required.' });
-  if (endDate < startDate)
-    return res.status(400).json({ error: 'End date must be on or after the start date.' });
+  const { minShifts } = req.body;
+  const cadence = db.settings.cadence;
+  if (!cadence) return res.status(400).json({ error: 'Configure a schedule cadence in Settings first.' });
   if (db.shiftTypes.length === 0)
     return res.status(400).json({ error: 'Configure at least one shift type first.' });
   if (db.users.length === 0)
     return res.status(400).json({ error: 'Add employees to the roster first.' });
+  const blockIndex = Number(req.body.blockIndex);
+  if (!Number.isInteger(blockIndex) || blockIndex < 0)
+    return res.status(400).json({ error: 'Pick a schedule block.' });
+  // Only the offered window (current block + next 4) may be generated.
+  const firstBlock = currentBlockIndex(cadence, todayYmd());
+  if (blockIndex < firstBlock || blockIndex > firstBlock + 4)
+    return res.status(400).json({ error: 'That block is outside the selectable window.' });
+  const { startDate, endDate } = blockRange(cadence, blockIndex);
+  if (db.schedules.some((s) => s.startDate === startDate))
+    return res.status(400).json({ error: 'A schedule for this block already exists — delete it first to regenerate.' });
 
   const min = Math.max(0, Number(minShifts) || 0);
   const maxRaw = req.body.maxShifts;

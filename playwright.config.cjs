@@ -1,0 +1,34 @@
+// CommonJS config (.cjs): this repo is "type":"module", and the installed
+// Node (18.12) is below Playwright's 18.19 floor for loading an ESM config —
+// so the config itself must be CommonJS. Spec files are still ESM (Playwright
+// transpiles them with its own loader).
+const { defineConfig, devices } = require('@playwright/test');
+
+// The dev script boots both the API (server/index.js) and Vite (port 5173).
+// NODE_EXTRA_CA_CERTS is forwarded so npm/node calls survive the Norton TLS
+// proxy on this dev machine.
+module.exports = defineConfig({
+  testDir: './e2e',
+  fullyParallel: false,
+  forbidOnly: !!process.env.CI,
+  retries: 0,
+  workers: 1,
+  reporter: 'list',
+  use: {
+    baseURL: 'http://localhost:5173',
+    trace: 'on-first-retry',
+  },
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+  ],
+  webServer: {
+    command: 'npm run dev',
+    url: 'http://localhost:5173',
+    reuseExistingServer: true,
+    timeout: 120 * 1000,
+    env: {
+      NODE_EXTRA_CA_CERTS: process.env.NODE_EXTRA_CA_CERTS
+        || `${process.env.USERPROFILE || process.env.HOME}/.proxy-ca.pem`,
+    },
+  },
+});
