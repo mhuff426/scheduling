@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { api } from '../api.js';
-import { DOW, formatTime, todayYmd } from '../dates.js';
+import { DOW, formatTime, todayYmd, prettyDate } from '../dates.js';
+import { UNITS, upcomingBlocks, isValidCadence } from '../../../shared/blocks.js';
 
 export default function Admin({ db, act }) {
   return (
@@ -246,6 +247,43 @@ function Roster({ db, act }) {
 }
 
 function Settings({ db, act }) {
+  const existingCadence = db.settings.cadence;
+  const [cadenceForm, setCadenceForm] = useState(() => ({
+    lengthValue: existingCadence?.lengthValue ?? 2,
+    lengthUnit: existingCadence?.lengthUnit ?? 'weeks',
+    anchorDate: existingCadence?.anchorDate ?? todayYmd(),
+  }));
+  const [cadenceError, setCadenceError] = useState(null);
+  const setC = (k) => (e) => setCadenceForm((prev) => ({ ...prev, [k]: e.target.value }));
+
+  const saveCadence = async () => {
+    setCadenceError(null);
+    const payload = {
+      anchorDate: cadenceForm.anchorDate,
+      lengthUnit: cadenceForm.lengthUnit,
+      lengthValue: Number(cadenceForm.lengthValue),
+    };
+    if (!isValidCadence(payload)) {
+      setCadenceError('Please enter a valid anchor date, a whole number ≥ 1, and a unit.');
+      return;
+    }
+    if (existingCadence && payload.anchorDate <= todayYmd()) {
+      setCadenceError('A new schedule start date must be in the future.');
+      return;
+    }
+    if (!existingCadence && payload.anchorDate < todayYmd()) {
+      setCadenceError('The schedule start date cannot be in the past.');
+      return;
+    }
+    await act(() => api.updateSettings({ cadence: payload }));
+  };
+
+  const cadenceSaveDisabled =
+    (existingCadence && cadenceForm.anchorDate <= todayYmd()) ||
+    (!existingCadence && cadenceForm.anchorDate < todayYmd()) ||
+    !cadenceForm.anchorDate ||
+    Number(cadenceForm.lengthValue) < 1;
+
   return (
     <section className="card">
       <h2>⚙️ Settings</h2>
@@ -281,14 +319,62 @@ function Settings({ db, act }) {
         Shift Types. 1 = same as any shift; 1.5 = one overnight ≈ a shift and a half. A per-shift-type
         weight always wins over this default. Overnights are also spread evenly head-for-head.
       </p>
+      <h3 style={{ marginTop: '1rem', marginBottom: '0.5rem' }}>Schedule cadence</h3>
+      {existingCadence && (
+        <p className="muted small">
+          Currently: every {existingCadence.lengthValue} {existingCadence.lengthUnit}, anchored {existingCadence.anchorDate}
+        </p>
+      )}
+      <div className="form-grid">
+        <label>
+          Length
+          <input
+            type="number" min="1" step="1"
+            value={cadenceForm.lengthValue}
+            onChange={setC('lengthValue')}
+          />
+        </label>
+        <label>
+          Unit
+          <select value={cadenceForm.lengthUnit} onChange={setC('lengthUnit')}>
+            {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+          </select>
+        </label>
+        <label>
+          Anchor start date
+          <input
+            type="date"
+            value={cadenceForm.anchorDate}
+            onChange={setC('anchorDate')}
+          />
+        </label>
+      </div>
+      {cadenceError && <p className="muted small" style={{ color: 'var(--color-danger, red)' }}>{cadenceError}</p>}
+      <button
+        className="btn primary"
+        style={{ marginTop: '0.5rem' }}
+        disabled={cadenceSaveDisabled}
+        onClick={saveCadence}
+      >
+        Save cadence
+      </button>
+      <p className="muted small" style={{ marginTop: '0.5rem' }}>
+        Changing the cadence does not affect schedules already generated.
+        {existingCadence ? ' Updating the anchor date requires a strictly-future date.' : ''}
+      </p>
     </section>
   );
 }
 
 function GenerateSchedule({ db, act }) {
-  const today = todayYmd();
-  const [form, setForm] = useState({ startDate: today, endDate: today, minShifts: 0, maxShifts: '' });
-  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const cadence = db.settings.cadence;
+  const blocks = cadence ? upcomingBlocks(cadence, todayYmd(), 5) : [];
+  const [form, setForm] = useState(() => ({
+    blockIndex: blocks.length > 0 ? blocks[0].index : 0,
+    minShifts: 0,
+    maxShifts: '',
+  }));
+  const set = (k) => (e) => setForm((prev) => ({ ...prev, [k]: e.target.value }));
   const [busy, setBusy] = useState(false);
   // Everyone is in the block by default; the admin unchecks people (any role,
   // manager included) who shouldn't be scheduled.
@@ -302,7 +388,12 @@ function GenerateSchedule({ db, act }) {
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true);
-    await act(() => api.createSchedule({ ...form, userIds: [...included] }));
+    await act(() => api.createSchedule({
+      blockIndex: Number(form.blockIndex),
+      minShifts: form.minShifts,
+      maxShifts: form.maxShifts,
+      userIds: [...included],
+    }));
     setBusy(false);
   };
 
@@ -313,32 +404,47 @@ function GenerateSchedule({ db, act }) {
         Fills every shift in the range. Vacation days are never scheduled over; preferred-off days are
         avoided when coverage allows; everyone is pushed toward the minimum shift count.
       </p>
-      <form onSubmit={submit}>
-        <div className="form-grid">
-          <label>Start date<input type="date" required value={form.startDate} onChange={set('startDate')} /></label>
-          <label>End date<input type="date" required value={form.endDate} onChange={set('endDate')} /></label>
-          <label>Minimum shifts per employee<input type="number" min="0" value={form.minShifts} onChange={set('minShifts')} /></label>
-          <label title="Nobody is scheduled more than this many shifts in the block. Blank = no cap. Per-employee overrides in the Roster win over this value.">
-            Maximum shifts per employee<input type="number" min="1" value={form.maxShifts} onChange={set('maxShifts')} placeholder="no cap" />
-          </label>
-        </div>
-        <div className="include-list">
-          <div className="muted small" style={{ width: '100%' }}>Who can be scheduled in this block:</div>
-          {db.users.map((u) => (
-            <label key={u.id} className="include-item">
-              <input
-                type="checkbox"
-                checked={included.has(u.id)}
-                onChange={() => toggle(u.id)}
-              />
-              <span className="dot" style={{ background: u.color }} /> {u.name}
+      {!cadence ? (
+        <p className="muted small">Set a schedule cadence in Settings first.</p>
+      ) : (
+        <form onSubmit={submit}>
+          <div className="form-grid">
+            <label>
+              Schedule block
+              <select value={form.blockIndex} onChange={set('blockIndex')}>
+                {blocks.map((b) => {
+                  const alreadyGenerated = db.schedules.some((s) => s.startDate === b.startDate);
+                  return (
+                    <option key={b.index} value={b.index} disabled={alreadyGenerated}>
+                      {prettyDate(b.startDate)} → {prettyDate(b.endDate)}{alreadyGenerated ? ' — already generated' : ''}
+                    </option>
+                  );
+                })}
+              </select>
             </label>
-          ))}
-        </div>
-        <button className="btn primary" type="submit" disabled={busy}>
-          {busy ? 'Generating…' : 'Generate schedule'}
-        </button>
-      </form>
+            <label>Minimum shifts per employee<input type="number" min="0" value={form.minShifts} onChange={set('minShifts')} /></label>
+            <label title="Nobody is scheduled more than this many shifts in the block. Blank = no cap. Per-employee overrides in the Roster win over this value.">
+              Maximum shifts per employee<input type="number" min="1" value={form.maxShifts} onChange={set('maxShifts')} placeholder="no cap" />
+            </label>
+          </div>
+          <div className="include-list">
+            <div className="muted small" style={{ width: '100%' }}>Who can be scheduled in this block:</div>
+            {db.users.map((u) => (
+              <label key={u.id} className="include-item">
+                <input
+                  type="checkbox"
+                  checked={included.has(u.id)}
+                  onChange={() => toggle(u.id)}
+                />
+                <span className="dot" style={{ background: u.color }} /> {u.name}
+              </label>
+            ))}
+          </div>
+          <button className="btn primary" type="submit" disabled={busy}>
+            {busy ? 'Generating…' : 'Generate schedule'}
+          </button>
+        </form>
+      )}
       {db.schedules.length > 0 && (
         <p className="muted small">{db.schedules.length} schedule{db.schedules.length > 1 ? 's' : ''} created so far — view them on the Schedule tab.</p>
       )}

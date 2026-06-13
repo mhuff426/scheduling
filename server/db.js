@@ -11,7 +11,7 @@ const DEFAULT_DATA = {
     { id: 'u-admin', name: 'Admin', role: 'admin', vacationDays: 15, color: '#6366f1' },
   ],
   shiftTypes: [],
-  settings: { maxVacationPerDay: 2, overnightWeight: 1.5 },
+  settings: { maxVacationPerDay: 2, overnightWeight: 1.5, cadence: null },
   timeOff: [],
   schedules: [],
   trades: [],
@@ -31,6 +31,7 @@ export function loadDb() {
   cache = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
   // Defaults for fields added after the data file was first created.
   cache.settings.overnightWeight ??= 1.5;
+  cache.settings.cadence ??= null;
   cache.meta ??= { rotationCursor: 0 };
   cache.trades ??= [];
   cache.notifications ??= [];
