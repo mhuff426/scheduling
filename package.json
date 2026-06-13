@@ -1,0 +1,23 @@
+{
+  "name": "shift-scheduler",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"node server/index.js\" \"vite\"",
+    "api": "node server/index.js",
+    "build": "vite build",
+    "start": "node server/index.js",
+    "test": "node server/scheduler.test.js && node server/trades.test.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^8.2.2",
+    "vite": "^5.4.8"
+  }
+}
