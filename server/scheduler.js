@@ -310,39 +310,39 @@ export function mustOffInRange(db, userId, { startDate, endDate }) {
 }
 
 // Per-user minimum for this block, for scheduler-internal pressure: the
-// schedule minimum reduced by hard must-off days inside the range. Users in
-// `softOff` had their must-offs downgraded to soft claims, so theirs don't
-// reduce anything — they might still work those days.
-export function effectiveMinimums(db, { startDate, endDate, minShifts }, softOff = new Set()) {
+// per-user required shifts reduced by hard must-off days inside the range.
+// Users in `softOff` had their must-offs downgraded to soft claims, so theirs
+// don't reduce anything — they might still work those days.
+export function effectiveMinimums(db, { startDate, endDate }, softOff = new Set()) {
   const mins = new Map();
   for (const u of db.users) {
     const offDays = softOff.has(u.id)
       ? 0
       : mustOffInRange(db, u.id, { startDate, endDate }).length;
-    mins.set(u.id, Math.max(0, minShifts - offDays));
+    mins.set(u.id, Math.max(0, (Number(u.requiredShifts) || 0) - offDays));
   }
   return mins;
 }
 
-// Per-user shift ceiling for a block: the admin's per-employee override wins,
-// else the schedule-wide max, else unlimited. (An override of 0/blank means
-// "no override", not "no shifts" — exclude someone from the block for that.)
-export function effectiveMaximums(db, schedule) {
-  const blockMax = Number(schedule.maxShifts);
-  const def = Number.isFinite(blockMax) && blockMax > 0 ? blockMax : Infinity;
+// Per-user shift ceiling: the per-employee maxShiftsOverride if set, else
+// unlimited. (An override of 0/blank means "no override", not "no shifts" —
+// exclude someone from the block for that.)
+export function effectiveMaximums(db) {
   const maxs = new Map();
   for (const u of db.users) {
     const o = Number(u.maxShiftsOverride);
-    maxs.set(u.id, Number.isFinite(o) && o > 0 ? o : def);
+    maxs.set(u.id, Number.isFinite(o) && o > 0 ? o : Infinity);
   }
   return maxs;
 }
 
-// What this schedule requires of one person: the schedule minimum, capped by
-// their effective maximum. Never reduced by must-off days — vacation charges
-// cover that gap instead.
+// What a schedule requires of one person: their per-user requiredShifts,
+// capped by their effective maximum. Never reduced by must-off days —
+// vacation charges cover that gap instead.
 export function requiredFor(db, schedule, userId) {
-  return Math.min(schedule.minShifts || 0, effectiveMaximums(db, schedule).get(userId) ?? Infinity);
+  const user = db.users.find((u) => u.id === userId);
+  if (!user) return 0;
+  return Math.min(Number(user.requiredShifts) || 0, effectiveMaximums(db).get(userId) ?? Infinity);
 }
 
 // Counting shifts a user holds in a schedule (weight-0 standby excluded).
@@ -380,14 +380,14 @@ export function summarizeSchedule(db, schedule) {
       `Open shift: ${st ? st.name : slot.shiftTypeId} on ${slot.date} — no one available. Consider outside help or reassigning.`
     );
   }
-  const effMax = effectiveMaximums(db, schedule);
+  const effMax = effectiveMaximums(db);
   const charged = schedule.vacationCharged || {};
   for (const u of includedUsers(db, schedule)) {
     // A shift ceiling below someone's minimum lowers their minimum — the cap
     // is a hard rule, so don't warn about a floor they aren't allowed to reach.
     // Vacation days charged for this schedule cover shortfall; warn only on
     // the uncovered remainder.
-    const required = Math.min(schedule.minShifts, effMax.get(u.id));
+    const required = Math.min(Number(u.requiredShifts) || 0, effMax.get(u.id));
     const charge = charged[u.id] || 0;
     const residual = required - (counts[u.id] || 0) - charge;
     if (residual > 0) {
@@ -395,10 +395,6 @@ export function summarizeSchedule(db, schedule) {
       warnings.push(
         `${u.name} has ${counts[u.id] || 0} of ${required} minimum shifts${covered} — ${residual} short.`
       );
-    }
-    const desired = Math.min(Number(u.desiredShifts), effMax.get(u.id));
-    if (Number.isFinite(desired) && desired > required && counts[u.id] < desired) {
-      warnings.push(`${u.name} requested ${desired} shifts but received ${counts[u.id]}.`);
     }
   }
   for (const a of schedule.assignments) {
@@ -441,7 +437,7 @@ export function summarizeSchedule(db, schedule) {
   return { counts, warnings };
 }
 
-export function generateSchedule(db, { startDate, endDate, minShifts, maxShifts, userIds }) {
+export function generateSchedule(db, { startDate, endDate, userIds }) {
   const employees = includedUsers(db, { userIds });
   const settings = db.settings || {};
   const shiftById = Object.fromEntries(db.shiftTypes.map((s) => [s.id, s]));
@@ -492,23 +488,14 @@ export function generateSchedule(db, { startDate, endDate, minShifts, maxShifts,
   }
   const claimOf = (userId, date) => claims.get(`${userId}|${date}`) ?? 0;
 
-  const effMin = effectiveMinimums(db, { startDate, endDate, minShifts }, softOff);
-  const effMax = effectiveMaximums(db, { maxShifts });
+  const effMin = effectiveMinimums(db, { startDate, endDate }, softOff);
+  const effMax = effectiveMaximums(db);
   // A ceiling below the floor wins: the cap is hard, the minimum is a goal.
   for (const u of employees) {
     effMin.set(u.id, Math.min(effMin.get(u.id), effMax.get(u.id)));
   }
-  // Target = desired shifts when someone asked for more than their minimum;
-  // otherwise just their minimum. Being under target earns priority for the
-  // extra shifts beyond the floor. Never targets past the ceiling.
-  const target = new Map(
-    employees.map((u) => {
-      const d = Number(u.desiredShifts);
-      const m = effMin.get(u.id);
-      const t = Number.isFinite(d) && d > m ? d : m;
-      return [u.id, Math.min(t, effMax.get(u.id))];
-    })
-  );
+  // Target = required shifts (already clamped to the ceiling above).
+  const target = new Map(employees.map((u) => [u.id, effMin.get(u.id)]));
 
   const counts = new Map(employees.map((u) => [u.id, 0]));
   const loads = new Map(employees.map((u) => [u.id, 0])); // weighted
@@ -759,7 +746,7 @@ export function generateSchedule(db, { startDate, endDate, minShifts, maxShifts,
   // by what the person has left this year (never negative).
   const vacationCharged = {};
   for (const u of employees) {
-    const required = Math.min(minShifts, effMax.get(u.id));
+    const required = Math.min(Number(u.requiredShifts) || 0, effMax.get(u.id));
     const shortfall = Math.max(0, required - counts.get(u.id));
     if (!shortfall) continue;
     const charge = Math.min(
@@ -771,7 +758,7 @@ export function generateSchedule(db, { startDate, endDate, minShifts, maxShifts,
   }
 
   const draft = {
-    startDate, endDate, minShifts, maxShifts, userIds,
+    startDate, endDate, userIds,
     assignments, unfilled, vacationCharged,
   };
   const { counts: finalCounts, warnings } = summarizeSchedule(db, draft);

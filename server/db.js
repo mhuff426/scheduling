@@ -8,7 +8,7 @@ const DATA_FILE = path.join(DATA_DIR, 'data.json');
 
 const DEFAULT_DATA = {
   users: [
-    { id: 'u-admin', name: 'Admin', role: 'admin', vacationDays: 15, color: '#6366f1' },
+    { id: 'u-admin', name: 'Admin', role: 'admin', vacationDays: 15, color: '#6366f1', requiredShifts: null },
   ],
   shiftTypes: [],
   settings: { maxVacationPerDay: 2, overnightWeight: 1.5, cadence: null },
@@ -35,6 +35,7 @@ export function loadDb() {
   cache.meta ??= { rotationCursor: 0 };
   cache.trades ??= [];
   cache.notifications ??= [];
+  for (const u of cache.users) u.requiredShifts ??= null;
   return cache;
 }
 

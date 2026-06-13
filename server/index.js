@@ -71,9 +71,9 @@ app.put('/api/users/:id', (req, res) => {
     user.role = newRole;
   }
   if (vacationDays !== undefined) user.vacationDays = Math.max(0, Number(vacationDays) || 0);
-  if (req.body.desiredShifts !== undefined) {
-    const d = req.body.desiredShifts;
-    user.desiredShifts = d === null || d === '' ? null : Math.max(0, Number(d) || 0);
+  if (req.body.requiredShifts !== undefined) {
+    const r = req.body.requiredShifts;
+    user.requiredShifts = r === null || r === '' ? null : Math.max(0, Number(r) || 0);
   }
   if (req.body.maxConsecutiveNights !== undefined) {
     const n = req.body.maxConsecutiveNights;
@@ -240,7 +240,6 @@ app.delete('/api/timeoff/:id', (req, res) => {
 // ---- schedules ----
 app.post('/api/schedules', (req, res) => {
   const db = loadDb();
-  const { minShifts } = req.body;
   const cadence = db.settings.cadence;
   if (!cadence) return res.status(400).json({ error: 'Configure a schedule cadence in Settings first.' });
   if (db.shiftTypes.length === 0)
@@ -258,16 +257,6 @@ app.post('/api/schedules', (req, res) => {
   if (db.schedules.some((s) => s.startDate === startDate))
     return res.status(400).json({ error: 'A schedule for this block already exists — delete it first to regenerate.' });
 
-  const min = Math.max(0, Number(minShifts) || 0);
-  const maxRaw = req.body.maxShifts;
-  const maxNum = Number(maxRaw);
-  const max = maxRaw === '' || maxRaw == null || !Number.isFinite(maxNum) || maxNum < 1
-    ? null
-    : Math.floor(maxNum);
-  if (max !== null && max < min)
-    return res.status(400).json({
-      error: `Maximum shifts (${max}) cannot be lower than the minimum (${min}).`,
-    });
   const requested = Array.isArray(req.body.userIds) ? req.body.userIds : null;
   const userIds = (requested || db.users.map((u) => u.id)).filter((id) =>
     db.users.some((u) => u.id === id)
@@ -277,16 +266,12 @@ app.post('/api/schedules', (req, res) => {
   const { nextRotationCursor, ...result } = generateSchedule(db, {
     startDate,
     endDate,
-    minShifts: min,
-    maxShifts: max,
     userIds,
   });
   const schedule = {
     id: newId('sch'),
     startDate,
     endDate,
-    minShifts: min,
-    maxShifts: max,
     userIds,
     createdAt: new Date().toISOString(),
     extraElections: {},
@@ -323,7 +308,7 @@ app.post('/api/schedules/:id/reassign', (req, res) => {
     if (err) return res.status(400).json({ error: err });
     // Weight-0 (standby) shifts don't count toward the shift maximum.
     const shiftById = Object.fromEntries(db.shiftTypes.map((s) => [s.id, s]));
-    const maxAllowed = effectiveMaximums(db, schedule).get(to.id);
+    const maxAllowed = effectiveMaximums(db).get(to.id);
     const countingHeld = schedule.assignments.filter(
       (a) =>
         a.userId === toUserId && a !== moving && weightOf(shiftById[a.shiftTypeId], db.settings) > 0
