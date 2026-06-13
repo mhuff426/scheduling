@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(npm install)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(curl -s -X POST http://localhost:3001/api/schedules -H 'Content-Type: application/json' -d '{\"startDate\":\"2026-11-01\",\"endDate\":\"2026-11-14\",\"minShifts\":5,\"maxShifts\":3}')",
+      "Bash(curl -s -X PUT http://localhost:3001/api/users/u-mq8tqxv4-wgn5p -H 'Content-Type: application/json' -d '{\"maxShiftsOverride\":4}')",
+      "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\).on\\('end',\\(\\)=>{console.log\\(' stored:',JSON.parse\\(d\\).maxShiftsOverride\\)}\\)\")",
+      "Bash(curl -s -X POST http://localhost:3001/api/schedules -H 'Content-Type: application/json' -d '{\"startDate\":\"2026-11-01\",\"endDate\":\"2026-11-14\",\"minShifts\":3,\"maxShifts\":8}')",
+      "Bash(node -e ' *)",
+      "Bash(curl -s -X POST \"http://localhost:3001/api/schedules/sch-mqaadk8z-56c7b/reassign\" -H \"Content-Type: application/json\" -d @move.json)",
+      "Bash(curl -s -X DELETE \"http://localhost:3001/api/schedules/sch-mqaadk8z-56c7b\")",
+      "Bash(curl -s -X PUT http://localhost:3001/api/users/u-mq8tqxv4-wgn5p -H \"Content-Type: application/json\" -d '{\"maxShiftsOverride\":null}')",
+      "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\).on\\('end',\\(\\)=>{console.log\\('override now:',JSON.parse\\(d\\).maxShiftsOverride\\)}\\)\")",
+      "Bash(curl -s -X POST http://localhost:3001/api/schedules -H 'Content-Type: application/json' -d '{\"startDate\":\"2026-12-06\",\"endDate\":\"2026-12-19\",\"minShifts\":3}')",
+      "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\).on\\('end',\\(\\)=>{const s=JSON.parse\\(d\\);console.log\\(s.id,'| assignments:',s.assignments.length,'| open:',s.unfilled.length\\)}\\)\")",
+      "Bash(curl -s -X DELETE \"http://localhost:3001/api/schedules/sch-mqaan6ba-y3jz9\")"
+    ]
+  }
+}
