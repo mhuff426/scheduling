@@ -285,7 +285,6 @@ export default function ScheduleView({ db, currentUser, act, isAdmin }) {
           )}
           <p className="muted small">
             Total: {myAssignments.length} shift{myAssignments.length === 1 ? '' : 's'}
-            {schedule.minShifts ? ` (minimum for this schedule: ${schedule.minShifts})` : ''}
             {' · '}Extra shifts picked up via trades:{' '}
             {(db.trades || []).filter(
               (t) =>

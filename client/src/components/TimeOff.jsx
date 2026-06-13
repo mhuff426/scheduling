@@ -64,21 +64,6 @@ export default function TimeOff({ db, currentUser, act }) {
           <div className="stat-label">preferred-off days</div>
         </div>
         <div className="stat">
-          <label className="stat-label" htmlFor="desired-shifts">shifts I'd like per schedule block</label>
-          <input
-            id="desired-shifts"
-            className="inline-num"
-            type="number" min="0" placeholder="—"
-            defaultValue={currentUser.desiredShifts ?? ''}
-            onBlur={(e) => {
-              const v = e.target.value === '' ? null : Number(e.target.value);
-              if (v !== (currentUser.desiredShifts ?? null))
-                act(() => api.updateUser(currentUser.id, { desiredShifts: v }));
-            }}
-          />
-          <div className="stat-label">asking for more than the minimum gives you priority for extra shifts (not guaranteed)</div>
-        </div>
-        <div className="stat">
           <label className="stat-label" htmlFor="max-nights">max overnight shifts in a row</label>
           <input
             id="max-nights"

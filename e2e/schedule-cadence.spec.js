@@ -63,10 +63,10 @@ test('happy path: set a cadence then generate a block', async ({ page }) => {
   await expect(blockSelect).toBeVisible();
   await expect(blockSelect.locator('option')).toHaveCount(5);
 
-  // Pick the first (current) block and set a minimum.
+  // Pick the first (current) block. Shift counts are now per-employee settings,
+  // so the generate form no longer takes a minimum.
   const firstValue = await blockSelect.locator('option').first().getAttribute('value');
   await blockSelect.selectOption(firstValue);
-  await gen.locator('label', { hasText: 'Minimum shifts' }).locator('input').fill('1');
 
   await gen.getByRole('button', { name: /Generate schedule/ }).click();
 

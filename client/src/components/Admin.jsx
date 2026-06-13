@@ -177,7 +177,7 @@ function Roster({ db, act }) {
     <section className="card">
       <h2>👥 Roster</h2>
       <table className="table">
-        <thead><tr><th>Employee</th><th>Role</th><th>Vacation days / yr</th><th>Used ({yearNow})</th><th>Wants / block</th><th title="Hard cap on this person's shifts per schedule block. Blank = use the block-wide maximum set when generating.">Max / block</th><th title="Preference standing: 1.00 is neutral. Drops when someone consistently asks for more preferred days off than the roster norm; recovers after a few normal blocks. Read-only.">Pref standing</th><th /></tr></thead>
+        <thead><tr><th>Employee</th><th>Role</th><th>Vacation days / yr</th><th>Used ({yearNow})</th><th>Required / block</th><th title="Hard cap on this person's shifts per schedule block. Blank = unlimited (no cap).">Max / block</th><th title="Preference standing: 1.00 is neutral. Drops when someone consistently asks for more preferred days off than the roster norm; recovers after a few normal blocks. Read-only.">Pref standing</th><th /></tr></thead>
         <tbody>
           {db.users.map((u) => (
             <tr key={u.id}>
@@ -202,7 +202,18 @@ function Roster({ db, act }) {
                 />
               </td>
               <td>{usedFor(u)}</td>
-              <td>{u.desiredShifts ?? '—'}</td>
+              <td>
+                <input
+                  className="inline-num"
+                  type="number" min="0" placeholder="—"
+                  defaultValue={u.requiredShifts ?? ''}
+                  onBlur={(e) => {
+                    const v = e.target.value === '' ? null : Number(e.target.value);
+                    if (v !== (u.requiredShifts ?? null))
+                      act(() => api.updateUser(u.id, { requiredShifts: v }));
+                  }}
+                />
+              </td>
               <td>
                 <input
                   className="inline-num"
@@ -371,8 +382,6 @@ function GenerateSchedule({ db, act }) {
   const blocks = cadence ? upcomingBlocks(cadence, todayYmd(), 5) : [];
   const [form, setForm] = useState(() => ({
     blockIndex: blocks.length > 0 ? blocks[0].index : 0,
-    minShifts: 0,
-    maxShifts: '',
   }));
   const set = (k) => (e) => setForm((prev) => ({ ...prev, [k]: e.target.value }));
   const [busy, setBusy] = useState(false);
@@ -390,8 +399,6 @@ function GenerateSchedule({ db, act }) {
     setBusy(true);
     await act(() => api.createSchedule({
       blockIndex: Number(form.blockIndex),
-      minShifts: form.minShifts,
-      maxShifts: form.maxShifts,
       userIds: [...included],
     }));
     setBusy(false);
@@ -402,7 +409,8 @@ function GenerateSchedule({ db, act }) {
       <h2>✨ Generate Schedule</h2>
       <p className="muted small">
         Fills every shift in the range. Vacation days are never scheduled over; preferred-off days are
-        avoided when coverage allows; everyone is pushed toward the minimum shift count.
+        avoided when coverage allows; each employee is pushed toward their required shift count (set per
+        person in the roster).
       </p>
       {!cadence ? (
         <p className="muted small">Set a schedule cadence in Settings first.</p>
@@ -421,10 +429,6 @@ function GenerateSchedule({ db, act }) {
                   );
                 })}
               </select>
-            </label>
-            <label>Minimum shifts per employee<input type="number" min="0" value={form.minShifts} onChange={set('minShifts')} /></label>
-            <label title="Nobody is scheduled more than this many shifts in the block. Blank = no cap. Per-employee overrides in the Roster win over this value.">
-              Maximum shifts per employee<input type="number" min="1" value={form.maxShifts} onChange={set('maxShifts')} placeholder="no cap" />
             </label>
           </div>
           <div className="include-list">

@@ -24,21 +24,15 @@ export function countingShifts(db, schedule, userId) {
   ).length;
 }
 
-export function requiredFor(schedule, user) {
+export function requiredFor(user) {
   const o = Number(user.maxShiftsOverride);
-  const blockMax = Number(schedule.maxShifts);
-  const max =
-    Number.isFinite(o) && o > 0
-      ? o
-      : Number.isFinite(blockMax) && blockMax > 0
-        ? blockMax
-        : Infinity;
-  return Math.min(schedule.minShifts || 0, max);
+  const max = Number.isFinite(o) && o > 0 ? o : Infinity;
+  return Math.min(Number(user.requiredShifts) || 0, max);
 }
 
 export function settlementFor(db, schedule, user) {
   const count = countingShifts(db, schedule, user.id);
-  const required = requiredFor(schedule, user);
+  const required = requiredFor(user);
   const charged = schedule.vacationCharged?.[user.id] || 0;
   const extra = Math.max(0, count + charged - required);
   const election = schedule.extraElections?.[user.id] || { vacation: 0, incentive: 0 };
