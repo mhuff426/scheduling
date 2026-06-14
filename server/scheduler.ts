@@ -20,6 +20,9 @@
 // assumed to run in (or be configured for) that location's timezone.
 
 import { vacationAvailable } from './db.js';
+import type {
+  Assignment, Db, PreferenceStats, ScheduleDraft, Settings, ShiftType, Slot, TimeOff, User,
+} from '../shared/types.js';
 
 const REST_MINUTES = 8 * 60;
 
@@ -38,17 +41,37 @@ const STANDING_BLEND = 0.3; // weight of the newest block in the moving average
 const HISTORY_BLOCKS = 6; // how many past blocks feed a person's standing
 const MEDIAN_FLOOR = 2; // asks at or below this are neutral even on a quiet roster
 
-const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
-function pad(n) {
+// A Map whose `.get` is typed non-optional. These internal maps are always
+// keyed by every employee before they're read, so threading `| undefined`
+// (and `!`) through the scheduling arithmetic would be pure noise. `gmap`
+// builds one; reads of an absent key still return undefined at runtime, which
+// the algorithm never does.
+type Get<V> = Omit<Map<string, V>, 'get'> & { get(key: string): V };
+const gmap = <V>(entries: [string, V][] = []): Get<V> =>
+  new Map<string, V>(entries) as unknown as Get<V>;
+
+// Per-candidate run/recovery signals computed while filling one slot.
+interface Sig {
+  sticky: number;
+  eligible: number;
+  atCap: number;
+  typeCnt: number;
+  stCnt: number;
+  lookahead: number;
+  rec: number;
+}
+
+function pad(n: number) {
   return String(n).padStart(2, '0');
 }
 
-function ymdLocal(d) {
+function ymdLocal(d: Date) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-function* eachDate(startDate, endDate) {
+function* eachDate(startDate: string, endDate: string): Generator<string> {
   const d = new Date(startDate + 'T00:00:00');
   const end = new Date(endDate + 'T00:00:00');
   while (d <= end) {
@@ -57,13 +80,13 @@ function* eachDate(startDate, endDate) {
   }
 }
 
-function dayOfWeek(date) {
+function dayOfWeek(date: string) {
   return new Date(date + 'T00:00:00').getDay();
 }
 
 // A shift is "overnight" when it crosses midnight into sleeping hours. A shift
 // ending exactly at midnight (e.g. 16:00–00:00) is late, but not overnight.
-export function isOvernight(st) {
+export function isOvernight(st: ShiftType) {
   return st.endTime <= st.startTime && st.endTime !== '00:00';
 }
 
@@ -72,10 +95,10 @@ export function isOvernight(st) {
 // everything else to 1. Weight 0 = standby/backup duty: the shift is still
 // assigned, blocks the day, and obeys rest rules, but adds nothing to load and
 // does not count toward minimums, maximums, or desired-shift targets.
-export function weightOf(st, settings) {
+export function weightOf(st: ShiftType, settings: { overnightWeight?: number }) {
   // null/undefined/'' mean "automatic" — only an explicit number (0 allowed)
   // overrides. Number(null) is 0, so the raw value must be checked first.
-  const raw = st?.weight;
+  const raw: unknown = st?.weight;
   if (raw !== null && raw !== undefined && raw !== '') {
     const w = Number(raw);
     if (Number.isFinite(w) && w >= 0) return w;
@@ -84,7 +107,7 @@ export function weightOf(st, settings) {
 }
 
 // Concrete start/end of one occurrence, in epoch minutes (local clock).
-export function shiftBounds(date, st) {
+export function shiftBounds(date: string, st: ShiftType): number[] {
   const start = new Date(`${date}T${st.startTime}:00`).getTime() / 60000;
   let end = new Date(`${date}T${st.endTime}:00`).getTime() / 60000;
   if (st.endTime <= st.startTime) end += 24 * 60;
@@ -93,7 +116,7 @@ export function shiftBounds(date, st) {
 
 // True when a new occurrence of `st` on `date` leaves at least REST_MINUTES
 // on both sides of every shift the user already holds.
-export function restOk(heldAssignments, shiftById, date, st) {
+export function restOk(heldAssignments: Assignment[], shiftById: Record<string, ShiftType>, date: string, st: ShiftType): boolean {
   const [s, e] = shiftBounds(date, st);
   for (const a of heldAssignments) {
     const held = shiftById[a.shiftTypeId];
@@ -104,12 +127,12 @@ export function restOk(heldAssignments, shiftById, date, st) {
   return true;
 }
 
-function prevDay(date) {
+function prevDay(date: string) {
   const d = new Date(date + 'T00:00:00');
   d.setDate(d.getDate() - 1);
   return ymdLocal(d);
 }
-function nextDay(date) {
+function nextDay(date: string) {
   const d = new Date(date + 'T00:00:00');
   d.setDate(d.getDate() + 1);
   return ymdLocal(d);
@@ -118,12 +141,12 @@ function nextDay(date) {
 // --- shift "runs": keeping one person on a shift type several days running ---
 // Grouping is active for a shift type only when the admin sets a run target
 // (minRun > 1 or a finite maxRun); otherwise the scheduler behaves as before.
-export function isGrouped(st) {
+export function isGrouped(st: { minRun?: number; maxRun?: number | null }) {
   const min = Number(st?.minRun) || 1;
   const max = Number(st?.maxRun);
   return min > 1 || (Number.isFinite(max) && max > 0);
 }
-export function runBounds(st) {
+export function runBounds(st: { minRun?: number; maxRun?: number | null }) {
   const min = Math.max(1, Number(st?.minRun) || 1);
   const maxRaw = Number(st?.maxRun);
   const max = Number.isFinite(maxRaw) && maxRaw > 0 ? Math.max(min, maxRaw) : Infinity;
@@ -131,7 +154,7 @@ export function runBounds(st) {
 }
 
 // Consecutive days the user worked `shiftTypeId` ending the day before `date`.
-function runLengthBefore(byDate, shiftTypeId, date) {
+function runLengthBefore(byDate: Map<string, Assignment>, shiftTypeId: string, date: string) {
   let len = 0;
   let cur = prevDay(date);
   for (;;) {
@@ -144,7 +167,7 @@ function runLengthBefore(byDate, shiftTypeId, date) {
 }
 
 // Consecutive days the user worked ANY overnight shift ending before `date`.
-function overnightRunBefore(byDate, shiftById, date) {
+function overnightRunBefore(byDate: Map<string, Assignment>, shiftById: Record<string, ShiftType>, date: string) {
   let len = 0;
   let cur = prevDay(date);
   for (;;) {
@@ -161,7 +184,7 @@ function overnightRunBefore(byDate, shiftById, date) {
 // Recovery days owed after a stretch of consecutive worked days: a short run
 // (2-4 days) earns 1 full day off, a long run (5+) earns 2. Soft — coverage
 // still wins when nobody rested can take the slot.
-export function recoveryNeed(streakLen) {
+export function recoveryNeed(streakLen: number) {
   if (streakLen >= 5) return 2;
   if (streakLen >= 2) return 1;
   return 0;
@@ -170,7 +193,7 @@ export function recoveryNeed(streakLen) {
 // Would assigning `st` on `date` keep the user within their personal
 // consecutive-night cap (counting all overnight types together)? Exported for
 // the manual-reassign endpoint.
-export function nightCapOk(user, userAssignments, shiftById, date, st) {
+export function nightCapOk(user: User, userAssignments: Assignment[], shiftById: Record<string, ShiftType>, date: string, st: ShiftType) {
   if (!isOvernight(st)) return true;
   const cap = Number(user.maxConsecutiveNights);
   if (!Number.isFinite(cap) || cap <= 0) return true;
@@ -178,8 +201,8 @@ export function nightCapOk(user, userAssignments, shiftById, date, st) {
   return overnightRunBefore(byDate, shiftById, date) + 1 <= cap;
 }
 
-export function buildSlots(shiftTypes, startDate, endDate) {
-  const slots = [];
+export function buildSlots(shiftTypes: ShiftType[], startDate: string, endDate: string): Slot[] {
+  const slots: Slot[] = [];
   for (const date of eachDate(startDate, endDate)) {
     for (const st of shiftTypes) {
       const due =
@@ -197,12 +220,13 @@ export function buildSlots(shiftTypes, startDate, endDate) {
 
 // Users the admin marked as schedulable for this block (older schedules
 // without the field include everyone).
-export function includedUsers(db, schedule) {
-  if (!Array.isArray(schedule.userIds)) return db.users;
-  return db.users.filter((u) => schedule.userIds.includes(u.id));
+export function includedUsers(db: Db, schedule: { userIds?: string[] | null }): User[] {
+  const ids = schedule.userIds;
+  if (!Array.isArray(ids)) return db.users;
+  return db.users.filter((u) => ids.includes(u.id));
 }
 
-function median(nums) {
+function median(nums: number[]) {
   if (nums.length === 0) return 0;
   const s = [...nums].sort((a, b) => a - b);
   const mid = Math.floor(s.length / 2);
@@ -211,7 +235,7 @@ function median(nums) {
 
 // Preferred-day requests a user filed inside the block, in the order they
 // originally requested them (timeOff array order = insertion order).
-function prefsInRange(db, userId, { startDate, endDate }) {
+function prefsInRange(db: Db, userId: string, { startDate, endDate }: { startDate: string; endDate: string }) {
   return db.timeOff.filter(
     (t) =>
       t.userId === userId &&
@@ -225,15 +249,15 @@ function prefsInRange(db, userId, { startDate, endDate }) {
 // average + 4 × max(standard deviation, 1 day). Asks beyond the threshold are
 // demoted (not voided). Also returns the raw ask snapshot stored on the
 // schedule so long-term standing can be derived later.
-export function computeCaps(db, { startDate, endDate, userIds }) {
+export function computeCaps(db: Db, { startDate, endDate, userIds }: { startDate: string; endDate: string; userIds?: string[] | null }) {
   const users = includedUsers(db, { userIds });
   const range = { startDate, endDate };
-  const asks = {};
+  const asks: Record<string, number> = {};
   for (const u of users) asks[u.id] = prefsInRange(db, u.id, range).length;
   const med = median(Object.values(asks));
 
-  const caps = {}; // userId -> how many of their asks keep full strength
-  const warnings = [];
+  const caps: Record<string, number> = {}; // userId -> how many of their asks keep full strength
+  const warnings: string[] = [];
   if (users.length >= 2) {
     for (const u of users) {
       const others = users.filter((x) => x.id !== u.id).map((x) => asks[x.id]);
@@ -257,17 +281,17 @@ export function computeCaps(db, { startDate, endDate, userIds }) {
 // past schedules (never stored as a running counter, so deleting or
 // regenerating a schedule self-corrects). 1.0 is neutral; chronic over-askers
 // sink toward 0.5, people who rarely ask drift up to 1.25.
-export function preferenceStandings(db) {
+export function preferenceStandings(db: { users: User[]; schedules?: { createdAt: string; preferenceStats?: PreferenceStats }[] }): Record<string, number> {
   const sorted = [...(db.schedules || [])]
     .filter((s) => s.preferenceStats)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  const out = {};
+  const out: Record<string, number> = {};
   for (const u of db.users) {
     let standing = 1.0;
-    const mine = sorted.filter((s) => u.id in s.preferenceStats.asks).slice(-HISTORY_BLOCKS);
+    const mine = sorted.filter((s) => u.id in s.preferenceStats!.asks).slice(-HISTORY_BLOCKS);
     for (const s of mine) {
       const ratio = clamp(
-        s.preferenceStats.asks[u.id] / Math.max(s.preferenceStats.median, MEDIAN_FLOOR),
+        s.preferenceStats!.asks[u.id] / Math.max(s.preferenceStats!.median, MEDIAN_FLOOR),
         0,
         3
       );
@@ -286,8 +310,8 @@ export function preferenceStandings(db) {
 // Claim strength of each preferred day for scheduling: 0 = no preference,
 // DEMOTED_CLAIM = over-cap excess, otherwise the user's standing. Higher
 // claims are violated last.
-export function preferenceClaims(db, { startDate, endDate, userIds }, caps, standings) {
-  const claims = new Map();
+export function preferenceClaims(db: Db, { startDate, endDate, userIds }: { startDate: string; endDate: string; userIds?: string[] | null }, caps: Record<string, number>, standings: Record<string, number>) {
+  const claims = new Map<string, number>();
   for (const u of includedUsers(db, { userIds })) {
     const prefs = prefsInRange(db, u.id, { startDate, endDate });
     const cap = caps[u.id] ?? Infinity;
@@ -299,7 +323,7 @@ export function preferenceClaims(db, { startDate, endDate, userIds }, caps, stan
 }
 
 // Must-have-off entries a user filed inside the block.
-export function mustOffInRange(db, userId, { startDate, endDate }) {
+export function mustOffInRange(db: Db, userId: string, { startDate, endDate }: { startDate: string; endDate: string }) {
   return db.timeOff.filter(
     (t) =>
       t.userId === userId &&
@@ -313,8 +337,8 @@ export function mustOffInRange(db, userId, { startDate, endDate }) {
 // per-user required shifts reduced by hard must-off days inside the range.
 // Users in `softOff` had their must-offs downgraded to soft claims, so theirs
 // don't reduce anything — they might still work those days.
-export function effectiveMinimums(db, { startDate, endDate }, softOff = new Set()) {
-  const mins = new Map();
+export function effectiveMinimums(db: Db, { startDate, endDate }: { startDate: string; endDate: string }, softOff: Set<string> = new Set()): Map<string, number> {
+  const mins = new Map<string, number>();
   for (const u of db.users) {
     const offDays = softOff.has(u.id)
       ? 0
@@ -327,8 +351,8 @@ export function effectiveMinimums(db, { startDate, endDate }, softOff = new Set(
 // Per-user shift ceiling: the per-employee maxShiftsOverride if set, else
 // unlimited. (An override of 0/blank means "no override", not "no shifts" —
 // exclude someone from the block for that.)
-export function effectiveMaximums(db) {
-  const maxs = new Map();
+export function effectiveMaximums(db: Db): Map<string, number> {
+  const maxs = new Map<string, number>();
   for (const u of db.users) {
     const o = Number(u.maxShiftsOverride);
     maxs.set(u.id, Number.isFinite(o) && o > 0 ? o : Infinity);
@@ -339,14 +363,14 @@ export function effectiveMaximums(db) {
 // What a schedule requires of one person: their per-user requiredShifts,
 // capped by their effective maximum. Never reduced by must-off days —
 // vacation charges cover that gap instead.
-export function requiredFor(db, schedule, userId) {
+export function requiredFor(db: Db, schedule: unknown, userId: string): number {
   const user = db.users.find((u) => u.id === userId);
   if (!user) return 0;
   return Math.min(Number(user.requiredShifts) || 0, effectiveMaximums(db).get(userId) ?? Infinity);
 }
 
 // Counting shifts a user holds in a schedule (weight-0 standby excluded).
-export function countingShifts(db, schedule, userId) {
+export function countingShifts(db: Db, schedule: ScheduleDraft, userId: string): number {
   const stById = Object.fromEntries(db.shiftTypes.map((s) => [s.id, s]));
   return schedule.assignments.filter(
     (a) => a.userId === userId && stById[a.shiftTypeId] && weightOf(stById[a.shiftTypeId], db.settings) > 0
@@ -355,32 +379,32 @@ export function countingShifts(db, schedule, userId) {
 
 // Days worked (or charged) beyond what the schedule required — the currency
 // an employee can elect into extra vacation or incentive pay.
-export function extraDays(db, schedule, userId) {
+export function extraDays(db: Db, schedule: ScheduleDraft, userId: string): number {
   const charge = schedule.vacationCharged?.[userId] || 0;
   return Math.max(0, countingShifts(db, schedule, userId) + charge - requiredFor(db, schedule, userId));
 }
 
 // Recomputes counts and warnings from a schedule's current assignments. Used
 // after generation and after manual reassignments.
-export function summarizeSchedule(db, schedule) {
+export function summarizeSchedule(db: Db, schedule: ScheduleDraft) {
   const preferred = new Set(
     db.timeOff.filter((t) => t.type === 'preferred').map((t) => `${t.userId}|${t.date}`)
   );
-  const stById = Object.fromEntries(db.shiftTypes.map((s) => [s.id, s]));
-  const counts = Object.fromEntries(db.users.map((u) => [u.id, 0]));
+  const stById: Record<string, ShiftType> = Object.fromEntries(db.shiftTypes.map((s) => [s.id, s]));
+  const counts: Record<string, number> = Object.fromEntries(db.users.map((u) => [u.id, 0]));
   for (const a of schedule.assignments) {
     const st = stById[a.shiftTypeId];
     if (a.userId in counts && st && weightOf(st, db.settings) > 0) counts[a.userId]++;
   }
 
-  const warnings = [];
+  const warnings: string[] = [];
   for (const slot of schedule.unfilled) {
     const st = db.shiftTypes.find((s) => s.id === slot.shiftTypeId);
     warnings.push(
       `Open shift: ${st ? st.name : slot.shiftTypeId} on ${slot.date} — no one available. Consider outside help or reassigning.`
     );
   }
-  const effMax = effectiveMaximums(db);
+  const effMax = effectiveMaximums(db) as unknown as Get<number>;
   const charged = schedule.vacationCharged || {};
   for (const u of includedUsers(db, schedule)) {
     // A shift ceiling below someone's minimum lowers their minimum — the cap
@@ -406,16 +430,16 @@ export function summarizeSchedule(db, schedule) {
   // Quality-of-life: flag returns that cut into post-stretch recovery days
   // (1 day off owed after a 2-4 day stretch, 2 days after 5+). Soft — these
   // happen when coverage left no rested alternative.
-  const datesByUser = {};
+  const datesByUser: Record<string, string[]> = {};
   for (const a of schedule.assignments) (datesByUser[a.userId] ||= []).push(a.date);
-  const dayDiff = (a, b) =>
-    Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000);
+  const dayDiff = (a: string, b: string) =>
+    Math.round((new Date(b + 'T00:00:00').getTime() - new Date(a + 'T00:00:00').getTime()) / 86400000);
   for (const [uid, dates] of Object.entries(datesByUser)) {
     const u = db.users.find((x) => x.id === uid);
     if (!u) continue;
     dates.sort();
     // collapse into stretches of consecutive days
-    const stretches = [];
+    const stretches: { start: string; end: string; len: number }[] = [];
     let start = dates[0], prev = dates[0];
     for (const d of dates.slice(1)) {
       if (dayDiff(prev, d) === 1) { prev = d; continue; }
@@ -437,7 +461,7 @@ export function summarizeSchedule(db, schedule) {
   return { counts, warnings };
 }
 
-export function generateSchedule(db, { startDate, endDate, userIds }) {
+export function generateSchedule(db: Db, { startDate, endDate, userIds }: { startDate: string; endDate: string; userIds?: string[] }) {
   const employees = includedUsers(db, { userIds });
   const settings = db.settings || {};
   const shiftById = Object.fromEntries(db.shiftTypes.map((s) => [s.id, s]));
@@ -447,12 +471,12 @@ export function generateSchedule(db, { startDate, endDate, userIds }) {
   // decided per-day, by run urgency, just before that day is filled (see the
   // greedy pass). A static order would let types at the top of the list poach
   // the run-holders of types further down.
-  const slotsByDate = new Map();
+  const slotsByDate = gmap<Slot[]>();
   for (const slot of slots) {
     if (!slotsByDate.has(slot.date)) slotsByDate.set(slot.date, []);
     slotsByDate.get(slot.date).push(slot);
   }
-  const typeIndex = Object.fromEntries(db.shiftTypes.map((s, i) => [s.id, i]));
+  const typeIndex: Record<string, number> = Object.fromEntries(db.shiftTypes.map((s, i) => [s.id, i]));
 
   // Affordability check: someone asking for more must-off days in this block
   // than they have vacation days left gets ALL their must-offs downgraded to
@@ -486,36 +510,36 @@ export function generateSchedule(db, { startDate, endDate, userIds }) {
       claims.set(`${uid}|${t.date}`, STRONG_CLAIM);
     }
   }
-  const claimOf = (userId, date) => claims.get(`${userId}|${date}`) ?? 0;
+  const claimOf = (userId: string, date: string) => claims.get(`${userId}|${date}`) ?? 0;
 
-  const effMin = effectiveMinimums(db, { startDate, endDate }, softOff);
-  const effMax = effectiveMaximums(db);
+  const effMin = effectiveMinimums(db, { startDate, endDate }, softOff) as unknown as Get<number>;
+  const effMax = effectiveMaximums(db) as unknown as Get<number>;
   // A ceiling below the floor wins: the cap is hard, the minimum is a goal.
   for (const u of employees) {
     effMin.set(u.id, Math.min(effMin.get(u.id), effMax.get(u.id)));
   }
   // Target = required shifts (already clamped to the ceiling above).
-  const target = new Map(employees.map((u) => [u.id, effMin.get(u.id)]));
+  const target = gmap<number>(employees.map((u) => [u.id, effMin.get(u.id)]));
 
-  const counts = new Map(employees.map((u) => [u.id, 0]));
-  const loads = new Map(employees.map((u) => [u.id, 0])); // weighted
-  const overnights = new Map(employees.map((u) => [u.id, 0]));
-  const held = new Map(employees.map((u) => [u.id, []])); // assignments per user
-  const heldByDate = new Map(employees.map((u) => [u.id, new Map()])); // date -> assignment
-  const typeCount = new Map(employees.map((u) => [u.id, new Map()])); // shiftTypeId -> n
-  const workingDay = new Set(); // `${userId}|${date}` — one shift per person per day
-  const assignments = [];
-  const unfilled = [];
+  const counts = gmap<number>(employees.map((u) => [u.id, 0]));
+  const loads = gmap<number>(employees.map((u) => [u.id, 0])); // weighted
+  const overnights = gmap<number>(employees.map((u) => [u.id, 0]));
+  const held = gmap<Assignment[]>(employees.map((u) => [u.id, []])); // assignments per user
+  const heldByDate = gmap<Get<Assignment>>(employees.map((u) => [u.id, gmap<Assignment>()])); // date -> assignment
+  const typeCount = gmap<Map<string, number>>(employees.map((u) => [u.id, new Map()])); // shiftTypeId -> n
+  const workingDay = new Set<string>(); // `${userId}|${date}` — one shift per person per day
+  const assignments: Assignment[] = [];
+  const unfilled: Slot[] = [];
 
   // Personal consecutive-night cap (all overnight types counted together).
-  const nightCapOkLocal = (u, date, st) => {
+  const nightCapOkLocal = (u: User, date: string, st: ShiftType) => {
     if (!isOvernight(st)) return true;
     const cap = Number(u.maxConsecutiveNights);
     if (!Number.isFinite(cap) || cap <= 0) return true;
     return overnightRunBefore(heldByDate.get(u.id), shiftById, date) + 1 <= cap;
   };
 
-  const available = (u, date, st) =>
+  const available = (u: User, date: string, st: ShiftType) =>
     // The shift maximum only gates counting shifts; weight-0 standby duty is
     // always assignable capacity-wise.
     (weightOf(st, settings) === 0 || counts.get(u.id) < effMax.get(u.id)) &&
@@ -524,7 +548,7 @@ export function generateSchedule(db, { startDate, endDate, userIds }) {
     restOk(held.get(u.id), shiftById, date, st) &&
     nightCapOkLocal(u, date, st);
 
-  const give = (a, u) => {
+  const give = (a: Assignment, u: User) => {
     a.userId = u.id;
     const st = shiftById[a.shiftTypeId];
     const w = weightOf(st, settings);
@@ -538,7 +562,7 @@ export function generateSchedule(db, { startDate, endDate, userIds }) {
     workingDay.add(`${u.id}|${a.date}`);
   };
 
-  const take = (a) => {
+  const take = (a: Assignment) => {
     const u = a.userId;
     const st = shiftById[a.shiftTypeId];
     const w = weightOf(st, settings);
@@ -554,7 +578,7 @@ export function generateSchedule(db, { startDate, endDate, userIds }) {
 
   // Is there a preferred-off day for this user within the next `span` days
   // (used so a new run isn't started on someone about to want time off)?
-  const hasPrefSoon = (uid, date, span) => {
+  const hasPrefSoon = (uid: string, date: string, span: number) => {
     let cur = date;
     for (let i = 0; i < span; i++) {
       if (claimOf(uid, cur) > 0) return true;
@@ -567,7 +591,7 @@ export function generateSchedule(db, { startDate, endDate, userIds }) {
   // the user's most recent stretch of consecutive worked days; 0 otherwise.
   // Continuing the same shift type with no gap is a run continuation, governed
   // by the run caps — not a return from rest.
-  const recoveryPenalty = (u, date, st) => {
+  const recoveryPenalty = (u: User, date: string, st: ShiftType) => {
     const byDate = heldByDate.get(u.id);
     let gap = 0;
     let cursor = prevDay(date);
@@ -589,7 +613,7 @@ export function generateSchedule(db, { startDate, endDate, userIds }) {
   // (db.meta.rotationCursor) so exact ties don't favor the same people in
   // every block.
   let rotation = db.meta?.rotationCursor || 0;
-  const fillSlot = (slot) => {
+  const fillSlot = (slot: Slot) => {
     const st = shiftById[slot.shiftTypeId];
     const candidates = employees.filter((u) => available(u, slot.date, st));
     if (candidates.length === 0) {
@@ -609,8 +633,8 @@ export function generateSchedule(db, { startDate, endDate, userIds }) {
     // under their minimum), `atCap` = at the max run (rotate off). `typeCnt`
     // and `lookahead` drive who *starts* a new run: spread the type across the
     // team, and avoid starting on someone who wants time off soon.
-    const sig = new Map(
-      candidates.map((u) => {
+    const sig = gmap<Sig>(
+      candidates.map((u): [string, Sig] => {
         const r = grouped ? runLengthBefore(heldByDate.get(u.id), st.id, slot.date) : 0;
         return [u.id, {
           sticky: grouped && r >= 1 && r < minRun ? 0 : 1,
@@ -651,7 +675,7 @@ export function generateSchedule(db, { startDate, endDate, userIds }) {
       const ib = (employees.indexOf(b) + rotation) % employees.length;
       return ia - ib;
     });
-    const a = { date: slot.date, shiftTypeId: slot.shiftTypeId, userId: null };
+    const a: Assignment = { date: slot.date, shiftTypeId: slot.shiftTypeId, userId: '' };
     give(a, candidates[0]);
     assignments.push(a);
     rotation++;
@@ -664,10 +688,10 @@ export function generateSchedule(db, { startDate, endDate, userIds }) {
   // holder before any other type can poach them. Ties within a class rotate
   // daily so list position never decides who goes first long-term.
   const nTypes = Math.max(1, db.shiftTypes.length);
-  const dayIndexOf = (date) =>
-    Math.round((new Date(date + 'T00:00:00') - new Date(startDate + 'T00:00:00')) / 86400000);
+  const dayIndexOf = (date: string) =>
+    Math.round((new Date(date + 'T00:00:00').getTime() - new Date(startDate + 'T00:00:00').getTime()) / 86400000);
   for (const [date, daySlots] of slotsByDate) {
-    const urgency = {};
+    const urgency: Record<string, number> = {};
     for (const t of db.shiftTypes) {
       if (!isGrouped(t)) { urgency[t.id] = 3; continue; }
       const { min, max } = runBounds(t);
@@ -695,11 +719,11 @@ export function generateSchedule(db, { startDate, endDate, userIds }) {
   // A shift sits at a run boundary (first/last day) unless the donor works the
   // same type on both neighboring days. Pulling from a boundary disturbs a run
   // least; non-grouped types are always "boundaries" (neutral).
-  const atRunBoundary = (a) => {
+  const atRunBoundary = (a: Assignment) => {
     const st = shiftById[a.shiftTypeId];
     if (!isGrouped(st)) return true;
     const byDate = heldByDate.get(a.userId);
-    const sameType = (d) => byDate.get(d)?.shiftTypeId === a.shiftTypeId;
+    const sameType = (d: string) => byDate.get(d)?.shiftTypeId === a.shiftTypeId;
     return !(sameType(prevDay(a.date)) && sameType(nextDay(a.date)));
   };
 
@@ -744,7 +768,7 @@ export function generateSchedule(db, { startDate, endDate, userIds }) {
   // Settle vacation: shortfall against the FULL personal requirement is
   // covered by vacation days — capped by the must-off days that caused it and
   // by what the person has left this year (never negative).
-  const vacationCharged = {};
+  const vacationCharged: Record<string, number> = {};
   for (const u of employees) {
     const required = Math.min(Number(u.requiredShifts) || 0, effMax.get(u.id));
     const shortfall = Math.max(0, required - counts.get(u.id));
@@ -757,8 +781,8 @@ export function generateSchedule(db, { startDate, endDate, userIds }) {
     if (charge > 0) vacationCharged[u.id] = charge;
   }
 
-  const draft = {
-    startDate, endDate, userIds,
+  const draft: ScheduleDraft = {
+    startDate, endDate, userIds: userIds ?? db.users.map((u) => u.id),
     assignments, unfilled, vacationCharged,
   };
   const { counts: finalCounts, warnings } = summarizeSchedule(db, draft);

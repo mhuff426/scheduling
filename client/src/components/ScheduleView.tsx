@@ -1,17 +1,21 @@
-import React, { useMemo, useState } from 'react';
-import { api } from '../api.js';
-import { DOW, MONTHS, monthGrid, prettyDate, formatTime, addDays, weekStart } from '../dates.js';
-import { settlementFor } from '../shiftMath.js';
+import { useMemo, useState } from 'react';
+import { api } from '../api';
+import { DOW, MONTHS, monthGrid, prettyDate, formatTime, addDays, weekStart } from '../dates';
+import { settlementFor } from '../shiftMath';
+import type { AppState, Assignment, Schedule, Slot, User } from '../../../shared/types.js';
+import type { Act } from '../App';
 
 const HOUR_H = 28; // px per hour in the week view
-const toMin = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
+const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
 
-export default function ScheduleView({ db, currentUser, act, isAdmin }) {
+interface Props { db: AppState; currentUser: User; act: Act; isAdmin: boolean; }
+
+export default function ScheduleView({ db, currentUser, act, isAdmin }: Props) {
   const schedules = [...db.schedules].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const [scheduleId, setScheduleId] = useState(schedules[0]?.id || null);
+  const [scheduleId, setScheduleId] = useState<string | null>(schedules[0]?.id || null);
   const schedule = schedules.find((s) => s.id === scheduleId) || schedules[0];
   const [view, setView] = useState('month');
-  const [listUserId, setListUserId] = useState(currentUser?.id);
+  const [listUserId, setListUserId] = useState<string | undefined>(currentUser?.id);
   const [monthCursor, setMonthCursor] = useState(() =>
     schedule ? schedule.startDate.slice(0, 7) : new Date().toISOString().slice(0, 7)
   );
@@ -20,9 +24,9 @@ export default function ScheduleView({ db, currentUser, act, isAdmin }) {
   );
   // Filters: '' / null mean "show everything".
   const [typeFilter, setTypeFilter] = useState('');
-  const [employeeFilter, setEmployeeFilter] = useState(null);
+  const [employeeFilter, setEmployeeFilter] = useState<string | null>(null);
   // Which chip is being edited by the admin: `${date}|${shiftTypeId}|${userId or 'open'}`
-  const [editKey, setEditKey] = useState(null);
+  const [editKey, setEditKey] = useState<string | null>(null);
 
   const userById = useMemo(
     () => Object.fromEntries(db.users.map((u) => [u.id, u])),
@@ -55,17 +59,17 @@ export default function ScheduleView({ db, currentUser, act, isAdmin }) {
     (s) => (!typeFilter || s.shiftTypeId === typeFilter) && !employeeFilter
   );
 
-  const byDate = {};
+  const byDate: Record<string, Assignment[]> = {};
   for (const a of visibleAssignments) (byDate[a.date] ||= []).push(a);
-  const openByDate = {};
+  const openByDate: Record<string, Slot[]> = {};
   for (const s of visibleOpen) (openByDate[s.date] ||= []).push(s);
 
-  const move = async (m) => {
+  const move = async (m: any) => {
     setEditKey(null);
     await act(() => api.reassign(schedule.id, m));
   };
 
-  const RoleSelect = ({ date, shiftTypeId, fromUserId }) => (
+  const RoleSelect = ({ date, shiftTypeId, fromUserId }: { date: string; shiftTypeId: string; fromUserId: string | null }) => (
     <select
       autoFocus
       className="chip-edit"
@@ -85,22 +89,23 @@ export default function ScheduleView({ db, currentUser, act, isAdmin }) {
 
   const [year, month] = monthCursor.split('-').map(Number);
   const weeks = monthGrid(year, month - 1);
-  const shiftMonth = (delta) => {
+  const shiftMonth = (delta: number) => {
     const d = new Date(year, month - 1 + delta, 1);
     setMonthCursor(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
   };
 
-  const listUser = userById[listUserId] || currentUser;
+  const listUser: User = userById[listUserId as string] || currentUser;
   const myAssignments = schedule.assignments
     .filter((a) => a.userId === listUser?.id)
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  const exportIcs = (userId) => {
+  const exportIcs = (userId: string) => {
     window.location.href = `/api/schedules/${schedule.id}/ics?userId=${encodeURIComponent(userId)}`;
   };
 
-  const legendUsers = Array.isArray(schedule.userIds)
-    ? db.users.filter((u) => schedule.userIds.includes(u.id))
+  const scheduleUserIds = schedule.userIds;
+  const legendUsers = Array.isArray(scheduleUserIds)
+    ? db.users.filter((u) => scheduleUserIds.includes(u.id))
     : db.users;
 
   return (
@@ -312,7 +317,7 @@ export default function ScheduleView({ db, currentUser, act, isAdmin }) {
 // Per-person settlement for one schedule: shifts worked vs required, vacation
 // days charged, and extra days — which the employee can split into extra
 // vacation or incentive pay.
-function SettlementCard({ db, schedule, user, self, act }) {
+function SettlementCard({ db, schedule, user, self, act }: { db: AppState; schedule: Schedule; user: User; self: boolean; act: Act }) {
   const s = settlementFor(db, schedule, user);
   const [vac, setVac] = useState(s.election.vacation);
   const [inc, setInc] = useState(s.election.incentive);
@@ -370,7 +375,7 @@ function SettlementCard({ db, schedule, user, self, act }) {
 }
 
 // Admin/HR overview: settlement for every person in the block.
-function AdminSettlementTable({ db, schedule, users }) {
+function AdminSettlementTable({ db, schedule, users }: { db: AppState; schedule: Schedule; users: User[] }) {
   return (
     <div className="card">
       <h2>📊 Settlement overview (admin)</h2>
@@ -403,18 +408,40 @@ function AdminSettlementTable({ db, schedule, users }) {
   );
 }
 
+interface WeekSeg {
+  start: number;
+  end: number;
+  a?: Assignment;
+  st: import('../../../shared/types.js').ShiftType;
+  open?: boolean;
+  cont?: boolean;
+  lane?: number;
+  lanes?: number;
+}
+
+interface WeekViewProps {
+  weekCursor: string;
+  setWeekCursor: (v: string) => void;
+  schedule: Schedule;
+  assignments: Assignment[];
+  openSlots: Slot[];
+  shiftById: any;
+  userById: any;
+  currentUser: User;
+}
+
 // Hour-by-hour week view: each day is a 24h column; shifts render as timed
 // blocks colored by employee. Overnight shifts split at midnight and continue
 // in the next day's column.
-function WeekView({ weekCursor, setWeekCursor, schedule, assignments, openSlots, shiftById, userById, currentUser }) {
+function WeekView({ weekCursor, setWeekCursor, schedule, assignments, openSlots, shiftById, userById, currentUser }: WeekViewProps) {
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekCursor, i));
 
   // date -> [{ start, end (minutes), a, st, open, cont }]
-  const segs = Object.fromEntries(days.map((d) => [d, []]));
-  const push = (date, start, end, item) => {
-    if (segs[date]) segs[date].push({ start, end, ...item });
+  const segs: Record<string, WeekSeg[]> = Object.fromEntries(days.map((d) => [d, [] as WeekSeg[]]));
+  const push = (date: string, start: number, end: number, item: Partial<WeekSeg>) => {
+    if (segs[date]) segs[date].push({ start, end, ...item } as WeekSeg);
   };
-  const addItem = (date, st, item) => {
+  const addItem = (date: string, st: WeekSeg['st'], item: Partial<WeekSeg>) => {
     const start = toMin(st.startTime);
     const end = st.endTime <= st.startTime ? toMin(st.endTime) + 1440 : toMin(st.endTime);
     if (end <= 1440) {
@@ -436,7 +463,7 @@ function WeekView({ weekCursor, setWeekCursor, schedule, assignments, openSlots,
   // Greedy lane packing so overlapping blocks share the column width.
   for (const d of days) {
     const list = segs[d].sort((x, y) => x.start - y.start || y.end - x.end);
-    const laneEnds = [];
+    const laneEnds: number[] = [];
     for (const s of list) {
       let lane = laneEnds.findIndex((e) => e <= s.start);
       if (lane === -1) { lane = laneEnds.length; laneEnds.push(0); }
@@ -447,7 +474,7 @@ function WeekView({ weekCursor, setWeekCursor, schedule, assignments, openSlots,
     list.forEach((s) => { s.lanes = n; });
   }
 
-  const fmtDayHead = (d) => {
+  const fmtDayHead = (d: string) => {
     const dt = new Date(d + 'T00:00:00');
     return `${DOW[dt.getDay()]} ${dt.getMonth() + 1}/${dt.getDate()}`;
   };
@@ -477,7 +504,7 @@ function WeekView({ weekCursor, setWeekCursor, schedule, assignments, openSlots,
               <div className="week-day-body" style={{ height: 24 * HOUR_H }}>
                 {segs[d].map((s, i) => {
                   const u = s.a ? userById[s.a.userId] : null;
-                  const width = 100 / s.lanes;
+                  const width = 100 / (s.lanes || 1);
                   const label = s.open
                     ? `OPEN · ${s.st.name}`
                     : `${(u ? u.name : '?').split(' ')[0]} · ${s.st.name}`;
@@ -489,7 +516,7 @@ function WeekView({ weekCursor, setWeekCursor, schedule, assignments, openSlots,
                       style={{
                         top: (s.start / 60) * HOUR_H,
                         height: Math.max(((s.end - s.start) / 60) * HOUR_H - 2, 14),
-                        left: `${s.lane * width}%`,
+                        left: `${(s.lane || 0) * width}%`,
                         width: `calc(${width}% - 3px)`,
                         background: s.open ? undefined : (u ? u.color : '#9ca3af'),
                       }}

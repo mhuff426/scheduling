@@ -1,16 +1,20 @@
-import React, { useState } from 'react';
-import { api } from '../api.js';
-import { DOW, MONTHS, monthGrid, todayYmd } from '../dates.js';
-import { vacationSummary } from '../shiftMath.js';
+import { useState } from 'react';
+import { api } from '../api';
+import { DOW, MONTHS, monthGrid, todayYmd } from '../dates';
+import { vacationSummary } from '../shiftMath';
+import type { AppState, User } from '../../../shared/types.js';
+import type { Act } from '../App';
 
-export default function TimeOff({ db, currentUser, act }) {
+interface Props { db: AppState; currentUser: User; act: Act; }
+
+export default function TimeOff({ db, currentUser, act }: Props) {
   const now = new Date();
   const [cursor, setCursor] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
   const [mode, setMode] = useState('vacation');
 
   const [year, month] = cursor.split('-').map(Number);
   const weeks = monthGrid(year, month - 1);
-  const shiftMonth = (delta) => {
+  const shiftMonth = (delta: number) => {
     const d = new Date(year, month - 1 + delta, 1);
     setCursor(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
   };
@@ -25,14 +29,14 @@ export default function TimeOff({ db, currentUser, act }) {
   ).length;
 
   // Vacation headcount per date across all users, to show full days.
-  const vacationPerDay = {};
+  const vacationPerDay: Record<string, number> = {};
   for (const t of db.timeOff) {
     if (t.type === 'vacation') vacationPerDay[t.date] = (vacationPerDay[t.date] || 0) + 1;
   }
 
   const today = todayYmd();
 
-  const clickDay = (date) => {
+  const clickDay = (date: string) => {
     const existing = mineByDate[date];
     if (existing) {
       act(() => api.deleteTimeOff(existing.id));

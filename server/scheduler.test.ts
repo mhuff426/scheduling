@@ -1,4 +1,4 @@
-// Smoke test: node server/scheduler.test.js
+// Smoke test: tsx server/scheduler.test.ts
 import assert from 'assert';
 import {
   generateSchedule, buildSlots, isOvernight, restOk,
@@ -6,13 +6,15 @@ import {
   isGrouped, runBounds, nightCapOk, effectiveMaximums, weightOf,
   recoveryNeed, effectiveMinimums, requiredFor,
 } from './scheduler.js';
+import type { Assignment, Db, ShiftType, TimeOff, User } from '../shared/types.js';
 
-const mkUser = (id, name, extra = {}) => ({
+const mkUser = (id: string, name: string, extra: Record<string, any> = {}): User => ({
   id, name, role: 'employee', vacationDays: 10, color: '#888', ...extra,
 });
-const mkDb = (users, shiftTypes, timeOff = []) => ({
+const mkDb = (users: User[], shiftTypes: ShiftType[], timeOff: TimeOff[] = []): Db => ({
   users, shiftTypes, timeOff,
   settings: { maxVacationPerDay: 2, overnightWeight: 1.5 },
+  schedules: [], trades: [], notifications: [],
   meta: { rotationCursor: 0 },
 });
 
@@ -20,15 +22,15 @@ const mkDb = (users, shiftTypes, timeOff = []) => ({
 // has floor N". Per-user `requiredShifts` is now the floor (and the target),
 // so applying N to every user without an explicit requiredShifts reproduces
 // the old global behavior. Users that already set requiredShifts keep theirs.
-const allMin = (db, n) => {
+const allMin = (db: Db, n: number): Db => {
   db.users.forEach((u) => { if (u.requiredShifts === undefined) u.requiredShifts = n; });
   return db;
 };
 
-const day = { id: 'day', name: 'Day', startTime: '08:00', endTime: '16:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
-const eve = { id: 'eve', name: 'Evening', startTime: '16:00', endTime: '00:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
-const night = { id: 'night', name: 'Night', startTime: '22:00', endTime: '06:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
-const inv = { id: 'inv', name: 'Inventory', startTime: '18:00', endTime: '22:00', frequency: 'weekly', dayOfWeek: 1, staffRequired: 2 };
+const day: ShiftType = { id: 'day', name: 'Day', startTime: '08:00', endTime: '16:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
+const eve: ShiftType = { id: 'eve', name: 'Evening', startTime: '16:00', endTime: '00:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
+const night: ShiftType = { id: 'night', name: 'Night', startTime: '22:00', endTime: '06:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
+const inv: ShiftType = { id: 'inv', name: 'Inventory', startTime: '18:00', endTime: '22:00', frequency: 'weekly', dayOfWeek: 1, staffRequired: 2 };
 
 // ---- slot expansion: 2026-06-01 is a Monday -> 7 daily + 2 weekly = 9
 assert.strictEqual(buildSlots([day, inv], '2026-06-01', '2026-06-07').length, 9);
@@ -41,11 +43,11 @@ assert.ok(!isOvernight(day), 'day shift is not overnight');
 // ---- rest rule primitives
 const shiftById = { day, eve, night };
 assert.ok(
-  !restOk([{ date: '2026-06-01', shiftTypeId: 'night' }], shiftById, '2026-06-02', day),
+  !restOk([{ date: '2026-06-01', shiftTypeId: 'night' }] as Assignment[], shiftById, '2026-06-02', day),
   'day shift 2h after a night shift ends must be blocked'
 );
 assert.ok(
-  restOk([{ date: '2026-06-01', shiftTypeId: 'eve' }], shiftById, '2026-06-02', day),
+  restOk([{ date: '2026-06-01', shiftTypeId: 'eve' }] as Assignment[], shiftById, '2026-06-02', day),
   'evening ends midnight; 8am start is exactly 8h rest — allowed'
 );
 
@@ -165,14 +167,14 @@ assert.ok(
 
 // ===== preference anti-gaming =====
 
-const D = (n) => `2026-07-${String(n).padStart(2, '0')}`; // July 2026 dates
-const pref = (uid, n) => ({ id: `p-${uid}-${n}`, userId: uid, date: D(n), type: 'preferred' });
+const D = (n: number) => `2026-07-${String(n).padStart(2, '0')}`; // July 2026 dates
+const pref = (uid: string, n: number): TimeOff => ({ id: `p-${uid}-${n}`, userId: uid, date: D(n), type: 'preferred' });
 const JULY = { startDate: '2026-07-01', endDate: '2026-07-14', userIds: null };
 
 // ---- cap threshold: everyone asks 2, one asks 3 -> untouched (SD floor of 1 day)
 {
   const users = [...'abcdefgh'].map((c) => mkUser(c, c.toUpperCase()));
-  const timeOff = [];
+  const timeOff: TimeOff[] = [];
   for (const u of users) for (let n = 1; n <= 2; n++) timeOff.push(pref(u.id, n));
   timeOff.push(pref('h', 3)); // H asks one more than everyone
   const db = mkDb(users, [day], timeOff);
@@ -183,7 +185,7 @@ const JULY = { startDate: '2026-07-01', endDate: '2026-07-14', userIds: null };
 // ---- cap threshold: 9 asks vs roster norm ~2 -> capped, requested-order kept
 {
   const users = [...'abcdefgh'].map((c) => mkUser(c, c.toUpperCase()));
-  const timeOff = [];
+  const timeOff: TimeOff[] = [];
   for (const u of users.slice(0, 7)) for (let n = 1; n <= 2; n++) timeOff.push(pref(u.id, n));
   for (let n = 1; n <= 9; n++) timeOff.push(pref('h', n)); // requested in order: days 1..9
   const db = mkDb(users, [day], timeOff);
@@ -196,26 +198,26 @@ const JULY = { startDate: '2026-07-01', endDate: '2026-07-14', userIds: null };
 // ---- demoted days: still avoided when coverage is free, but lose to any normal preference
 {
   // A asks 8 of 10 days (cap 6 -> days 7,8 demoted); B asks days 7,8 normally.
-  const timeOff = [];
+  const timeOff: TimeOff[] = [];
   for (let n = 1; n <= 8; n++) timeOff.push(pref('a', n));
   timeOff.push(pref('b', 7), pref('b', 8));
   const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [day], timeOff);
   const r = generateSchedule(db, { startDate: '2026-07-01', endDate: '2026-07-10' });
   for (const d of [D(7), D(8)]) {
     const a = r.assignments.find((x) => x.date === d);
-    assert.strictEqual(a.userId, 'a', `demoted claim (A) must lose to normal preference (B) on ${d}`);
+    assert.strictEqual(a!.userId, 'a', `demoted claim (A) must lose to normal preference (B) on ${d}`);
   }
   // Days 9-10: neither prefers; both available; loads decide — no assertion needed.
   // Days 1-6: A's full-strength preference vs B free -> B works all of them.
   for (let n = 1; n <= 6; n++) {
     const a = r.assignments.find((x) => x.date === D(n));
-    assert.strictEqual(a.userId, 'b', `A's protected preferred day ${D(n)} should go to B`);
+    assert.strictEqual(a!.userId, 'b', `A's protected preferred day ${D(n)} should go to B`);
   }
 }
 
 // ---- standing trajectories
 {
-  const mkBlock = (i, asks, med) => ({
+  const mkBlock = (i: number, asks: Record<string, number>, med: number) => ({
     id: `s${i}`, createdAt: `2026-0${i}-01T00:00:00Z`,
     preferenceStats: { asks, median: med },
   });
@@ -249,7 +251,7 @@ const JULY = { startDate: '2026-07-01', endDate: '2026-07-14', userIds: null };
     [day],
     [pref('a', 1), pref('b', 1)]
   );
-  db.schedules = history;
+  db.schedules = history as unknown as typeof db.schedules;
   const r = generateSchedule(db, { startDate: '2026-07-01', endDate: '2026-07-01' });
   assert.strictEqual(r.assignments[0].userId, 'a', 'lower standing must be overridden first');
 }
@@ -265,14 +267,14 @@ const JULY = { startDate: '2026-07-01', endDate: '2026-07-14', userIds: null };
 // ===== shift runs =====
 
 // helper: walk a single shift type's assignments in date order, return run lengths
-function runLengths(assignments, shiftTypeId) {
+function runLengths(assignments: Assignment[], shiftTypeId: string) {
   const days = assignments
     .filter((a) => a.shiftTypeId === shiftTypeId)
     .sort((a, b) => a.date.localeCompare(b.date));
-  const runs = [];
-  let curUser = null, len = 0, prevDate = null;
+  const runs: number[] = [];
+  let curUser: string | null = null, len = 0, prevDate: string | null = null;
   for (const a of days) {
-    const consecutive = prevDate && new Date(a.date) - new Date(prevDate) === 86400000;
+    const consecutive = prevDate && new Date(a.date).getTime() - new Date(prevDate).getTime() === 86400000;
     if (a.userId === curUser && consecutive) len++;
     else { if (len) runs.push(len); curUser = a.userId; len = 1; }
     prevDate = a.date;
@@ -290,7 +292,7 @@ assert.deepStrictEqual(runBounds({ minRun: 5, maxRun: null }), { min: 5, max: In
 
 // ---- runs form and cap at maxRun, then rotate to a fresh person
 {
-  const chemo = { id: 'chemo', name: 'Chemo', startTime: '09:00', endTime: '17:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1, minRun: 3, maxRun: 4 };
+  const chemo: ShiftType = { id: 'chemo', name: 'Chemo', startTime: '09:00', endTime: '17:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1, minRun: 3, maxRun: 4 };
   const users = [mkUser('a', 'A'), mkUser('b', 'B'), mkUser('c', 'C')];
   const db = mkDb(users, [chemo]);
   const r = generateSchedule(db, { startDate: '2026-08-01', endDate: '2026-08-08' });
@@ -306,7 +308,7 @@ assert.deepStrictEqual(runBounds({ minRun: 5, maxRun: null }), { min: 5, max: In
 
 // ---- wide rotation: a long block spreads a grouped type across many people
 {
-  const chemo = { id: 'chemo', name: 'Chemo', startTime: '09:00', endTime: '17:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1, minRun: 5, maxRun: 7 };
+  const chemo: ShiftType = { id: 'chemo', name: 'Chemo', startTime: '09:00', endTime: '17:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1, minRun: 5, maxRun: 7 };
   const users = [...'abcdef'].map((c) => mkUser(c, c.toUpperCase()));
   const db = mkDb(users, [chemo]);
   const r = generateSchedule(db, { startDate: '2026-08-01', endDate: '2026-08-21' });
@@ -317,15 +319,15 @@ assert.deepStrictEqual(runBounds({ minRun: 5, maxRun: null }), { min: 5, max: In
 
 // ---- personal night cap (cross-type) via the exported helper
 {
-  const n1 = { id: 'n1', name: 'N1', startTime: '22:00', endTime: '06:00' };
-  const n2 = { id: 'n2', name: 'N2', startTime: '20:00', endTime: '04:00' };
-  const dayShift = { id: 'd', name: 'D', startTime: '08:00', endTime: '16:00' };
+  const n1 = { id: 'n1', name: 'N1', startTime: '22:00', endTime: '06:00' } as ShiftType;
+  const n2 = { id: 'n2', name: 'N2', startTime: '20:00', endTime: '04:00' } as ShiftType;
+  const dayShift = { id: 'd', name: 'D', startTime: '08:00', endTime: '16:00' } as ShiftType;
   const shiftById = { n1, n2, d: dayShift };
   const u = mkUser('a', 'A', { maxConsecutiveNights: 2 });
   const held = [
     { date: '2026-08-01', shiftTypeId: 'n1' },
     { date: '2026-08-02', shiftTypeId: 'n1' },
-  ];
+  ] as Assignment[];
   assert.ok(!nightCapOk(u, held, shiftById, '2026-08-03', n2), 'a different overnight type must still hit the cap');
   assert.ok(!nightCapOk(u, held, shiftById, '2026-08-03', n1), 'same overnight type hits the cap');
   assert.ok(nightCapOk(u, held, shiftById, '2026-08-03', dayShift), 'a day shift is never capped');
@@ -335,7 +337,7 @@ assert.deepStrictEqual(runBounds({ minRun: 5, maxRun: null }), { min: 5, max: In
 
 // ---- night cap end to end: one capped worker leaves a slot open rather than over-work
 {
-  const night = { id: 'night', name: 'Night', startTime: '22:00', endTime: '06:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
+  const night: ShiftType = { id: 'night', name: 'Night', startTime: '22:00', endTime: '06:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
   const db = mkDb([mkUser('a', 'A', { maxConsecutiveNights: 2 })], [night]);
   const r = generateSchedule(db, { startDate: '2026-08-01', endDate: '2026-08-04' });
   // A works nights 1 and 2, must rest night 3 (would be the 3rd in a row), works night 4.
@@ -347,7 +349,7 @@ assert.deepStrictEqual(runBounds({ minRun: 5, maxRun: null }), { min: 5, max: In
 
 // ---- effective max resolution: per-user override, else unlimited
 {
-  const db = { users: [mkUser('a', 'A', { maxShiftsOverride: 2 }), mkUser('b', 'B')] };
+  const db = { users: [mkUser('a', 'A', { maxShiftsOverride: 2 }), mkUser('b', 'B')] } as Db;
   const maxs = effectiveMaximums(db);
   assert.strictEqual(maxs.get('a'), 2, 'override sets the ceiling');
   assert.strictEqual(maxs.get('b'), Infinity, 'no override = unlimited');
@@ -411,13 +413,13 @@ assert.deepStrictEqual(runBounds({ minRun: 5, maxRun: null }), { min: 5, max: In
   // be read as 0 — Number(null) is 0.
   assert.strictEqual(weightOf({ ...day, weight: null }, settings), 1, 'null weight = automatic, not standby');
   assert.strictEqual(weightOf({ ...night, weight: null }, settings), 1.5, 'null weight on overnight = auto default');
-  assert.strictEqual(weightOf({ ...day, weight: '' }, settings), 1, 'empty-string weight = automatic');
+  assert.strictEqual(weightOf({ ...day, weight: '' as any }, settings), 1, 'empty-string weight = automatic');
 }
 
 // ---- weight-0 shifts don't count toward minimums (but are still assigned)
 {
-  const standby = { id: 'sb', name: 'Standby', startTime: '08:00', endTime: '16:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1, weight: 0 };
-  const work = { id: 'wk', name: 'Work', startTime: '17:00', endTime: '21:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
+  const standby: ShiftType = { id: 'sb', name: 'Standby', startTime: '08:00', endTime: '16:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1, weight: 0 };
+  const work: ShiftType = { id: 'wk', name: 'Work', startTime: '17:00', endTime: '21:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
   const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [work, standby]);
   allMin(db, 2); // both have a floor of 2 counting shifts (old global minShifts: 2)
   const r = generateSchedule(db, { startDate: '2026-08-01', endDate: '2026-08-04' });
@@ -429,8 +431,8 @@ assert.deepStrictEqual(runBounds({ minRun: 5, maxRun: null }), { min: 5, max: In
 
 // ---- weight-0 shifts don't eat the maximum
 {
-  const standby = { id: 'sb', name: 'Standby', startTime: '08:00', endTime: '16:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1, weight: 0 };
-  const work = { id: 'wk', name: 'Work', startTime: '17:00', endTime: '21:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
+  const standby: ShiftType = { id: 'sb', name: 'Standby', startTime: '08:00', endTime: '16:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1, weight: 0 };
+  const work: ShiftType = { id: 'wk', name: 'Work', startTime: '17:00', endTime: '21:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
   const db = mkDb([mkUser('a', 'A', { maxShiftsOverride: 1 }), mkUser('b', 'B', { maxShiftsOverride: 1 })], [work, standby]);
   const r = generateSchedule(db, { startDate: '2026-08-01', endDate: '2026-08-04' });
   const standbyAssigned = r.assignments.filter((a) => a.shiftTypeId === 'sb').length;
@@ -442,12 +444,12 @@ assert.deepStrictEqual(runBounds({ minRun: 5, maxRun: null }), { min: 5, max: In
 
 // ---- custom weights steer load balancing
 {
-  const heavy = { id: 'hv', name: 'Heavy', startTime: '08:00', endTime: '16:00', frequency: 'weekly', dayOfWeek: 1, staffRequired: 1, weight: 3 };
-  const light = { id: 'lt', name: 'Light', startTime: '17:00', endTime: '21:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
+  const heavy: ShiftType = { id: 'hv', name: 'Heavy', startTime: '08:00', endTime: '16:00', frequency: 'weekly', dayOfWeek: 1, staffRequired: 1, weight: 3 };
+  const light: ShiftType = { id: 'lt', name: 'Light', startTime: '17:00', endTime: '21:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
   // 2026-06-01 is a Monday: 1 heavy (weight 3) + 7 light (weight 1) over a week.
   const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [heavy, light]);
   const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-07' });
-  const heavyUser = r.assignments.find((a) => a.shiftTypeId === 'hv').userId;
+  const heavyUser = r.assignments.find((a) => a.shiftTypeId === 'hv')!.userId;
   const lightOfHeavyUser = r.assignments.filter((a) => a.shiftTypeId === 'lt' && a.userId === heavyUser).length;
   const lightOfOther = 7 - lightOfHeavyUser;
   assert.ok(
@@ -464,11 +466,11 @@ assert.deepStrictEqual(runBounds({ minRun: 5, maxRun: null }), { min: 5, max: In
 // per-day urgency ordering, runs of BOTH types should only ever end at the
 // run cap (or the end of the block), regardless of list position.
 {
-  const t1 = { id: 't1', name: 'Top', startTime: '08:00', endTime: '12:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1, minRun: 3, maxRun: 4 };
-  const t2 = { id: 't2', name: 'Bottom', startTime: '13:00', endTime: '17:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1, minRun: 3, maxRun: 4 };
-  const filler = { id: 'u0', name: 'Filler', startTime: '18:00', endTime: '21:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
+  const t1: ShiftType = { id: 't1', name: 'Top', startTime: '08:00', endTime: '12:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1, minRun: 3, maxRun: 4 };
+  const t2: ShiftType = { id: 't2', name: 'Bottom', startTime: '13:00', endTime: '17:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1, minRun: 3, maxRun: 4 };
+  const filler: ShiftType = { id: 'u0', name: 'Filler', startTime: '18:00', endTime: '21:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
 
-  const runStats = (assignments, typeId) => {
+  const runStats = (assignments: Assignment[], typeId: string) => {
     const runs = runLengths(assignments, typeId);
     const mean = runs.reduce((a, b) => a + b, 0) / runs.length;
     return { runs, mean };
@@ -509,24 +511,24 @@ assert.strictEqual(recoveryNeed(9), 2);
 
 // ---- returning after 1 day off from a 5-day stretch loses to a rested person
 {
-  const W = { id: 'w', name: 'W', startTime: '08:00', endTime: '16:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
+  const W: ShiftType = { id: 'w', name: 'W', startTime: '08:00', endTime: '16:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
   // B is away days 1-5 so A works a 5-day stretch; A is away day 6 so B covers.
   // Day 7: A has the higher load (5 vs 1) AND owes a recovery day, so rested B
   // wins. (desiredShifts was removed; with no required floor on either, the
   // recovery penalty and load balance decide — recovery still beats A here.)
-  const timeOff = [];
+  const timeOff: TimeOff[] = [];
   for (let n = 1; n <= 5; n++) timeOff.push({ id: `v${n}`, userId: 'b', date: `2026-09-0${n}`, type: 'vacation' });
   timeOff.push({ id: 'va', userId: 'a', date: '2026-09-06', type: 'vacation' });
   const db = mkDb([mkUser('a', 'A', { requiredShifts: null }), mkUser('b', 'B')], [W], timeOff);
   const r = generateSchedule(db, { startDate: '2026-09-01', endDate: '2026-09-07' });
   const day7 = r.assignments.find((x) => x.date === '2026-09-07');
-  assert.strictEqual(day7.userId, 'b', 'rested B must beat early-returning A on day 7');
+  assert.strictEqual(day7!.userId, 'b', 'rested B must beat early-returning A on day 7');
 }
 
 // ---- soft: when only the unrested person exists, the slot still fills (+ warning)
 {
-  const W = { id: 'w', name: 'W', startTime: '08:00', endTime: '16:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
-  const timeOff = [];
+  const W: ShiftType = { id: 'w', name: 'W', startTime: '08:00', endTime: '16:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
+  const timeOff: TimeOff[] = [];
   for (let n = 1; n <= 7; n++) timeOff.push({ id: `v${n}`, userId: 'b', date: `2026-09-0${n}`, type: 'vacation' });
   timeOff.push({ id: 'va', userId: 'a', date: '2026-09-06', type: 'vacation' });
   const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [W], timeOff);
@@ -541,8 +543,8 @@ assert.strictEqual(recoveryNeed(9), 2);
 
 // ---- chaining a different shift type right after a run is discouraged
 {
-  const G = { id: 'g', name: 'G', startTime: '09:00', endTime: '17:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1, minRun: 3, maxRun: 3 };
-  const X = { id: 'x', name: 'X', startTime: '18:00', endTime: '22:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
+  const G: ShiftType = { id: 'g', name: 'G', startTime: '09:00', endTime: '17:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1, minRun: 3, maxRun: 3 };
+  const X: ShiftType = { id: 'x', name: 'X', startTime: '18:00', endTime: '22:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
   const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B'), mkUser('c', 'C')], [G, X]);
   const r = generateSchedule(db, { startDate: '2026-09-01', endDate: '2026-09-04' });
   // A's G run is days 1-3; A must not be handed the X shift on day 4 with zero
@@ -584,7 +586,7 @@ assert.strictEqual(recoveryNeed(9), 2);
 
 // ---- unaffordable must-offs downgrade to strong-but-soft claims
 {
-  const timeOff = [
+  const timeOff: TimeOff[] = [
     { id: 'm1', userId: 'a', date: '2026-06-02', type: 'vacation' },
     { id: 'm2', userId: 'a', date: '2026-06-03', type: 'vacation' },
     { id: 'm3', userId: 'a', date: '2026-06-04', type: 'vacation' },

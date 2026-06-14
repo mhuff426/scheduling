@@ -1,0 +1,20 @@
+{
+  // Shared compiler options for both the Node (server) and browser (client)
+  // halves. Each project config extends this and adds its own module/lib/types.
+  // Pragmatic strictness: `strict` stays on, but the two harshest flags
+  // (exactOptionalPropertyTypes, noUncheckedIndexedAccess) are intentionally
+  // left off so the existing code compiles cleanly without a rewrite.
+  "compilerOptions": {
+    "target": "esnext",
+    "strict": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noUncheckedSideEffectImports": true,
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "noEmit": true
+  }
+}

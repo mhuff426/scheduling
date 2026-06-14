@@ -2,7 +2,7 @@
 // current roster, via the live API so every real validation rule applies
 // (per-day vacation cap, yearly allowances, duplicate checks).
 //
-// Run with the dev server up:  node scripts/seed-requests.mjs
+// Run with the dev server up:  tsx scripts/seed-requests.ts
 //
 // - Ensures the roster has a second admin (adds "Dana Whitfield" if needed).
 // - Clears ALL existing time-off requests first.
@@ -17,7 +17,7 @@ const GREEDY_NAME = 'Matt';   // prefix match — the preferred-day over-asker
 const ASCETIC_NAME = 'Sharan'; // prefix match — barely asks
 
 // Deterministic RNG so reruns produce the same dataset.
-function mulberry32(seed) {
+function mulberry32(seed: number) {
   return function () {
     seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
     let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
@@ -26,14 +26,14 @@ function mulberry32(seed) {
   };
 }
 const rng = mulberry32(20260701);
-const rand = (a, b) => a + Math.floor(rng() * (b - a + 1));
+const rand = (a: number, b: number) => a + Math.floor(rng() * (b - a + 1));
 
-const pad = (n) => String(n).padStart(2, '0');
-const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const addDays = (s, n) => { const d = new Date(s + 'T00:00:00'); d.setDate(d.getDate() + n); return ymd(d); };
-const daysBetween = (a, b) => Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000);
+const pad = (n: number) => String(n).padStart(2, '0');
+const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const addDays = (s: string, n: number) => { const d = new Date(s + 'T00:00:00'); d.setDate(d.getDate() + n); return ymd(d); };
+const daysBetween = (a: string, b: string) => Math.round((new Date(b + 'T00:00:00').getTime() - new Date(a + 'T00:00:00').getTime()) / 86400000);
 
-async function req(method, path, body) {
+async function req(method: string, path: string, body?: any): Promise<{ ok: boolean; data: any }> {
   const res = await fetch(API + path, {
     method,
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
@@ -46,7 +46,7 @@ async function req(method, path, body) {
 const state = (await req('GET', '/state')).data;
 
 // --- roster: ensure 2 admins ---
-const admins = state.users.filter((u) => u.role === 'admin');
+const admins = state.users.filter((u: any) => u.role === 'admin');
 if (admins.length < 2) {
   const r = await req('POST', '/users', { name: 'Dana Whitfield (Manager)', role: 'admin', vacationDays: 15 });
   console.log(`Added second admin: ${r.data.name}`);
@@ -57,8 +57,8 @@ for (const t of state.timeOff) await req('DELETE', `/timeoff/${t.id}`);
 console.log(`Cleared ${state.timeOff.length} existing time-off entries.`);
 
 const users = (await req('GET', '/state')).data.users;
-const greedy = users.find((u) => u.name.startsWith(GREEDY_NAME));
-const ascetic = users.find((u) => u.name.startsWith(ASCETIC_NAME));
+const greedy = users.find((u: any) => u.name.startsWith(GREEDY_NAME));
+const ascetic = users.find((u: any) => u.name.startsWith(ASCETIC_NAME));
 
 // --- generate requests ---
 // Window: 2026-07-01 .. 2027-06-30. Vacation allowances are per calendar year.
@@ -67,12 +67,12 @@ const YEAR_WINDOWS = {
   2027: ['2027-01-01', '2027-06-30'],
 };
 
-const requests = []; // { userId, date, type }
-const summarySeed = {};
+const requests: { userId: string; date: string; type: string }[] = []; // { userId, date, type }
+const summarySeed: Record<string, any> = {};
 
 for (const u of users) {
-  const taken = new Set(); // dates this user already has a request on
-  const trips = [];
+  const taken = new Set<string>(); // dates this user already has a request on
+  const trips: { start: string; end: string }[] = [];
 
   // Vacation trips per calendar year, within allowance.
   for (const [year, [winStart, winEnd]] of Object.entries(YEAR_WINDOWS)) {
@@ -122,7 +122,7 @@ for (let i = requests.length - 1; i > 0; i--) {
 }
 
 // --- post everything through the real API ---
-const tally = {}; // userId -> { vac26, vac27, pref, rejected }
+const tally: Record<string, { vac26: number; vac27: number; pref: number; rejected: number }> = {}; // userId -> { vac26, vac27, pref, rejected }
 for (const r of requests) {
   const t = (tally[r.userId] ??= { vac26: 0, vac27: 0, pref: 0, rejected: 0 });
   const res = await req('POST', '/timeoff', r);

@@ -1,11 +1,13 @@
-// Client mirror of the server's settlement accounting (server/scheduler.js +
-// server/db.js): counting shifts, per-person requirements, vacation charges,
+// Client mirror of the server's settlement accounting (server/scheduler.ts +
+// server/db.ts): counting shifts, per-person requirements, vacation charges,
 // extra days, and yearly allowance.
 
-export function shiftWeight(st, settings) {
+import type { Db, Schedule, ShiftType, User } from '../../shared/types.js';
+
+export function shiftWeight(st: ShiftType, settings: { overnightWeight?: number }): number {
   // null/undefined/'' mean "automatic" — only an explicit number (0 allowed)
   // overrides. Number(null) is 0, so the raw value must be checked first.
-  const raw = st?.weight;
+  const raw: unknown = st?.weight;
   if (raw !== null && raw !== undefined && raw !== '') {
     const w = Number(raw);
     if (Number.isFinite(w) && w >= 0) return w;
@@ -14,8 +16,8 @@ export function shiftWeight(st, settings) {
   return overnight ? Number(settings?.overnightWeight) || 1.5 : 1;
 }
 
-export function countingShifts(db, schedule, userId) {
-  const stById = Object.fromEntries(db.shiftTypes.map((s) => [s.id, s]));
+export function countingShifts(db: Db, schedule: Schedule, userId: string): number {
+  const stById: Record<string, ShiftType> = Object.fromEntries(db.shiftTypes.map((s) => [s.id, s]));
   return schedule.assignments.filter(
     (a) =>
       a.userId === userId &&
@@ -24,13 +26,13 @@ export function countingShifts(db, schedule, userId) {
   ).length;
 }
 
-export function requiredFor(user) {
+export function requiredFor(user: User): number {
   const o = Number(user.maxShiftsOverride);
   const max = Number.isFinite(o) && o > 0 ? o : Infinity;
   return Math.min(Number(user.requiredShifts) || 0, max);
 }
 
-export function settlementFor(db, schedule, user) {
+export function settlementFor(db: Db, schedule: Schedule, user: User) {
   const count = countingShifts(db, schedule, user.id);
   const required = requiredFor(user);
   const charged = schedule.vacationCharged?.[user.id] || 0;
@@ -40,7 +42,7 @@ export function settlementFor(db, schedule, user) {
 }
 
 // Yearly allowance: base grant + extra days elected as vacation − charges.
-export function vacationSummary(db, user, year) {
+export function vacationSummary(db: Db, user: User, year: number) {
   let used = 0;
   let earned = 0;
   for (const s of db.schedules || []) {

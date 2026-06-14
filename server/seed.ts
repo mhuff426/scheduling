@@ -1,4 +1,4 @@
-// Populates data/data.json with demo data. Run: node server/seed.js
+// Populates data/data.json with demo data. Run: tsx server/seed.ts
 // Overwrites any existing data — delete or skip if you have real data.
 import fs from 'fs';
 import path from 'path';

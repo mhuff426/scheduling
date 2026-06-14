@@ -1,0 +1,13 @@
+{
+  // Node side: the Express API, the scheduler, shared date math, tests, and
+  // one-off scripts. Run through `tsx` (no emit). nodenext keeps the existing
+  // ".js" extensions on relative imports correct (they resolve to ".ts").
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "lib": ["esnext"],
+    "types": ["node"]
+  },
+  "include": ["server/**/*", "shared/**/*", "scripts/**/*"]
+}

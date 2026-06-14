@@ -1,9 +1,13 @@
-import React, { useState } from 'react';
-import { api } from '../api.js';
-import { DOW, formatTime, todayYmd, prettyDate } from '../dates.js';
+import { useState } from 'react';
+import { api } from '../api';
+import { DOW, formatTime, todayYmd, prettyDate } from '../dates';
 import { UNITS, upcomingBlocks, isValidCadence } from '../../../shared/blocks.js';
+import type { AppState, ShiftType, User, Settings } from '../../../shared/types.js';
+import type { Act } from '../App';
 
-export default function Admin({ db, act }) {
+interface Props { db: AppState; act: Act; }
+
+export default function Admin({ db, act }: Props) {
   return (
     <div className="admin-grid">
       <ShiftTypes db={db} act={act} />
@@ -20,11 +24,11 @@ const BLANK_SHIFT = {
   minRun: '', maxRun: '', weight: '',
 };
 
-const isOvernightShift = (s) => s.endTime <= s.startTime && s.endTime !== '00:00';
+const isOvernightShift = (s: ShiftType) => s.endTime <= s.startTime && s.endTime !== '00:00';
 
 // Effective fairness weight shown in the table: explicit weight wins, else
 // the overnight default from settings, else 1.
-function weightLabel(s, settings) {
+function weightLabel(s: ShiftType, settings: Settings) {
   const w = Number(s.weight);
   if (Number.isFinite(w) && w >= 0 && s.weight !== null && s.weight !== undefined) {
     return w === 0 ? '0 (uncounted)' : String(w);
@@ -32,12 +36,12 @@ function weightLabel(s, settings) {
   return isOvernightShift(s) ? `${settings.overnightWeight ?? 1.5} (auto 🌙)` : '1';
 }
 
-function ShiftTypes({ db, act }) {
-  const [form, setForm] = useState(BLANK_SHIFT);
-  const [editingId, setEditingId] = useState(null);
-  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+function ShiftTypes({ db, act }: Props) {
+  const [form, setForm] = useState<any>(BLANK_SHIFT);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const set = (k: string) => (e: any) => setForm({ ...form, [k]: e.target.value });
 
-  const startEdit = (s) => {
+  const startEdit = (s: ShiftType) => {
     setEditingId(s.id);
     setForm({
       name: s.name,
@@ -48,14 +52,14 @@ function ShiftTypes({ db, act }) {
       staffRequired: s.staffRequired,
       // Show blank rather than the implicit "1" default so the form keeps its
       // "blank = no grouping" meaning.
-      minRun: s.minRun > 1 ? s.minRun : '',
+      minRun: (s.minRun ?? 0) > 1 ? s.minRun : '',
       maxRun: s.maxRun ?? '',
       weight: s.weight ?? '',
     });
   };
   const cancelEdit = () => { setEditingId(null); setForm(BLANK_SHIFT); };
 
-  const submit = async (e) => {
+  const submit = async (e: any) => {
     e.preventDefault();
     const ok = await act(() =>
       editingId ? api.updateShiftType(editingId, form) : api.addShiftType(form)
@@ -80,7 +84,7 @@ function ShiftTypes({ db, act }) {
                     <span title="Overnight — weighted higher for fairness"> 🌙</span>
                   )}
                 </td>
-                <td>{s.frequency === 'daily' ? 'Every day' : `Weekly (${DOW[s.dayOfWeek]})`}</td>
+                <td>{s.frequency === 'daily' ? 'Every day' : `Weekly (${DOW[s.dayOfWeek ?? 0]})`}</td>
                 <td>{s.staffRequired}</td>
                 <td>{runLabel(s)}</td>
                 <td>{weightLabel(s, db.settings)}</td>
@@ -141,7 +145,7 @@ function ShiftTypes({ db, act }) {
   );
 }
 
-function runLabel(s) {
+function runLabel(s: ShiftType) {
   const min = Number(s.minRun) || 1;
   const max = Number(s.maxRun);
   const hasMax = Number.isFinite(max) && max >= 1;
@@ -150,25 +154,25 @@ function runLabel(s) {
   return `${min}+`;
 }
 
-function standingClass(s) {
+function standingClass(s: number | null | undefined) {
   if (s === undefined || s === null) return '';
   if (s < 0.8) return 'standing-low';
   if (s > 1.1) return 'standing-high';
   return '';
 }
 
-function Roster({ db, act }) {
-  const [form, setForm] = useState({ name: '', role: 'employee', vacationDays: 10 });
-  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+function Roster({ db, act }: Props) {
+  const [form, setForm] = useState<any>({ name: '', role: 'employee', vacationDays: 10 });
+  const set = (k: string) => (e: any) => setForm({ ...form, [k]: e.target.value });
 
-  const submit = async (e) => {
+  const submit = async (e: any) => {
     e.preventDefault();
     const ok = await act(() => api.addUser(form));
     if (ok) setForm({ ...form, name: '' });
   };
 
   const yearNow = new Date().getFullYear();
-  const usedFor = (u) =>
+  const usedFor = (u: User) =>
     db.timeOff.filter(
       (t) => t.userId === u.id && t.type === 'vacation' && t.date.startsWith(String(yearNow))
     ).length;
@@ -257,15 +261,15 @@ function Roster({ db, act }) {
   );
 }
 
-function Settings({ db, act }) {
+function Settings({ db, act }: Props) {
   const existingCadence = db.settings.cadence;
-  const [cadenceForm, setCadenceForm] = useState(() => ({
+  const [cadenceForm, setCadenceForm] = useState<any>(() => ({
     lengthValue: existingCadence?.lengthValue ?? 2,
     lengthUnit: existingCadence?.lengthUnit ?? 'weeks',
     anchorDate: existingCadence?.anchorDate ?? todayYmd(),
   }));
-  const [cadenceError, setCadenceError] = useState(null);
-  const setC = (k) => (e) => setCadenceForm((prev) => ({ ...prev, [k]: e.target.value }));
+  const [cadenceError, setCadenceError] = useState<string | null>(null);
+  const setC = (k: string) => (e: any) => setCadenceForm((prev: any) => ({ ...prev, [k]: e.target.value }));
 
   const saveCadence = async () => {
     setCadenceError(null);
@@ -377,24 +381,24 @@ function Settings({ db, act }) {
   );
 }
 
-function GenerateSchedule({ db, act }) {
+function GenerateSchedule({ db, act }: Props) {
   const cadence = db.settings.cadence;
   const blocks = cadence ? upcomingBlocks(cadence, todayYmd(), 5) : [];
-  const [form, setForm] = useState(() => ({
+  const [form, setForm] = useState<any>(() => ({
     blockIndex: blocks.length > 0 ? blocks[0].index : 0,
   }));
-  const set = (k) => (e) => setForm((prev) => ({ ...prev, [k]: e.target.value }));
+  const set = (k: string) => (e: any) => setForm((prev: any) => ({ ...prev, [k]: e.target.value }));
   const [busy, setBusy] = useState(false);
   // Everyone is in the block by default; the admin unchecks people (any role,
   // manager included) who shouldn't be scheduled.
-  const [included, setIncluded] = useState(() => new Set(db.users.map((u) => u.id)));
-  const toggle = (id) => {
+  const [included, setIncluded] = useState(() => new Set<string>(db.users.map((u) => u.id)));
+  const toggle = (id: string) => {
     const next = new Set(included);
     next.has(id) ? next.delete(id) : next.add(id);
     setIncluded(next);
   };
 
-  const submit = async (e) => {
+  const submit = async (e: any) => {
     e.preventDefault();
     setBusy(true);
     await act(() => api.createSchedule({

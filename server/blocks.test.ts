@@ -1,9 +1,10 @@
-// Smoke test: node server/blocks.test.js
+// Smoke test: tsx server/blocks.test.ts
 import assert from 'assert';
 import {
   UNITS, todayYmd, addDaysLocal, addMonthsLocal, isValidCadence,
   blockStart, blockRange, currentBlockIndex, upcomingBlocks,
 } from '../shared/blocks.js';
+import type { Cadence } from '../shared/types.js';
 
 // ---- UNITS shape ----
 assert.deepStrictEqual(UNITS, ['days', 'weeks', 'months', 'quarters', 'years'], 'UNITS list');
@@ -27,7 +28,7 @@ assert.strictEqual(addMonthsLocal('2024-01-31', 1), '2024-02-29', '2024 IS a lea
 // ===== days / weeks: fixed length =====
 // weeks/2 anchored 2026-07-06 -> block 0 = 2026-07-06..2026-07-19 (14 inclusive days)
 {
-  const c = { anchorDate: '2026-07-06', lengthUnit: 'weeks', lengthValue: 2 };
+  const c: Cadence = { anchorDate: '2026-07-06', lengthUnit: 'weeks', lengthValue: 2 };
   const b0 = blockRange(c, 0);
   assert.strictEqual(b0.startDate, '2026-07-06', 'weeks block0 start');
   assert.strictEqual(b0.endDate, '2026-07-19', 'weeks block0 end (inclusive, 14 days)');
@@ -37,7 +38,7 @@ assert.strictEqual(addMonthsLocal('2024-01-31', 1), '2024-02-29', '2024 IS a lea
 }
 // days/5 anchored 2026-07-06 -> block0 5 inclusive days
 {
-  const c = { anchorDate: '2026-07-06', lengthUnit: 'days', lengthValue: 5 };
+  const c: Cadence = { anchorDate: '2026-07-06', lengthUnit: 'days', lengthValue: 5 };
   const b0 = blockRange(c, 0);
   assert.strictEqual(b0.startDate, '2026-07-06');
   assert.strictEqual(b0.endDate, '2026-07-10', 'days/5 block0 end inclusive');
@@ -46,7 +47,7 @@ assert.strictEqual(addMonthsLocal('2024-01-31', 1), '2024-02-29', '2024 IS a lea
 
 // ===== months =====
 {
-  const c = { anchorDate: '2026-07-01', lengthUnit: 'months', lengthValue: 1 };
+  const c: Cadence = { anchorDate: '2026-07-01', lengthUnit: 'months', lengthValue: 1 };
   const b0 = blockRange(c, 0);
   const b1 = blockRange(c, 1);
   assert.strictEqual(b0.startDate, '2026-07-01', 'months block0 start');
@@ -57,7 +58,7 @@ assert.strictEqual(addMonthsLocal('2024-01-31', 1), '2024-02-29', '2024 IS a lea
 
 // ===== quarters (matches the app's existing 3-month schedule) =====
 {
-  const c = { anchorDate: '2026-07-01', lengthUnit: 'quarters', lengthValue: 1 };
+  const c: Cadence = { anchorDate: '2026-07-01', lengthUnit: 'quarters', lengthValue: 1 };
   const b0 = blockRange(c, 0);
   assert.strictEqual(b0.startDate, '2026-07-01', 'quarters block0 start');
   assert.strictEqual(b0.endDate, '2026-09-30', 'quarters block0 end (Jul-Sep)');
@@ -66,7 +67,7 @@ assert.strictEqual(addMonthsLocal('2024-01-31', 1), '2024-02-29', '2024 IS a lea
 
 // ===== years =====
 {
-  const c = { anchorDate: '2026-01-01', lengthUnit: 'years', lengthValue: 1 };
+  const c: Cadence = { anchorDate: '2026-01-01', lengthUnit: 'years', lengthValue: 1 };
   const b0 = blockRange(c, 0);
   assert.strictEqual(b0.startDate, '2026-01-01', 'years block0 start');
   assert.strictEqual(b0.endDate, '2026-12-31', 'years block0 end');
@@ -76,7 +77,7 @@ assert.strictEqual(addMonthsLocal('2024-01-31', 1), '2024-02-29', '2024 IS a lea
 // ===== month-end clamping across a block boundary =====
 // anchor 2026-01-31, months/1 -> block0 2026-01-31..2026-02-27, block1 2026-02-28..2026-03-30
 {
-  const c = { anchorDate: '2026-01-31', lengthUnit: 'months', lengthValue: 1 };
+  const c: Cadence = { anchorDate: '2026-01-31', lengthUnit: 'months', lengthValue: 1 };
   const b0 = blockRange(c, 0);
   const b1 = blockRange(c, 1);
   // block1 starts at Feb 28 (Jan 31 + 1mo clamped); block0 ends the day before.
@@ -90,7 +91,7 @@ assert.strictEqual(addMonthsLocal('2024-01-31', 1), '2024-02-29', '2024 IS a lea
 
 // ===== no gaps / no overlaps: each block ends exactly the day before the next =====
 {
-  const cadences = [
+  const cadences: Cadence[] = [
     { anchorDate: '2026-07-06', lengthUnit: 'weeks', lengthValue: 2 },
     { anchorDate: '2026-07-06', lengthUnit: 'days', lengthValue: 3 },
     { anchorDate: '2026-01-31', lengthUnit: 'months', lengthValue: 1 },
@@ -113,7 +114,7 @@ assert.strictEqual(addMonthsLocal('2024-01-31', 1), '2024-02-29', '2024 IS a lea
 // ===== currentBlockIndex =====
 // future anchor -> 0 (anchor strictly after today)
 {
-  const c = { anchorDate: '2026-07-06', lengthUnit: 'weeks', lengthValue: 2 };
+  const c: Cadence = { anchorDate: '2026-07-06', lengthUnit: 'weeks', lengthValue: 2 };
   assert.strictEqual(currentBlockIndex(c, '2026-06-13'), 0, 'future anchor -> block 0');
   // today before the anchor still gives 0 (block 0 endDate >= today)
   assert.strictEqual(currentBlockIndex(c, '2026-07-06'), 0, 'today == anchor -> block 0');
@@ -122,7 +123,7 @@ assert.strictEqual(addMonthsLocal('2024-01-31', 1), '2024-02-29', '2024 IS a lea
 }
 // anchor well in the past -> the straddling block (endDate>=today, prev endDate<today)
 {
-  const c = { anchorDate: '2020-01-06', lengthUnit: 'weeks', lengthValue: 2 };
+  const c: Cadence = { anchorDate: '2020-01-06', lengthUnit: 'weeks', lengthValue: 2 };
   const today = '2026-06-13';
   const idx = currentBlockIndex(c, today);
   assert.ok(idx > 0, 'past anchor yields a positive current index');
@@ -134,14 +135,14 @@ assert.strictEqual(addMonthsLocal('2024-01-31', 1), '2024-02-29', '2024 IS a lea
 }
 // past anchor with months cadence
 {
-  const c = { anchorDate: '2026-01-01', lengthUnit: 'months', lengthValue: 1 };
+  const c: Cadence = { anchorDate: '2026-01-01', lengthUnit: 'months', lengthValue: 1 };
   // 2026-06-13 falls in the June block (block index 5: Jun 1..Jun 30)
   assert.strictEqual(currentBlockIndex(c, '2026-06-13'), 5, 'June is block 5 of monthly cadence anchored Jan 1');
 }
 
 // ===== upcomingBlocks =====
 {
-  const c = { anchorDate: '2026-01-01', lengthUnit: 'months', lengthValue: 1 };
+  const c: Cadence = { anchorDate: '2026-01-01', lengthUnit: 'months', lengthValue: 1 };
   const today = '2026-06-13';
   const blocks = upcomingBlocks(c, today); // default count 5
   assert.strictEqual(blocks.length, 5, 'returns exactly 5 blocks by default');
@@ -159,7 +160,7 @@ assert.strictEqual(addMonthsLocal('2024-01-31', 1), '2024-02-29', '2024 IS a lea
 }
 // custom count
 {
-  const c = { anchorDate: '2026-07-06', lengthUnit: 'weeks', lengthValue: 1 };
+  const c: Cadence = { anchorDate: '2026-07-06', lengthUnit: 'weeks', lengthValue: 1 };
   assert.strictEqual(upcomingBlocks(c, '2026-06-13', 3).length, 3, 'honors a custom count');
 }
 

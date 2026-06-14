@@ -1,4 +1,4 @@
-// Smoke test: node server/trades.test.js
+// Smoke test: tsx server/trades.test.ts
 import assert from 'assert';
 import {
   createTrade, respondToOpenTrade, withdrawResponse, acceptOpenResponse,
@@ -6,21 +6,22 @@ import {
   setExtraElection, tradeOptions, swapPartners,
 } from './trades.js';
 import { vacationUsed, vacationAvailable } from './db.js';
+import type { Assignment, Db, Schedule, ShiftType, TimeOff, User } from '../shared/types.js';
 
 // Dates in 2099 are always "future".
-const day = { id: 'day', name: 'Day', startTime: '08:00', endTime: '16:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
-const eve = { id: 'eve', name: 'Evening', startTime: '17:00', endTime: '21:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
-const night = { id: 'night', name: 'Night', startTime: '22:00', endTime: '06:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
+const day: ShiftType = { id: 'day', name: 'Day', startTime: '08:00', endTime: '16:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
+const eve: ShiftType = { id: 'eve', name: 'Evening', startTime: '17:00', endTime: '21:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
+const night: ShiftType = { id: 'night', name: 'Night', startTime: '22:00', endTime: '06:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
 
-const mkUser = (id, name, extra = {}) => ({
+const mkUser = (id: string, name: string, extra: Record<string, any> = {}): User => ({
   id, name, role: 'employee', vacationDays: 10, color: '#888', ...extra,
 });
-const A = (userId, date, shiftTypeId) => ({ userId, date, shiftTypeId });
+const A = (userId: string, date: string, shiftTypeId: string): Assignment => ({ userId, date, shiftTypeId });
 
-function mkDb(users, assignments, timeOff = []) {
-  const schedule = {
+function mkDb(users: User[], assignments: Assignment[], timeOff: TimeOff[] = []): Db {
+  const schedule: Schedule = {
     id: 'sch1', startDate: '2099-01-01', endDate: '2099-01-31',
-    userIds: null,
+    userIds: null as any,
     assignments, unfilled: [], counts: {}, warnings: [],
     createdAt: '2099-01-01T00:00:00Z', preferenceStats: { asks: {}, median: 0 },
   };
@@ -35,9 +36,9 @@ function mkDb(users, assignments, timeOff = []) {
     meta: { rotationCursor: 0 },
   };
 }
-const owner = (db, date, shiftTypeId) =>
-  db.schedules[0].assignments.find((a) => a.date === date && a.shiftTypeId === shiftTypeId).userId;
-const notesFor = (db, uid) => db.notifications.filter((n) => n.userId === uid).map((n) => n.message);
+const owner = (db: Db, date: string, shiftTypeId: string) =>
+  db.schedules[0].assignments.find((a) => a.date === date && a.shiftTypeId === shiftTypeId)!.userId;
+const notesFor = (db: Db, uid: string) => db.notifications.filter((n) => n.userId === uid).map((n) => n.message);
 
 // ---- direct swap: happy path ----
 {
@@ -52,11 +53,11 @@ const notesFor = (db, uid) => db.notifications.filter((n) => n.userId === uid).m
   });
   assert.ok(trade, 'direct trade created');
   assert.ok(notesFor(db, 'b').some((m) => m.includes('proposes swapping')), 'target notified');
-  const r = acceptDirect(db, trade.id, { userId: 'b' });
+  const r = acceptDirect(db, trade!.id, { userId: 'b' });
   assert.ok(!r.error, `accept failed: ${r.error}`);
   assert.strictEqual(owner(db, '2099-01-05', 'day'), 'b');
   assert.strictEqual(owner(db, '2099-01-10', 'day'), 'a');
-  assert.strictEqual(trade.status, 'completed');
+  assert.strictEqual(trade!.status, 'completed');
   assert.ok(notesFor(db, 'a').some((m) => m.includes('accepted your swap')), 'proposer notified');
   assert.strictEqual(vacationUsed(db, 'a', 2099), 0, 'swaps never cost vacation');
   assert.strictEqual(vacationUsed(db, 'b', 2099), 0);
@@ -73,8 +74,8 @@ const notesFor = (db, uid) => db.notifications.filter((n) => n.userId === uid).m
     offered: { date: '2099-01-05', shiftTypeId: 'day' },
     toUserId: 'b', requested: { date: '2099-01-10', shiftTypeId: 'day' },
   });
-  rejectDirect(db, trade.id, { userId: 'b' });
-  assert.strictEqual(trade.status, 'rejected');
+  rejectDirect(db, trade!.id, { userId: 'b' });
+  assert.strictEqual(trade!.status, 'rejected');
   assert.ok(notesFor(db, 'a').some((m) => m.includes('declined')), 'proposer told of rejection');
   assert.strictEqual(owner(db, '2099-01-05', 'day'), 'a', 'assignments untouched');
 }
@@ -90,17 +91,17 @@ const notesFor = (db, uid) => db.notifications.filter((n) => n.userId === uid).m
     offered: { date: '2099-01-05', shiftTypeId: 'day' },
   });
   assert.ok(notesFor(db, 'b').length && notesFor(db, 'c').length, 'everyone alerted');
-  assert.ok(!respondToOpenTrade(db, trade.id, { userId: 'b', date: '2099-01-10', shiftTypeId: 'day' }).error);
-  assert.ok(!respondToOpenTrade(db, trade.id, { userId: 'c', date: '2099-01-12', shiftTypeId: 'eve' }).error);
-  assert.strictEqual(trade.responses.length, 2);
+  assert.ok(!respondToOpenTrade(db, trade!.id, { userId: 'b', date: '2099-01-10', shiftTypeId: 'day' }).error);
+  assert.ok(!respondToOpenTrade(db, trade!.id, { userId: 'c', date: '2099-01-12', shiftTypeId: 'eve' }).error);
+  assert.strictEqual(trade!.responses.length, 2);
   assert.ok(notesFor(db, 'a').filter((m) => m.includes('offered their')).length === 2, 'owner sees responses');
-  const r = acceptOpenResponse(db, trade.id, { userId: 'a', responseUserId: 'b' });
+  const r = acceptOpenResponse(db, trade!.id, { userId: 'a', responseUserId: 'b' });
   assert.ok(!r.error, `accept failed: ${r.error}`);
   assert.strictEqual(owner(db, '2099-01-05', 'day'), 'b');
   assert.strictEqual(owner(db, '2099-01-10', 'day'), 'a');
   assert.strictEqual(owner(db, '2099-01-12', 'eve'), 'c', 'runner-up keeps their shift');
   assert.ok(notesFor(db, 'c').some((m) => m.includes('went to someone else')), 'runner-up notified');
-  assert.strictEqual(trade.status, 'completed');
+  assert.strictEqual(trade!.status, 'completed');
 }
 
 // ---- open swap: withdraw a response ----
@@ -113,9 +114,9 @@ const notesFor = (db, uid) => db.notifications.filter((n) => n.userId === uid).m
     scheduleId: 'sch1', fromUserId: 'a', type: 'open',
     offered: { date: '2099-01-05', shiftTypeId: 'day' },
   });
-  respondToOpenTrade(db, trade.id, { userId: 'b', date: '2099-01-10', shiftTypeId: 'day' });
-  withdrawResponse(db, trade.id, { userId: 'b' });
-  assert.strictEqual(trade.responses.length, 0);
+  respondToOpenTrade(db, trade!.id, { userId: 'b', date: '2099-01-10', shiftTypeId: 'day' });
+  withdrawResponse(db, trade!.id, { userId: 'b' });
+  assert.strictEqual(trade!.responses.length, 0);
 }
 
 // ---- safety: ineligible responses are blocked fail-fast; schedule unchanged ----
@@ -135,13 +136,13 @@ const notesFor = (db, uid) => db.notifications.filter((n) => n.userId === uid).m
     offered: { date: '2099-01-07', shiftTypeId: 'day' },
   });
   // Ben can't take the 7th (night ends 06:00 -> <8h rest) — respond rejected.
-  const r1 = respondToOpenTrade(db, trade.id, { userId: 'b', date: '2099-01-20', shiftTypeId: 'eve' });
+  const r1 = respondToOpenTrade(db, trade!.id, { userId: 'b', date: '2099-01-20', shiftTypeId: 'eve' });
   assert.ok(r1.error && r1.error.includes('rest'), `expected rest block, got: ${r1.error}`);
   // Cy already works the 7th — respond rejected.
-  const r2 = respondToOpenTrade(db, trade.id, { userId: 'c', date: '2099-01-15', shiftTypeId: 'eve' });
+  const r2 = respondToOpenTrade(db, trade!.id, { userId: 'c', date: '2099-01-15', shiftTypeId: 'eve' });
   assert.ok(r2.error && r2.error.includes('already works'), `expected double-day block, got: ${r2.error}`);
-  assert.strictEqual(trade.responses.length, 0, 'no ineligible responses recorded');
-  assert.strictEqual(trade.status, 'open', 'trade still open');
+  assert.strictEqual(trade!.responses.length, 0, 'no ineligible responses recorded');
+  assert.strictEqual(trade!.status, 'open', 'trade still open');
   assert.strictEqual(owner(db, '2099-01-07', 'day'), 'a', 'schedule unchanged');
 }
 
@@ -164,16 +165,16 @@ const notesFor = (db, uid) => db.notifications.filter((n) => n.userId === uid).m
   assert.strictEqual(vacationUsed(db, 'a', 2099), 0, 'no charge at posting');
   assert.strictEqual(owner(db, '2099-01-15', 'day'), 'a', 'shift stays with giver until claimed');
 
-  const rc = claimGiveaway(db, trade.id, { userId: 'c' });
+  const rc = claimGiveaway(db, trade!.id, { userId: 'c' });
   assert.ok(rc.error && rc.error.includes('already works'), 'busy claimer blocked');
-  const rb = claimGiveaway(db, trade.id, { userId: 'b' });
+  const rb = claimGiveaway(db, trade!.id, { userId: 'b' });
   assert.ok(!rb.error, `claim failed: ${rb.error}`);
   assert.strictEqual(owner(db, '2099-01-15', 'day'), 'b');
-  assert.strictEqual(trade.status, 'completed');
+  assert.strictEqual(trade!.status, 'completed');
   assert.strictEqual(vacationUsed(db, 'a', 2099), 0, 'above-required giveaway never charges');
   assert.deepStrictEqual(extraShifts(db, 'sch1'), { b: 1 }, 'extra shift tracked');
   assert.ok(notesFor(db, 'a').some((m) => m.includes('picked up your')), 'giver notified');
-  const again = claimGiveaway(db, trade.id, { userId: 'c' });
+  const again = claimGiveaway(db, trade!.id, { userId: 'c' });
   assert.strictEqual(again.code, 409, 'double-claim refused');
 }
 
@@ -190,9 +191,9 @@ const notesFor = (db, uid) => db.notifications.filter((n) => n.userId === uid).m
   });
   assert.ok(trade, 'affordable giveaway allowed');
   assert.strictEqual(vacationUsed(db, 'a', 2099), 0, 'nothing charged before the claim');
-  const r = claimGiveaway(db, trade.id, { userId: 'b' });
+  const r = claimGiveaway(db, trade!.id, { userId: 'b' });
   assert.ok(!r.error, `claim failed: ${r.error}`);
-  assert.strictEqual(db.schedules[0].vacationCharged.a, 1, 'day charged at claim');
+  assert.strictEqual(db.schedules[0].vacationCharged!.a, 1, 'day charged at claim');
   assert.strictEqual(vacationUsed(db, 'a', 2099), 1);
 }
 
@@ -220,10 +221,10 @@ const notesFor = (db, uid) => db.notifications.filter((n) => n.userId === uid).m
     offered: { date: '2099-01-15', shiftTypeId: 'day' },
   });
   // another schedule in the same year eats a's last day before anyone claims
-  db.schedules.push({ id: 'sch2', startDate: '2099-02-01', endDate: '2099-02-07', assignments: [], unfilled: [], vacationCharged: { a: 1 } });
-  const r = claimGiveaway(db, trade.id, { userId: 'b' });
+  db.schedules.push({ id: 'sch2', startDate: '2099-02-01', endDate: '2099-02-07', assignments: [], unfilled: [], vacationCharged: { a: 1 } } as unknown as Schedule);
+  const r = claimGiveaway(db, trade!.id, { userId: 'b' });
   assert.strictEqual(r.code, 409, 'unaffordable claim rejected');
-  assert.strictEqual(trade.status, 'expired');
+  assert.strictEqual(trade!.status, 'expired');
   assert.ok(notesFor(db, 'a').some((m) => m.includes('expired')), 'giver notified of expiry');
   assert.strictEqual(owner(db, '2099-01-15', 'day'), 'a', 'shift untouched');
 }
@@ -246,22 +247,22 @@ const notesFor = (db, uid) => db.notifications.filter((n) => n.userId === uid).m
     scheduleId: 'sch1', fromUserId: 'a', type: 'giveaway',
     offered: { date: '2099-01-17', shiftTypeId: 'day' },
   });
-  const r = claimGiveaway(db, trade.id, { userId: 'b' });
+  const r = claimGiveaway(db, trade!.id, { userId: 'b' });
   assert.ok(!r.error, `claim failed: ${r.error}`);
-  assert.deepStrictEqual(db.schedules[0].extraElections.a, { vacation: 1, incentive: 0 }, 'incentive trimmed first');
+  assert.deepStrictEqual(db.schedules[0].extraElections!.a, { vacation: 1, incentive: 0 }, 'incentive trimmed first');
 
   // spending the elected vacation elsewhere blocks both lowering it and the
   // giveaway that would trim it
-  db.schedules.push({ id: 'sch2', startDate: '2099-03-01', endDate: '2099-03-07', assignments: [], unfilled: [], vacationCharged: { a: 1 } });
+  db.schedules.push({ id: 'sch2', startDate: '2099-03-01', endDate: '2099-03-07', assignments: [], unfilled: [], vacationCharged: { a: 1 } } as unknown as Schedule);
   const lower = setExtraElection(db, 'sch1', { userId: 'a', vacation: 0, incentive: 0 });
   assert.ok(lower.error && lower.error.includes('already used'), 'cannot un-elect spent vacation');
   const { trade: t2 } = createTrade(db, {
     scheduleId: 'sch1', fromUserId: 'a', type: 'giveaway',
     offered: { date: '2099-01-16', shiftTypeId: 'day' },
   });
-  const r2 = claimGiveaway(db, t2.id, { userId: 'b' });
+  const r2 = claimGiveaway(db, t2!.id, { userId: 'b' });
   assert.strictEqual(r2.code, 409, 'claim blocked when trimming elected vacation would go negative');
-  assert.strictEqual(t2.status, 'expired');
+  assert.strictEqual(t2!.status, 'expired');
 }
 
 // ---- max-shifts cap deliberately does NOT block a claim ----
@@ -275,7 +276,7 @@ const notesFor = (db, uid) => db.notifications.filter((n) => n.userId === uid).m
     scheduleId: 'sch1', fromUserId: 'a', type: 'giveaway',
     offered: { date: '2099-01-15', shiftTypeId: 'day' },
   });
-  const r = claimGiveaway(db, trade.id, { userId: 'b' });
+  const r = claimGiveaway(db, trade!.id, { userId: 'b' });
   assert.ok(!r.error, `cap must not block an extra pickup: ${r.error}`);
   assert.strictEqual(owner(db, '2099-01-15', 'day'), 'b');
 }
@@ -292,10 +293,10 @@ const notesFor = (db, uid) => db.notifications.filter((n) => n.userId === uid).m
     toUserId: 'b', requested: { date: '2099-01-10', shiftTypeId: 'day' },
   });
   // admin moves Ann's shift to Cy in the meantime
-  db.schedules[0].assignments.find((x) => x.date === '2099-01-05').userId = 'c';
-  const r = acceptDirect(db, trade.id, { userId: 'b' });
+  db.schedules[0].assignments.find((x) => x.date === '2099-01-05')!.userId = 'c';
+  const r = acceptDirect(db, trade!.id, { userId: 'b' });
   assert.strictEqual(r.code, 409, 'stale accept rejected');
-  assert.strictEqual(trade.status, 'expired');
+  assert.strictEqual(trade!.status, 'expired');
   assert.ok(notesFor(db, 'a').some((m) => m.includes('expired')), 'proposer told of expiry');
 }
 
@@ -334,14 +335,14 @@ const notesFor = (db, uid) => db.notifications.filter((n) => n.userId === uid).m
   });
   // Ben offering the 20th: Ann can take it, but Ben can't take the 7th day
   // shift (his night ends 06:00 that day -> <8h rest). Rejected fail-fast.
-  const rest = respondToOpenTrade(db, trade.id, { userId: 'b', date: '2099-01-20', shiftTypeId: 'eve' });
+  const rest = respondToOpenTrade(db, trade!.id, { userId: 'b', date: '2099-01-20', shiftTypeId: 'eve' });
   assert.ok(rest.error && rest.error.includes('rest'), `expected rest block, got: ${rest.error}`);
-  assert.strictEqual(trade.responses.length, 0, 'no response recorded on rejection');
+  assert.strictEqual(trade!.responses.length, 0, 'no response recorded on rejection');
   // Ben offering the 21st: he already works the 7th? no — but Ann works the
   // 21st, so she can't take it back (double-day). Rejected.
-  const dbl = respondToOpenTrade(db, trade.id, { userId: 'b', date: '2099-01-21', shiftTypeId: 'day' });
+  const dbl = respondToOpenTrade(db, trade!.id, { userId: 'b', date: '2099-01-21', shiftTypeId: 'day' });
   assert.ok(dbl.error && dbl.error.includes('already works'), `expected double-day block, got: ${dbl.error}`);
-  assert.strictEqual(trade.responses.length, 0, 'still no responses');
+  assert.strictEqual(trade!.responses.length, 0, 'still no responses');
 }
 
 // ---- tradeOptions: a must-off coworker can't respond/claim; free one can ----
@@ -360,16 +361,16 @@ const notesFor = (db, uid) => db.notifications.filter((n) => n.userId === uid).m
   const open = createTrade(db, {
     scheduleId: 'sch1', fromUserId: 'a', type: 'open',
     offered: { date: '2099-01-07', shiftTypeId: 'day' },
-  }).trade;
+  }).trade!;
   const give = createTrade(db, {
     scheduleId: 'sch1', fromUserId: 'a', type: 'giveaway',
     offered: { date: '2099-01-07', shiftTypeId: 'day' },
-  }).trade;
+  }).trade!;
 
   const optsBen = tradeOptions(db, 'sch1', 'b');
   assert.deepStrictEqual(optsBen.respond[open.id], [], 'Ben is off the 7th -> no offerable shift');
   assert.strictEqual(optsBen.claim[give.id].ok, false, 'Ben cannot claim the 7th');
-  assert.ok(optsBen.claim[give.id].reason.includes('vacation'), 'reason surfaced');
+  assert.ok(optsBen.claim[give.id].reason!.includes('vacation'), 'reason surfaced');
 
   const optsCy = tradeOptions(db, 'sch1', 'c');
   assert.strictEqual(optsCy.respond[open.id].length, 1, 'Cy can offer her 18th for the 7th');
