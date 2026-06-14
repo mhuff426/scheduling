@@ -3,21 +3,30 @@
 // Times are emitted as floating local times, which is the right behavior for
 // shift work (an 8am shift is 8am wherever the workplace is).
 
-function icsEscape(s) {
+import type { Assignment, ShiftType, User } from '../shared/types.js';
+
+function icsEscape(s: string): string {
   return String(s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
 }
 
-function dt(date, time) {
+function dt(date: string, time: string): string {
   return date.replace(/-/g, '') + 'T' + time.replace(':', '') + '00';
 }
 
-function addDays(date, n) {
+function addDays(date: string, n: number): string {
   const d = new Date(date + 'T00:00:00');
   d.setDate(d.getDate() + n);
   return d.toISOString().slice(0, 10);
 }
 
-export function buildIcs({ user, assignments, shiftTypes, scheduleId }) {
+interface BuildIcsArgs {
+  user: User;
+  assignments: Assignment[];
+  shiftTypes: ShiftType[];
+  scheduleId: string;
+}
+
+export function buildIcs({ user, assignments, shiftTypes, scheduleId }: BuildIcsArgs): string {
   const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
   const lines = [
     'BEGIN:VCALENDAR',

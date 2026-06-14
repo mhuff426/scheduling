@@ -1,20 +1,24 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { api } from './api.js';
-import ScheduleView from './components/ScheduleView.jsx';
-import TimeOff from './components/TimeOff.jsx';
-import Admin from './components/Admin.jsx';
-import Trades from './components/Trades.jsx';
+import { useEffect, useState, useCallback } from 'react';
+import { api } from './api';
+import ScheduleView from './components/ScheduleView';
+import TimeOff from './components/TimeOff';
+import Admin from './components/Admin';
+import Trades from './components/Trades';
+import type { AppState } from '../../shared/types.js';
+
+// A mutation wrapper: runs `fn`, refreshes state, surfaces server errors.
+export type Act = (fn: () => unknown) => Promise<boolean>;
 
 export default function App() {
-  const [db, setDb] = useState(null);
-  const [currentUserId, setCurrentUserId] = useState(null);
+  const [db, setDb] = useState<AppState | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [tab, setTab] = useState('schedule');
   const [error, setError] = useState('');
 
   const refresh = useCallback(async () => {
     const state = await api.getState();
     setDb(state);
-    return state;
+    return state as AppState;
   }, []);
 
   useEffect(() => {
@@ -29,14 +33,14 @@ export default function App() {
   const isAdmin = currentUser?.role === 'admin';
 
   // Wraps a mutation: runs it, refreshes state, surfaces server errors.
-  const act = async (fn) => {
+  const act: Act = async (fn) => {
     setError('');
     try {
       await fn();
       await refresh();
       return true;
     } catch (e) {
-      setError(e.message);
+      setError((e as Error).message);
       return false;
     }
   };
@@ -45,14 +49,14 @@ export default function App() {
     (n) => n.userId === currentUser?.id && !n.read
   ).length;
 
-  const tabs = [
+  const tabs: { id: string; label: string; badge?: number }[] = [
     { id: 'schedule', label: 'Schedule' },
     { id: 'timeoff', label: 'My Requests' },
     { id: 'trades', label: 'Trades', badge: unread },
     ...(isAdmin ? [{ id: 'admin', label: 'Admin' }] : []),
   ];
 
-  const openTab = (id) => {
+  const openTab = (id: string) => {
     setTab(id);
     setError('');
     if (id === 'trades' && unread > 0) {
@@ -75,7 +79,7 @@ export default function App() {
               onClick={() => openTab(t.id)}
             >
               {t.label}
-              {t.badge > 0 && <span className="badge">{t.badge}</span>}
+              {t.badge != null && t.badge > 0 && <span className="badge">{t.badge}</span>}
             </button>
           ))}
         </nav>

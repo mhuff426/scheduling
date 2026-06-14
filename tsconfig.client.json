@@ -1,0 +1,14 @@
+{
+  // Browser side: the React app, bundled by Vite (esbuild handles the TS).
+  // bundler resolution lets relative imports stay extensionless; the DOM libs
+  // and vite/client types cover the browser globals and `import './styles.css'`.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["esnext", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["vite/client"]
+  },
+  "include": ["client/**/*"]
+}

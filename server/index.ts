@@ -1,4 +1,5 @@
 import express from 'express';
+import type { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -14,6 +15,7 @@ import {
 } from './trades.js';
 import { buildIcs } from './ics.js';
 import { isValidCadence, blockRange, currentBlockIndex, todayYmd } from '../shared/blocks.js';
+import type { Db, ShiftType, User } from '../shared/types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -25,8 +27,8 @@ const PALETTE = [
   '#06b6d4', '#f43f5e', '#8b5cf6', '#10b981', '#d97706',
 ];
 
-const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s || '');
-const isTime = (s) => /^\d{2}:\d{2}$/.test(s || '');
+const isDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s || '');
+const isTime = (s: string) => /^\d{2}:\d{2}$/.test(s || '');
 
 // ---- whole app state (small dataset; one fetch keeps the client simple) ----
 app.get('/api/state', (req, res) => {
@@ -40,7 +42,7 @@ app.post('/api/users', (req, res) => {
   const db = loadDb();
   const { name, role, vacationDays } = req.body;
   if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required.' });
-  const user = {
+  const user: User = {
     id: newId('u'),
     name: name.trim(),
     role: role === 'admin' ? 'admin' : 'employee',
@@ -52,7 +54,7 @@ app.post('/api/users', (req, res) => {
   res.json(user);
 });
 
-const isLastAdmin = (db, user) =>
+const isLastAdmin = (db: Db, user: User) =>
   user.role === 'admin' && db.users.filter((u) => u.role === 'admin').length === 1;
 
 app.put('/api/users/:id', (req, res) => {
@@ -105,7 +107,7 @@ app.delete('/api/users/:id', (req, res) => {
 // ---- shift types ----
 // Validate and normalize the shift-type fields shared by create and edit.
 // Returns { error } on failure or { fields } on success.
-function parseShiftType(body) {
+function parseShiftType(body: any): { error: string; fields?: undefined } | { error?: undefined; fields: Omit<ShiftType, 'id'> } {
   const { name, startTime, endTime, frequency, dayOfWeek, staffRequired, minRun, maxRun, weight } = body;
   if (!name || !name.trim()) return { error: 'Shift name is required.' };
   if (!isTime(startTime) || !isTime(endTime))
@@ -140,7 +142,7 @@ app.post('/api/shift-types', (req, res) => {
   const db = loadDb();
   const { error, fields } = parseShiftType(req.body);
   if (error) return res.status(400).json({ error });
-  const st = { id: newId('s'), ...fields };
+  const st: ShiftType = { id: newId('s'), ...fields! };
   db.shiftTypes.push(st);
   saveDb();
   res.json(st);
@@ -153,7 +155,7 @@ app.put('/api/shift-types/:id', (req, res) => {
   const { error, fields } = parseShiftType(req.body);
   if (error) return res.status(400).json({ error });
   // Mutate in place so existing schedules keep referencing the same id.
-  Object.assign(st, fields);
+  Object.assign(st, fields!);
   saveDb();
   res.json(st);
 });
@@ -258,7 +260,7 @@ app.post('/api/schedules', (req, res) => {
     return res.status(400).json({ error: 'A schedule for this block already exists — delete it first to regenerate.' });
 
   const requested = Array.isArray(req.body.userIds) ? req.body.userIds : null;
-  const userIds = (requested || db.users.map((u) => u.id)).filter((id) =>
+  const userIds = (requested || db.users.map((u) => u.id)).filter((id: string) =>
     db.users.some((u) => u.id === id)
   );
   if (userIds.length === 0)
@@ -308,7 +310,7 @@ app.post('/api/schedules/:id/reassign', (req, res) => {
     if (err) return res.status(400).json({ error: err });
     // Weight-0 (standby) shifts don't count toward the shift maximum.
     const shiftById = Object.fromEntries(db.shiftTypes.map((s) => [s.id, s]));
-    const maxAllowed = effectiveMaximums(db).get(to.id);
+    const maxAllowed = effectiveMaximums(db).get(to.id) ?? Infinity;
     const countingHeld = schedule.assignments.filter(
       (a) =>
         a.userId === toUserId && a !== moving && weightOf(shiftById[a.shiftTypeId], db.settings) > 0
@@ -360,7 +362,7 @@ app.delete('/api/schedules/:id', (req, res) => {
 // ---- shift trading ----
 // Trade functions mutate the loadDb() cache; persist here regardless of
 // outcome (some failures, like expiry, legitimately change state).
-const tradeResult = (res, r) => {
+const tradeResult = (res: Response, r: any) => {
   saveDb();
   return r.error ? res.status(r.code || 400).json({ error: r.error }) : res.json(r.trade);
 };
@@ -400,14 +402,14 @@ app.post('/api/trades/:id/cancel', (req, res) =>
 
 // Read-only eligibility lookups so the UI only offers feasible trades.
 app.get('/api/schedules/:id/trade-options', (req, res) =>
-  res.json(tradeOptions(loadDb(), req.params.id, req.query.userId))
+  res.json(tradeOptions(loadDb(), req.params.id, req.query.userId as string))
 );
 
 app.get('/api/schedules/:id/swap-partners', (req, res) =>
   res.json(
-    swapPartners(loadDb(), req.params.id, req.query.userId, {
-      date: req.query.date,
-      shiftTypeId: req.query.shiftTypeId,
+    swapPartners(loadDb(), req.params.id, req.query.userId as string, {
+      date: req.query.date as string,
+      shiftTypeId: req.query.shiftTypeId as string,
     })
   )
 );

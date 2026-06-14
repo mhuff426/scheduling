@@ -1,17 +1,26 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { api } from '../api.js';
-import { prettyDate, formatTime, todayYmd } from '../dates.js';
-import { settlementFor, vacationSummary, shiftWeight } from '../shiftMath.js';
+import { useEffect, useMemo, useState } from 'react';
+import { api } from '../api';
+import { prettyDate, formatTime, todayYmd } from '../dates';
+import { settlementFor, vacationSummary, shiftWeight } from '../shiftMath';
+import type { AppState, Assignment, Schedule, Slot, User } from '../../../shared/types.js';
+import type { Act } from '../App';
 
-export default function Trades({ db, currentUser, act }) {
+interface Props { db: AppState; currentUser: User; act: Act; }
+
+type TradeOptions = {
+  respond: Record<string, Slot[]>;
+  claim: Record<string, { ok: boolean; reason: string | null }>;
+};
+
+export default function Trades({ db, currentUser, act }: Props) {
   const schedules = [...db.schedules].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const [scheduleId, setScheduleId] = useState(schedules[0]?.id || null);
+  const [scheduleId, setScheduleId] = useState<string | null>(schedules[0]?.id || null);
   const schedule = schedules.find((s) => s.id === scheduleId) || schedules[0];
 
   // Server-computed eligibility for this viewer: which shifts can answer each
   // open swap, and which giveaways they can claim. Refetched whenever the
   // schedule, user, or underlying state changes.
-  const [options, setOptions] = useState({ respond: {}, claim: {} });
+  const [options, setOptions] = useState<TradeOptions>({ respond: {}, claim: {} });
   useEffect(() => {
     if (!schedule) return;
     let live = true;
@@ -42,16 +51,16 @@ export default function Trades({ db, currentUser, act }) {
 
   const today = todayYmd();
   const me = currentUser.id;
-  const slotKey = (s) => `${s.date}|${s.shiftTypeId}`;
-  const slotFromKey = (k) => ({ date: k.split('|')[0], shiftTypeId: k.split('|')[1] });
-  const slotLabel = (s) => {
+  const slotKey = (s: Slot) => `${s.date}|${s.shiftTypeId}`;
+  const slotFromKey = (k: string): Slot => ({ date: k.split('|')[0], shiftTypeId: k.split('|')[1] });
+  const slotLabel = (s: Slot) => {
     const st = shiftById[s.shiftTypeId];
     return st
       ? `${st.name} · ${prettyDate(s.date)} (${formatTime(st.startTime)}–${formatTime(st.endTime)})`
       : s.date;
   };
 
-  const futureShiftsOf = (uid) =>
+  const futureShiftsOf = (uid: string) =>
     schedule.assignments
       .filter((a) => a.userId === uid && a.date > today)
       .sort((a, b) => a.date.localeCompare(b.date));
@@ -103,7 +112,7 @@ export default function Trades({ db, currentUser, act }) {
                   <div>
                     <strong>{userById[t.fromUserId]?.name}</strong> offers their{' '}
                     <strong>{slotLabel(t.offered)}</strong> in exchange for your{' '}
-                    <strong>{slotLabel(t.requested)}</strong>.
+                    <strong>{slotLabel(t.requested!)}</strong>.
                   </div>
                   <div className="row">
                     <button className="btn primary sm" onClick={() => act(() => api.acceptTrade(t.id, { userId: me }))}>
@@ -181,8 +190,8 @@ export default function Trades({ db, currentUser, act }) {
                   <div>
                     {t.type === 'open' && <>Open swap of your <strong>{slotLabel(t.offered)}</strong></>}
                     {t.type === 'direct' && (
-                      <>Swap proposal to <strong>{userById[t.toUserId]?.name}</strong>: your{' '}
-                        <strong>{slotLabel(t.offered)}</strong> for their <strong>{slotLabel(t.requested)}</strong> — awaiting reply</>
+                      <>Swap proposal to <strong>{userById[t.toUserId!]?.name}</strong>: your{' '}
+                        <strong>{slotLabel(t.offered)}</strong> for their <strong>{slotLabel(t.requested!)}</strong> — awaiting reply</>
                     )}
                     {t.type === 'giveaway' && (
                       <>Giving up <strong>{slotLabel(t.offered)}</strong> — 1 vacation day spent, shift stays yours until claimed</>
@@ -237,7 +246,14 @@ export default function Trades({ db, currentUser, act }) {
   );
 }
 
-function OfferPicker({ shifts, slotLabel, slotKey, onOffer }) {
+interface OfferPickerProps {
+  shifts: Slot[];
+  slotLabel: (s: Slot) => string;
+  slotKey: (s: Slot) => string;
+  onOffer: (key: string) => void;
+}
+
+function OfferPicker({ shifts, slotLabel, slotKey, onOffer }: OfferPickerProps) {
   const [key, setKey] = useState('');
   if (shifts.length === 0) return <span className="muted small">You have no future shifts to offer.</span>;
   return (
@@ -253,14 +269,25 @@ function OfferPicker({ shifts, slotLabel, slotKey, onOffer }) {
   );
 }
 
-function StartTrade({ db, act, me, schedule, futureShiftsOf, slotLabel, slotKey, slotFromKey }) {
+interface StartTradeProps {
+  db: AppState;
+  act: Act;
+  me: User;
+  schedule: Schedule;
+  futureShiftsOf: (uid: string) => Assignment[];
+  slotLabel: (s: Slot) => string;
+  slotKey: (s: Slot) => string;
+  slotFromKey: (k: string) => Slot;
+}
+
+function StartTrade({ db, act, me, schedule, futureShiftsOf, slotLabel, slotKey, slotFromKey }: StartTradeProps) {
   const [shiftKey, setShiftKey] = useState('');
   const [mode, setMode] = useState('open');
   const [targetUserId, setTargetUserId] = useState('');
   const [targetShiftKey, setTargetShiftKey] = useState('');
   // Feasible direct-swap partners for the chosen offered shift, from the
   // server (only employees who can take it, with the shifts I can take back).
-  const [partners, setPartners] = useState([]);
+  const [partners, setPartners] = useState<{ userId: string; shifts: Slot[] }[]>([]);
 
   const myShifts = futureShiftsOf(me.id);
   const userById = Object.fromEntries(db.users.map((u) => [u.id, u]));

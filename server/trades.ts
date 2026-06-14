@@ -16,29 +16,37 @@ import {
   restOk, nightCapOk, summarizeSchedule, includedUsers,
   weightOf, countingShifts, requiredFor, extraDays,
 } from './scheduler.js';
+import type {
+  Assignment, Db, ExtraElection, Schedule, ShiftType, Slot, Trade, TradeType, User,
+} from '../shared/types.js';
 
-const pad = (n) => String(n).padStart(2, '0');
+// Functions return a success or failure shape; the routes pull these fields off.
+type TradeOutcome =
+  | { trade: Trade; error?: undefined; code?: undefined }
+  | { error: string; code: number; trade?: undefined };
+
+const pad = (n: number) => String(n).padStart(2, '0');
 const todayYmd = () => {
   const d = new Date();
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 };
-const isFuture = (date) => date > todayYmd();
+const isFuture = (date: string) => date > todayYmd();
 
-const shiftById = (db) => Object.fromEntries(db.shiftTypes.map((s) => [s.id, s]));
-const userName = (db, id) => db.users.find((u) => u.id === id)?.name || 'Someone';
+const shiftById = (db: Db): Record<string, ShiftType> => Object.fromEntries(db.shiftTypes.map((s) => [s.id, s]));
+const userName = (db: Db, id: string) => db.users.find((u) => u.id === id)?.name || 'Someone';
 
-function slotLabel(db, slot) {
+function slotLabel(db: Db, slot: Slot) {
   const st = db.shiftTypes.find((s) => s.id === slot.shiftTypeId);
   return `${st ? st.name : 'shift'} on ${slot.date}`;
 }
 
-function findAssignment(schedule, userId, slot) {
+function findAssignment(schedule: Schedule, userId: string, slot: Slot) {
   return schedule.assignments.find(
     (a) => a.userId === userId && a.date === slot.date && a.shiftTypeId === slot.shiftTypeId
   );
 }
 
-function notify(db, userId, message, tradeId) {
+function notify(db: Db, userId: string, message: string, tradeId: string) {
   db.notifications.push({
     id: newId('n'),
     userId,
@@ -49,7 +57,7 @@ function notify(db, userId, message, tradeId) {
   });
 }
 
-function refreshSchedule(db, schedule) {
+function refreshSchedule(db: Db, schedule: Schedule) {
   const { counts, warnings } = summarizeSchedule(db, schedule);
   schedule.counts = counts;
   schedule.warnings = warnings;
@@ -57,7 +65,7 @@ function refreshSchedule(db, schedule) {
 
 // Safety-rules check (no max-shifts cap): can `user` work `slot`, pretending
 // the assignments in `ignore` don't exist (i.e. shifts they are giving away)?
-export function canTakeShift(db, schedule, slot, user, ignore = []) {
+export function canTakeShift(db: Db, schedule: Schedule, slot: Slot, user: User, ignore: Assignment[] = []): string | null {
   const stMap = shiftById(db);
   const st = stMap[slot.shiftTypeId];
   if (!st) return 'That shift type no longer exists.';
@@ -81,7 +89,7 @@ export function canTakeShift(db, schedule, slot, user, ignore = []) {
 
 // A swap is valid when both people can take the other's shift, each ignoring
 // the shift they give up. Returns the first blocking reason, or null.
-export function swapValid(db, schedule, aAssign, bAssign) {
+export function swapValid(db: Db, schedule: Schedule, aAssign: Assignment, bAssign: Assignment): string | null {
   const aUser = db.users.find((u) => u.id === aAssign.userId);
   const bUser = db.users.find((u) => u.id === bAssign.userId);
   if (!aUser || !bUser) return 'One of the employees no longer exists.';
@@ -93,7 +101,7 @@ export function swapValid(db, schedule, aAssign, bAssign) {
 
 // Both directions of a swap must be safe. On success the two assignments
 // simply change owners.
-function executeSwap(db, schedule, aAssign, bAssign) {
+function executeSwap(db: Db, schedule: Schedule, aAssign: Assignment, bAssign: Assignment): string | null {
   const err = swapValid(db, schedule, aAssign, bAssign);
   if (err) return err;
   const tmp = aAssign.userId;
@@ -105,7 +113,7 @@ function executeSwap(db, schedule, aAssign, bAssign) {
 
 // The candidate's future shifts that would form a valid swap against `offered`
 // (owned by offeredUserId). Used to populate the UI's offer/partner pickers.
-export function eligibleSwapShifts(db, schedule, offered, offeredUserId, candidateUserId) {
+export function eligibleSwapShifts(db: Db, schedule: Schedule, offered: Slot, offeredUserId: string, candidateUserId: string): Slot[] {
   const offeredAssign = findAssignment(schedule, offeredUserId, offered);
   if (!offeredAssign) return [];
   return schedule.assignments
@@ -117,11 +125,11 @@ export function eligibleSwapShifts(db, schedule, offered, offeredUserId, candida
 // Everything the Trades screen needs to gate its actions for one viewer, in a
 // single read: which of their shifts can answer each open swap, and whether
 // they can claim each open giveaway.
-export function tradeOptions(db, scheduleId, userId) {
+export function tradeOptions(db: Db, scheduleId: string, userId: string) {
   const schedule = db.schedules.find((s) => s.id === scheduleId);
   if (!schedule) return { respond: {}, claim: {} };
-  const respond = {};
-  const claim = {};
+  const respond: Record<string, Slot[]> = {};
+  const claim: Record<string, { ok: boolean; reason: string | null }> = {};
   for (const t of db.trades || []) {
     if (t.scheduleId !== scheduleId || t.status !== 'open') continue;
     if (t.type === 'open' && t.fromUserId !== userId) {
@@ -138,10 +146,10 @@ export function tradeOptions(db, scheduleId, userId) {
 // Feasible partners for a proposed direct swap of `offered` (owned by userId):
 // every other employee who has at least one shift forming a valid swap, with
 // those shifts listed.
-export function swapPartners(db, scheduleId, userId, offered) {
+export function swapPartners(db: Db, scheduleId: string, userId: string, offered: Slot) {
   const schedule = db.schedules.find((s) => s.id === scheduleId);
   if (!schedule) return [];
-  const partners = [];
+  const partners: { userId: string; shifts: Slot[] }[] = [];
   for (const u of includedUsers(db, schedule)) {
     if (u.id === userId) continue;
     const shifts = eligibleSwapShifts(db, schedule, offered, userId, u.id);
@@ -153,7 +161,7 @@ export function swapPartners(db, scheduleId, userId, offered) {
 // Would losing `offered` drop the giver below their requirement, counting the
 // vacation already charged to them this schedule? (Weight-0 standby shifts
 // never count, so giving one away never needs a day.)
-function giveawayNeedsDay(db, schedule, giverId, offered) {
+function giveawayNeedsDay(db: Db, schedule: Schedule, giverId: string, offered: Slot) {
   const st = db.shiftTypes.find((s) => s.id === offered.shiftTypeId);
   const losesCount = st && weightOf(st, db.settings) > 0 ? 1 : 0;
   const after = countingShifts(db, schedule, giverId) - losesCount;
@@ -161,13 +169,13 @@ function giveawayNeedsDay(db, schedule, giverId, offered) {
   return after + charged < requiredFor(db, schedule, giverId);
 }
 
-function expire(db, trade, reason) {
+function expire(db: Db, trade: Trade, reason: string) {
   trade.status = 'expired';
   trade.resolvedAt = new Date().toISOString();
   notify(db, trade.fromUserId, `Your trade for ${slotLabel(db, trade.offered)} expired: ${reason}`, trade.id);
 }
 
-export function createTrade(db, { scheduleId, fromUserId, type, offered, toUserId, requested }) {
+export function createTrade(db: Db, { scheduleId, fromUserId, type, offered, toUserId, requested }: { scheduleId: string; fromUserId: string; type: TradeType; offered: Slot; toUserId?: string | null; requested?: Slot | null }) {
   const schedule = db.schedules.find((s) => s.id === scheduleId);
   if (!schedule) return { error: 'Schedule not found.', code: 404 };
   const from = db.users.find((u) => u.id === fromUserId);
@@ -179,7 +187,7 @@ export function createTrade(db, { scheduleId, fromUserId, type, offered, toUserI
   if (!isFuture(offered.date))
     return { error: 'Only future shifts can be traded.', code: 400 };
 
-  const trade = {
+  const trade: Trade = {
     id: newId('tr'),
     scheduleId,
     type,
@@ -197,13 +205,13 @@ export function createTrade(db, { scheduleId, fromUserId, type, offered, toUserI
   if (type === 'direct') {
     const to = db.users.find((u) => u.id === toUserId);
     if (!to || to.id === fromUserId) return { error: 'Pick another employee to swap with.', code: 400 };
-    if (!requested || !findAssignment(schedule, toUserId, requested))
+    if (!requested || !findAssignment(schedule, to.id, requested))
       return { error: `That shift doesn't belong to ${to.name}.`, code: 400 };
     if (!isFuture(requested.date))
       return { error: 'Only future shifts can be traded.', code: 400 };
-    trade.toUserId = toUserId;
+    trade.toUserId = to.id;
     trade.requested = { date: requested.date, shiftTypeId: requested.shiftTypeId };
-    notify(db, toUserId, `${from.name} proposes swapping their ${slotLabel(db, trade.offered)} for your ${slotLabel(db, trade.requested)}.`, trade.id);
+    notify(db, to.id, `${from.name} proposes swapping their ${slotLabel(db, trade.offered)} for your ${slotLabel(db, trade.requested)}.`, trade.id);
   } else if (type === 'giveaway') {
     // A vacation day is only needed when losing this shift drops the giver
     // below their requirement — and then only if they can afford it.
@@ -230,7 +238,7 @@ export function createTrade(db, { scheduleId, fromUserId, type, offered, toUserI
   return { trade };
 }
 
-export function respondToOpenTrade(db, tradeId, { userId, date, shiftTypeId }) {
+export function respondToOpenTrade(db: Db, tradeId: string, { userId, date, shiftTypeId }: { userId: string; date: string; shiftTypeId: string }) {
   const trade = db.trades.find((t) => t.id === tradeId);
   if (!trade) return { error: 'Trade not found.', code: 404 };
   if (trade.type !== 'open' || trade.status !== 'open')
@@ -258,14 +266,14 @@ export function respondToOpenTrade(db, tradeId, { userId, date, shiftTypeId }) {
   return { trade };
 }
 
-export function withdrawResponse(db, tradeId, { userId }) {
+export function withdrawResponse(db: Db, tradeId: string, { userId }: { userId: string }) {
   const trade = db.trades.find((t) => t.id === tradeId);
   if (!trade) return { error: 'Trade not found.', code: 404 };
   trade.responses = trade.responses.filter((r) => r.userId !== userId);
   return { trade };
 }
 
-export function acceptOpenResponse(db, tradeId, { userId, responseUserId }) {
+export function acceptOpenResponse(db: Db, tradeId: string, { userId, responseUserId }: { userId: string; responseUserId: string }) {
   const trade = db.trades.find((t) => t.id === tradeId);
   if (!trade) return { error: 'Trade not found.', code: 404 };
   if (trade.type !== 'open' || trade.status !== 'open')
@@ -301,7 +309,7 @@ export function acceptOpenResponse(db, tradeId, { userId, responseUserId }) {
   return { trade };
 }
 
-export function acceptDirect(db, tradeId, { userId }) {
+export function acceptDirect(db: Db, tradeId: string, { userId }: { userId: string }) {
   const trade = db.trades.find((t) => t.id === tradeId);
   if (!trade) return { error: 'Trade not found.', code: 404 };
   if (trade.type !== 'direct' || trade.status !== 'open')
@@ -312,8 +320,8 @@ export function acceptDirect(db, tradeId, { userId }) {
   if (!schedule) return { error: 'Schedule no longer exists.', code: 404 };
 
   const fromAssign = findAssignment(schedule, trade.fromUserId, trade.offered);
-  const toAssign = findAssignment(schedule, trade.toUserId, trade.requested);
-  if (!fromAssign || !toAssign || !isFuture(trade.offered.date) || !isFuture(trade.requested.date)) {
+  const toAssign = findAssignment(schedule, trade.toUserId!, trade.requested!);
+  if (!fromAssign || !toAssign || !isFuture(trade.offered.date) || !isFuture(trade.requested!.date)) {
     expire(db, trade, 'one of the shifts changed hands or is in the past.');
     return { error: 'One of the shifts is no longer valid — proposal expired.', code: 409 };
   }
@@ -323,11 +331,11 @@ export function acceptDirect(db, tradeId, { userId }) {
 
   trade.status = 'completed';
   trade.resolvedAt = new Date().toISOString();
-  notify(db, trade.fromUserId, `${userName(db, userId)} accepted your swap — you now work ${slotLabel(db, trade.requested)} and they took your ${slotLabel(db, trade.offered)}.`, trade.id);
+  notify(db, trade.fromUserId, `${userName(db, userId)} accepted your swap — you now work ${slotLabel(db, trade.requested!)} and they took your ${slotLabel(db, trade.offered)}.`, trade.id);
   return { trade };
 }
 
-export function rejectDirect(db, tradeId, { userId }) {
+export function rejectDirect(db: Db, tradeId: string, { userId }: { userId: string }) {
   const trade = db.trades.find((t) => t.id === tradeId);
   if (!trade) return { error: 'Trade not found.', code: 404 };
   if (trade.type !== 'direct' || trade.status !== 'open')
@@ -340,7 +348,7 @@ export function rejectDirect(db, tradeId, { userId }) {
   return { trade };
 }
 
-export function claimGiveaway(db, tradeId, { userId }) {
+export function claimGiveaway(db: Db, tradeId: string, { userId }: { userId: string }) {
   const trade = db.trades.find((t) => t.id === tradeId);
   if (!trade) return { error: 'Trade not found.', code: 404 };
   if (trade.type !== 'giveaway' || trade.status !== 'open')
@@ -380,8 +388,8 @@ export function claimGiveaway(db, tradeId, { userId }) {
   const electedSum = el ? el.vacation + el.incentive : 0;
   const over = Math.max(0, electedSum - predictedExtra);
   const vacTrim = el ? Math.max(0, over - el.incentive) : 0;
-  if (vacationAvailable(db, giver, year) - (needsDay ? 1 : 0) - vacTrim < 0) {
-    expire(db, trade, `${giver.name} can no longer cover the vacation day it requires.`);
+  if (vacationAvailable(db, giver!, year) - (needsDay ? 1 : 0) - vacTrim < 0) {
+    expire(db, trade, `${giver!.name} can no longer cover the vacation day it requires.`);
     return { error: 'The giver can no longer afford this giveaway — it has expired.', code: 409 };
   }
   if (needsDay) {
@@ -404,7 +412,7 @@ export function claimGiveaway(db, tradeId, { userId }) {
   return { trade };
 }
 
-export function cancelTrade(db, tradeId, { userId }) {
+export function cancelTrade(db: Db, tradeId: string, { userId }: { userId: string }) {
   const trade = db.trades.find((t) => t.id === tradeId);
   if (!trade) return { error: 'Trade not found.', code: 404 };
   if (trade.status !== 'open') return { error: 'This trade is no longer open.', code: 409 };
@@ -428,7 +436,7 @@ export function cancelTrade(db, tradeId, { userId }) {
 // out). The new split replaces the previous one; total may not exceed the
 // current extra, and lowering an elected vacation amount may not push the
 // year's balance negative (those days may already be spent).
-export function setExtraElection(db, scheduleId, { userId, vacation, incentive }) {
+export function setExtraElection(db: Db, scheduleId: string, { userId, vacation, incentive }: { userId: string; vacation: number; incentive: number }) {
   const schedule = db.schedules.find((s) => s.id === scheduleId);
   if (!schedule) return { error: 'Schedule not found.', code: 404 };
   const user = db.users.find((u) => u.id === userId);
@@ -451,8 +459,8 @@ export function setExtraElection(db, scheduleId, { userId, vacation, incentive }
 }
 
 // Extra shifts picked up per schedule, derived from completed giveaways.
-export function extraShifts(db, scheduleId) {
-  const out = {};
+export function extraShifts(db: Db, scheduleId: string) {
+  const out: Record<string, number> = {};
   for (const t of db.trades || []) {
     if (t.type === 'giveaway' && t.status === 'completed' && t.scheduleId === scheduleId && t.claimedBy) {
       out[t.claimedBy] = (out[t.claimedBy] || 0) + 1;
