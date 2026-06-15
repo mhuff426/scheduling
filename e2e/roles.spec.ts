@@ -3,9 +3,9 @@ import { test, expect } from '@playwright/test';
 // Exercises the custom-employee-roles feature against the dev data file
 // (data/data.json); a later phase restores it. No auth: the first roster user
 // is an admin. The Admin tab renders a "🏷️ Roles" card, a "👥 Roster" card
-// (each employee row has a roles checkbox group), and a "⏰ Shift Types" card
-// whose create form has a "Roles that can fill this shift" checkbox group.
-// Unique names (Date.now) keep reruns independent on the shared dev data.
+// (each employee row has a roles multi-select combobox, class .ms), and a
+// "⏰ Shift Types" card whose create form has a matching combobox for "Roles
+// that can fill this shift". Unique names (Date.now) keep reruns independent.
 
 const rolesCard = (page) =>
   page.locator('.card', { has: page.getByRole('heading', { name: /Roles/ }) });
@@ -34,20 +34,23 @@ test('admin creates a role, assigns it to an employee, and it persists', async (
   const name = `QA Role ${Date.now()}`;
   await addRole(page, name);
 
-  // The new role appears as a checkbox in the roster row; check it.
-  const box = firstRosterRow(page).locator('label', { hasText: name }).locator('input[type="checkbox"]');
-  await expect(box).toBeVisible();
-  // Controlled checkbox: click, then wait for the act()-refresh to reflect it.
-  await box.click();
-  await expect(box).toBeChecked();
+  // Assign the role via the roster's multi-select combobox; it becomes a pill.
+  const ms = firstRosterRow(page).locator('.ms');
+  await ms.locator('.ms-control').click();
+  await ms.locator('.ms-option', { hasText: name }).click();
+  await expect(ms.locator('.ms-pill', { hasText: name })).toBeVisible();
   await expect(page.locator('.banner.error')).toHaveCount(0);
 
-  // Persisted across a reload.
+  // Persisted across a reload (still shown as a pill).
   await page.reload();
   await page.locator('.tab', { hasText: 'Admin' }).click();
   await expect(page.getByRole('heading', { name: /Roster/ })).toBeVisible();
-  const box2 = firstRosterRow(page).locator('label', { hasText: name }).locator('input[type="checkbox"]');
-  await expect(box2).toBeChecked();
+  await expect(firstRosterRow(page).locator('.ms-pill', { hasText: name })).toBeVisible();
+
+  // Removing it via the pill's ✕ takes it off the employee.
+  await firstRosterRow(page).locator('.ms-pill', { hasText: name }).getByRole('button').click();
+  await expect(firstRosterRow(page).locator('.ms-pill', { hasText: name })).toHaveCount(0);
+  await expect(page.locator('.banner.error')).toHaveCount(0);
 });
 
 test('system roles are protected; a custom role can be renamed and deleted (cascade)', async ({ page }) => {
@@ -58,24 +61,30 @@ test('system roles are protected; a custom role can be renamed and deleted (casc
   await expect(card.getByText('(system)').first()).toBeVisible();
   await expect(card.locator('tbody tr', { hasText: 'Employee' }).getByRole('button')).toHaveCount(0);
 
-  // Add a custom role — it's appended as the last row (input + ✕).
+  // Add a custom role — it's appended as the last row of the Roles card (input + ✕).
   const name = `Temp ${Date.now()}`;
   await addRole(page, name);
   const lastRow = () => card.locator('tbody tr').last();
   await expect(lastRow().locator('input')).toHaveValue(name);
 
-  // Rename it.
+  // Assign it to the first employee via the roster combobox (becomes a pill).
+  const ms = firstRosterRow(page).locator('.ms');
+  await ms.locator('.ms-control').click();
+  await ms.locator('.ms-option', { hasText: name }).click();
+  await expect(firstRosterRow(page).locator('.ms-pill', { hasText: name })).toBeVisible();
+
+  // Rename it in the Roles card; the assigned pill reflects the new name.
   const renamed = `${name} v2`;
   await lastRow().locator('input').fill(renamed);
   await lastRow().locator('input').blur();
   await expect(page.locator('.banner.error')).toHaveCount(0);
-  await expect(firstRosterRow(page).locator('label', { hasText: renamed })).toBeVisible();
+  await expect(firstRosterRow(page).locator('.ms-pill', { hasText: renamed })).toBeVisible();
 
-  // Delete it (accept the confirm) — it disappears from the roster checkboxes.
+  // Delete it (accept the confirm) — it cascades off the employee's pills.
   page.on('dialog', (d) => d.accept());
   await lastRow().getByRole('button').click();
   await expect(page.locator('.banner.error')).toHaveCount(0);
-  await expect(firstRosterRow(page).locator('label', { hasText: renamed })).toHaveCount(0);
+  await expect(firstRosterRow(page).locator('.ms-pill', { hasText: renamed })).toHaveCount(0);
 });
 
 test('a shift type can be restricted to a role and shows it in the table', async ({ page }) => {
@@ -87,9 +96,9 @@ test('a shift type can be restricted to a role and shows it in the table', async
   const form = card.locator('form');
   const shiftName = `Grill ${Date.now()}`;
   await form.locator('label', { hasText: 'Name' }).locator('input').fill(shiftName);
-  // Tag the shift with the new role (scope to the inner role-tag label so the
-  // outer "Roles that can fill this shift" wrapper label isn't also matched).
-  await form.locator('label.role-tag', { hasText: role }).locator('input[type="checkbox"]').check();
+  // Tag the shift with the new role via the combobox.
+  await form.locator('.ms .ms-control').click();
+  await form.locator('.ms .ms-option', { hasText: role }).click();
   await card.getByRole('button', { name: 'Add shift type' }).click();
   await expect(page.locator('.banner.error')).toHaveCount(0);
 
