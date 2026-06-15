@@ -322,6 +322,17 @@ export function preferenceClaims(db: Db, { startDate, endDate, userIds }: { star
   return claims;
 }
 
+// True if the user has a start date and `date` is before it (not yet onboarded).
+export function isBeforeStart(user: User, date: string): boolean {
+  return !!user.startDate && date < user.startDate;
+}
+
+// True if `date` falls inside any of the user's admin-set away ranges
+// (inclusive). Away time blocks scheduling but never costs vacation.
+export function isAway(db: Db, userId: string, date: string): boolean {
+  return db.awayTime.some((a) => a.userId === userId && a.start <= date && date <= a.end);
+}
+
 // Must-have-off entries a user filed inside the block.
 export function mustOffInRange(db: Db, userId: string, { startDate, endDate }: { startDate: string; endDate: string }) {
   return db.timeOff.filter(
@@ -543,6 +554,8 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
     // always assignable capacity-wise.
     (weightOf(st) === 0 || counts.get(u.id) < effMax.get(u.id)) &&
     !vacation.has(`${u.id}|${date}`) &&
+    !isBeforeStart(u, date) &&
+    !isAway(db, u.id, date) &&
     !workingDay.has(`${u.id}|${date}`) &&
     restOk(held.get(u.id), shiftById, date, st) &&
     nightCapOkLocal(u, date, st);

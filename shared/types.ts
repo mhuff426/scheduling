@@ -21,6 +21,7 @@ export interface User {
   requiredShifts?: number | null;
   maxShiftsOverride?: number | null;
   maxConsecutiveNights?: number | null;
+  startDate?: string | null;
 }
 
 export interface ShiftType {
@@ -41,6 +42,13 @@ export interface TimeOff {
   userId: string;
   date: string; // "YYYY-MM-DD"
   type: TimeOffType;
+}
+
+export interface AwayTime {
+  id: string;
+  userId: string;
+  start: string; // "YYYY-MM-DD" inclusive
+  end: string;   // "YYYY-MM-DD" inclusive
 }
 
 export interface Cadence {
@@ -139,6 +147,7 @@ export interface Db {
   schedules: Schedule[];
   trades: Trade[];
   notifications: Notification[];
+  awayTime: AwayTime[];
   meta: Meta;
 }
 

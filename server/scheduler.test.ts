@@ -5,7 +5,9 @@ import {
   computeCaps, preferenceStandings, DEMOTED_CLAIM,
   isGrouped, runBounds, nightCapOk, effectiveMaximums, weightOf,
   recoveryNeed, effectiveMinimums, requiredFor,
+  isAway, isBeforeStart,
 } from './scheduler.js';
+import { vacationAvailable } from './db.js';
 import type { Assignment, Db, ShiftType, TimeOff, User } from '../shared/types.js';
 
 const mkUser = (id: string, name: string, extra: Record<string, any> = {}): User => ({
@@ -14,7 +16,7 @@ const mkUser = (id: string, name: string, extra: Record<string, any> = {}): User
 const mkDb = (users: User[], shiftTypes: ShiftType[], timeOff: TimeOff[] = []): Db => ({
   users, shiftTypes, timeOff,
   settings: { maxVacationPerDay: 2 },
-  schedules: [], trades: [], notifications: [],
+  schedules: [], trades: [], notifications: [], awayTime: [],
   meta: { rotationCursor: 0 },
 });
 
@@ -749,6 +751,119 @@ assert.strictEqual(recoveryNeed(9), 2);
   );
   // A has no guaranteed shifts: floor 0 means A may end up with as few as 0.
   assert.strictEqual(requiredFor(db, { assignments: [] }, 'a'), 0, 'desiredShifts does not raise the required floor');
+}
+
+// ===== start date & away time (new feature) =====
+
+// ---- (1) isBeforeStart boundaries
+{
+  assert.strictEqual(isBeforeStart(mkUser('a', 'A'), '2026-06-03'), false, 'no startDate is never "before start"');
+  assert.strictEqual(isBeforeStart(mkUser('a', 'A', { startDate: '2026-06-10' }), '2026-06-09'), true, 'the day before startDate is before start');
+  assert.strictEqual(isBeforeStart(mkUser('a', 'A', { startDate: '2026-06-10' }), '2026-06-10'), false, 'the start date itself is NOT before start (they can work day one)');
+  assert.strictEqual(isBeforeStart(mkUser('a', 'A', { startDate: '2026-06-10' }), '2026-06-11'), false, 'a date after startDate is not before start');
+  assert.strictEqual(isBeforeStart(mkUser('a', 'A', { startDate: null }), '2026-06-03'), false, 'null startDate is never before start');
+}
+
+// ---- (2) isAway boundaries (inclusive)
+{
+  const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [day]);
+  db.awayTime.push({ id: 'aw1', userId: 'a', start: '2026-06-03', end: '2026-06-05' });
+  assert.strictEqual(isAway(db, 'a', '2026-06-03'), true, 'the range start is away (inclusive)');
+  assert.strictEqual(isAway(db, 'a', '2026-06-05'), true, 'the range end is away (inclusive)');
+  assert.strictEqual(isAway(db, 'a', '2026-06-04'), true, 'a date strictly inside the range is away');
+  assert.strictEqual(isAway(db, 'a', '2026-06-02'), false, 'the day before the range is not away');
+  assert.strictEqual(isAway(db, 'a', '2026-06-06'), false, 'the day after the range is not away');
+  assert.strictEqual(isAway(db, 'b', '2026-06-04'), false, "another user's range does not make this user away");
+  const empty = mkDb([mkUser('a', 'A')], [day]);
+  assert.strictEqual(isAway(empty, 'a', '2026-06-04'), false, 'no awayTime entries -> never away');
+}
+
+// ---- (3) start date end-to-end: never scheduled before startDate
+{
+  // 7 day-slots; A starts mid-block on the 4th, B covers the rest.
+  const db = mkDb([mkUser('a', 'A', { startDate: '2026-06-04' }), mkUser('b', 'B')], [day]);
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-07' });
+  const aDates = r.assignments.filter((x) => x.userId === 'a').map((x) => x.date);
+  assert.ok(aDates.every((d) => d >= '2026-06-04'), `A must never be scheduled before their start date: ${aDates}`);
+  assert.ok(!aDates.some((d) => d < '2026-06-04'), 'zero pre-start assignments for A');
+  assert.ok(aDates.length >= 1, `A should still work on/after their start date: ${aDates}`);
+  // Every slot is still covered (B fills the pre-start days).
+  assert.strictEqual(r.unfilled.length, 0, 'all slots covered despite a mid-block start date');
+}
+
+// ---- (4) away end-to-end + no vacation charge / no allowance reduction
+{
+  // A is away days 2-4 of a 7-day daily block; B covers those days.
+  const db = mkDb([mkUser('a', 'A', { vacationDays: 10 }), mkUser('b', 'B')], [day]);
+  db.awayTime.push({ id: 'aw1', userId: 'a', start: '2026-06-02', end: '2026-06-04' });
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-07' });
+  const aDates = r.assignments.filter((x) => x.userId === 'a').map((x) => x.date);
+  for (const d of ['2026-06-02', '2026-06-03', '2026-06-04']) {
+    assert.ok(!aDates.includes(d), `A must not be scheduled on away day ${d}`);
+  }
+  assert.strictEqual(r.vacationCharged['a'], undefined, 'away time must NOT charge any vacation');
+  assert.strictEqual(
+    vacationAvailable(db, db.users[0], 2026), 10,
+    'away time must NOT reduce vacation available (stays at the base vacationDays)'
+  );
+  assert.strictEqual(r.unfilled.length, 0, 'away days are covered by the available teammate');
+}
+
+// ---- (5) a fully-away required worker keeps the full floor (still warns "short")
+{
+  // A is required 3 but away the ENTIRE block -> ends with 0 counts, no
+  // vacation charge, and a shortfall warning (the floor is kept in full).
+  const db = mkDb([mkUser('a', 'A', { requiredShifts: 3, vacationDays: 10 }), mkUser('b', 'B')], [day]);
+  db.awayTime.push({ id: 'aw1', userId: 'a', start: '2026-06-01', end: '2026-06-07' });
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-07' });
+  assert.strictEqual(r.counts['a'] || 0, 0, 'fully-away A works zero shifts');
+  assert.strictEqual(r.vacationCharged['a'], undefined, 'away never charges vacation, even with a required floor');
+  assert.ok(
+    r.warnings.some((w) => w.startsWith('A has')),
+    `fully-away A with a required floor must still produce a shortfall warning: ${JSON.stringify(r.warnings)}`
+  );
+}
+
+// ---- (6) away + must-off on the same day: away doesn't change must-off charging
+{
+  // A requires 5 over a 5-day block, files 2 must-off days (vacation type), and
+  // one of those days (the 3rd) is ALSO inside an away range. The must-off
+  // charging is unchanged: 2 days short -> 2 charged (away neither suppresses
+  // nor doubles the must-off's own charge).
+  const db = mkDb([mkUser('a', 'A', { requiredShifts: 5, vacationDays: 10 })], [day], [
+    { id: 'm1', userId: 'a', date: '2026-06-02', type: 'vacation' },
+    { id: 'm2', userId: 'a', date: '2026-06-03', type: 'vacation' },
+  ]);
+  db.awayTime.push({ id: 'aw1', userId: 'a', start: '2026-06-03', end: '2026-06-03' });
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-05' });
+  const aDates = r.assignments.filter((x) => x.userId === 'a').map((x) => x.date);
+  assert.ok(!aDates.includes('2026-06-02') && !aDates.includes('2026-06-03'), 'must-off / away days are not worked');
+  assert.strictEqual(r.counts['a'], 3, 'A works the other 3 days');
+  assert.deepStrictEqual(
+    r.vacationCharged, { a: 2 },
+    'must-off charging is exactly what the 2 must-offs alone produce; away does not change it'
+  );
+}
+
+// ---- (7) other employees still get scheduled around an away/pre-start teammate
+{
+  // A is away the whole block and B has a mid-block start date; C is always
+  // available and must cover everything that A and pre-start B cannot — slots
+  // are not left needlessly open when someone can cover.
+  const db = mkDb(
+    [mkUser('a', 'A'), mkUser('b', 'B', { startDate: '2026-06-05' }), mkUser('c', 'C')],
+    [day]
+  );
+  db.awayTime.push({ id: 'aw1', userId: 'a', start: '2026-06-01', end: '2026-06-07' });
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-07' });
+  assert.strictEqual(r.counts['a'] || 0, 0, 'fully-away A works nothing');
+  const bDates = r.assignments.filter((x) => x.userId === 'b').map((x) => x.date);
+  assert.ok(bDates.every((d) => d >= '2026-06-05'), `B never works before their start date: ${bDates}`);
+  assert.strictEqual(r.unfilled.length, 0, 'every slot is covered — none left needlessly open');
+  // Days 1-4 (B not yet started, A away) can only go to C; B may pick up some of
+  // days 5-7 once available. So C covers at least the 4 pre-start days.
+  assert.ok(r.counts['c'] >= 4, `C must cover the 4 days only it can work, got ${r.counts['c']}`);
+  assert.strictEqual(r.counts['b'] + r.counts['c'], 7, 'B (from its start date) and C together cover all 7 slots');
 }
 
 console.log('All scheduler tests passed.');

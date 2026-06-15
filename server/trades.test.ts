@@ -33,6 +33,7 @@ function mkDb(users: User[], assignments: Assignment[], timeOff: TimeOff[] = [])
     schedules: [schedule],
     trades: [],
     notifications: [],
+    awayTime: [],
     meta: { rotationCursor: 0 },
   };
 }
@@ -396,6 +397,43 @@ const notesFor = (db: Db, uid: string) => db.notifications.filter((n) => n.userI
   const cy = partners.find((p) => p.userId === 'c');
   assert.ok(cy, 'includes feasible partner Cy');
   assert.strictEqual(cy.shifts.length, 2, 'lists Cy\'s two valid shifts');
+}
+
+// ===== start date & away time gates on canTakeShift (new feature) =====
+
+// ---- (8) a start date after the offered shift blocks the taker ----
+{
+  const db = mkDb(
+    [mkUser('a', 'Ann'), mkUser('b', 'Ben', { startDate: '2099-01-20' })],
+    [A('a', '2099-01-10', 'day')]
+  );
+  // Ben hasn't started by the 10th, so he can't pick up Ann's shift.
+  const err = canTakeShift(db, db.schedules[0], { date: '2099-01-10', shiftTypeId: 'day' }, db.users[1]);
+  assert.ok(err && err.includes("hasn't started"), `expected pre-start block, got: ${err}`);
+}
+
+// ---- (9) an away range covering the offered shift blocks the taker ----
+{
+  const db = mkDb(
+    [mkUser('a', 'Ann'), mkUser('b', 'Ben')],
+    [A('a', '2099-01-10', 'day')]
+  );
+  db.awayTime.push({ id: 'aw1', userId: 'b', start: '2099-01-08', end: '2099-01-12' });
+  const err = canTakeShift(db, db.schedules[0], { date: '2099-01-10', shiftTypeId: 'day' }, db.users[1]);
+  assert.ok(err && err.includes('away'), `expected away-time block, got: ${err}`);
+}
+
+// ---- (10) no away range + a start date on/before the date => allowed ----
+{
+  // Ben started on the 10th (boundary: start date == shift date is OK) and has
+  // no away range; he holds no other shift that day, so the new checks don't
+  // over-block — canTakeShift returns null.
+  const db = mkDb(
+    [mkUser('a', 'Ann'), mkUser('b', 'Ben', { startDate: '2099-01-10' })],
+    [A('a', '2099-01-10', 'day')]
+  );
+  const ok = canTakeShift(db, db.schedules[0], { date: '2099-01-10', shiftTypeId: 'day' }, db.users[1]);
+  assert.strictEqual(ok, null, `start-date-on-the-day with no away should be allowed, got: ${ok}`);
 }
 
 console.log('All trade tests passed.');

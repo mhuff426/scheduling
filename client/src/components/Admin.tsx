@@ -14,6 +14,7 @@ export default function Admin({ db, act }: Props) {
       <Roster db={db} act={act} />
       <Settings db={db} act={act} />
       <GenerateSchedule db={db} act={act} />
+      <AwayTimeManager db={db} act={act} />
     </div>
   );
 }
@@ -160,7 +161,7 @@ function standingClass(s: number | null | undefined) {
 }
 
 function Roster({ db, act }: Props) {
-  const [form, setForm] = useState<any>({ name: '', role: 'employee', vacationDays: 10 });
+  const [form, setForm] = useState<any>({ name: '', role: 'employee', vacationDays: 10, startDate: '' });
   const set = (k: string) => (e: any) => setForm({ ...form, [k]: e.target.value });
 
   const submit = async (e: any) => {
@@ -179,7 +180,7 @@ function Roster({ db, act }: Props) {
     <section className="card">
       <h2>👥 Roster</h2>
       <table className="table">
-        <thead><tr><th>Employee</th><th>Role</th><th>Vacation days / yr</th><th>Used ({yearNow})</th><th>Required / block</th><th title="Hard cap on this person's shifts per schedule block. Blank = unlimited (no cap).">Max / block</th><th title="Preference standing: 1.00 is neutral. Drops when someone consistently asks for more preferred days off than the roster norm; recovers after a few normal blocks. Read-only.">Pref standing</th><th /></tr></thead>
+        <thead><tr><th>Employee</th><th>Role</th><th>Vacation days / yr</th><th>Used ({yearNow})</th><th>Required / block</th><th title="Hard cap on this person's shifts per schedule block. Blank = unlimited (no cap).">Max / block</th><th title="Preference standing: 1.00 is neutral. Drops when someone consistently asks for more preferred days off than the roster norm; recovers after a few normal blocks. Read-only.">Pref standing</th><th>Start date</th><th /></tr></thead>
         <tbody>
           {db.users.map((u) => (
             <tr key={u.id}>
@@ -232,6 +233,17 @@ function Roster({ db, act }: Props) {
                 {(db.preferenceStandings?.[u.id] ?? 1).toFixed(2)}
               </td>
               <td>
+                <input
+                  className="inline-num"
+                  type="date"
+                  defaultValue={u.startDate ?? ''}
+                  onBlur={(e) => {
+                    const v = e.target.value || null;
+                    if (v !== (u.startDate ?? null)) act(() => api.updateUser(u.id, { startDate: v }));
+                  }}
+                />
+              </td>
+              <td>
                 <button
                   className="btn danger ghost sm"
                   onClick={() => {
@@ -253,6 +265,7 @@ function Roster({ db, act }: Props) {
           </select>
         </label>
         <label>Vacation days / year<input type="number" min="0" value={form.vacationDays} onChange={set('vacationDays')} /></label>
+        <label>Start date<input type="date" value={form.startDate} onChange={set('startDate')} /></label>
         <button className="btn primary" type="submit">Add to roster</button>
       </form>
     </section>
@@ -358,6 +371,62 @@ function Settings({ db, act }: Props) {
         Changing the cadence does not affect schedules already generated.
         {existingCadence ? ' Updating the anchor date requires a strictly-future date.' : ''}
       </p>
+    </section>
+  );
+}
+
+function AwayTimeManager({ db, act }: Props) {
+  const [userId, setUserId] = useState(db.users[0]?.id || '');
+  const [start, setStart] = useState('');
+  const [end, setEnd] = useState('');
+  const ranges = (db.awayTime || []).filter((a) => a.userId === userId);
+
+  const add = async () => {
+    if (!start || !end) return;
+    const ok = await act(() => api.addAwayTime({ userId, start, end }));
+    if (ok) { setStart(''); setEnd(''); }
+  };
+
+  return (
+    <section className="card">
+      <h2>🏝️ Away time</h2>
+      <p className="muted small">
+        Date ranges when an employee can't be scheduled at all. This does not use any vacation.
+      </p>
+      <label>Employee
+        <select value={userId} onChange={(e) => setUserId(e.target.value)}>
+          {db.users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+        </select>
+      </label>
+      {ranges.length > 0 ? (
+        <table className="table">
+          <thead><tr><th>From</th><th>To</th><th /></tr></thead>
+          <tbody>
+            {ranges.map((a) => (
+              <tr key={a.id}>
+                <td>
+                  <input className="inline-num" type="date" defaultValue={a.start}
+                    onBlur={(e) => { if (e.target.value && e.target.value !== a.start) act(() => api.updateAwayTime(a.id, { start: e.target.value })); }} />
+                </td>
+                <td>
+                  <input className="inline-num" type="date" defaultValue={a.end}
+                    onBlur={(e) => { if (e.target.value && e.target.value !== a.end) act(() => api.updateAwayTime(a.id, { end: e.target.value })); }} />
+                </td>
+                <td className="row-actions">
+                  <button className="btn danger ghost sm" title="Remove away time" onClick={() => act(() => api.deleteAwayTime(a.id))}>✕</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="muted small">No away time set for this employee.</p>
+      )}
+      <div className="form-grid">
+        <label>From<input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></label>
+        <label>To<input type="date" value={end} onChange={(e) => setEnd(e.target.value)} /></label>
+        <button className="btn primary" onClick={add} disabled={!start || !end || end < start}>Add away time</button>
+      </div>
     </section>
   );
 }

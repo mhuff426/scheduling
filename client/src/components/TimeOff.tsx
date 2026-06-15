@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api';
-import { DOW, MONTHS, monthGrid, todayYmd } from '../dates';
+import { DOW, MONTHS, monthGrid, todayYmd, prettyDate } from '../dates';
 import { vacationSummary } from '../shiftMath';
 import type { AppState, User } from '../../../shared/types.js';
 import type { Act } from '../App';
@@ -20,6 +20,7 @@ export default function TimeOff({ db, currentUser, act }: Props) {
   };
 
   const mine = db.timeOff.filter((t) => t.userId === currentUser.id);
+  const myAway = (db.awayTime || []).filter((a) => a.userId === currentUser.id);
   const mineByDate = Object.fromEntries(mine.map((t) => [t.date, t]));
   // Vacation is settled from schedule outcomes: charged when must-off days
   // kept you under your required shifts, earned back via extra-day elections.
@@ -102,6 +103,15 @@ export default function TimeOff({ db, currentUser, act }: Props) {
         </span>
       </div>
 
+      {myAway.length > 0 && (
+        <div className="card">
+          <h3 style={{ margin: '0 0 0.5rem' }}>✈️ Scheduled away (set by your manager)</h3>
+          <ul className="muted small" style={{ margin: 0 }}>
+            {myAway.map((a) => <li key={a.id}>{prettyDate(a.start)} → {prettyDate(a.end)}</li>)}
+          </ul>
+        </div>
+      )}
+
       <div className="cal-wrap">
         <div className="cal-nav">
           <button className="btn ghost" onClick={() => shiftMonth(-1)}>‹</button>
@@ -115,6 +125,7 @@ export default function TimeOff({ db, currentUser, act }: Props) {
             const req = mineByDate[date];
             const past = date < today;
             const full = (vacationPerDay[date] || 0) >= db.settings.maxVacationPerDay && !req;
+            const awayDay = myAway.some((a) => a.start <= date && date <= a.end);
             return (
               <div
                 key={i}
@@ -135,6 +146,7 @@ export default function TimeOff({ db, currentUser, act }: Props) {
                   </div>
                 )}
                 {!req && full && <div className="chip chip-full">Day full</div>}
+                {awayDay && <div className="chip chip-full">✈️ Away</div>}
               </div>
             );
           })}

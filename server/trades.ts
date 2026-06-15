@@ -15,6 +15,7 @@ import { newId, vacationAvailable } from './db.js';
 import {
   restOk, nightCapOk, summarizeSchedule, includedUsers,
   weightOf, countingShifts, requiredFor, extraDays,
+  isBeforeStart, isAway,
 } from './scheduler.js';
 import type {
   Assignment, Db, ExtraElection, Schedule, ShiftType, Slot, Trade, TradeType, User,
@@ -75,6 +76,10 @@ export function canTakeShift(db: Db, schedule: Schedule, slot: Slot, user: User,
     )
   )
     return `${user.name} is on vacation that day.`;
+  if (isBeforeStart(user, slot.date))
+    return `${user.name} hasn't started yet (starts ${user.startDate}).`;
+  if (isAway(db, user.id, slot.date))
+    return `${user.name} is on away time that day.`;
   const held = schedule.assignments.filter(
     (a) => a.userId === user.id && !ignore.includes(a)
   );
