@@ -14,14 +14,14 @@
 //   4. Employees who asked for more than the minimum get extra shifts before
 //      employees who didn't ask.
 //   5. Overnight shifts are spread evenly, and overall load is balanced by
-//      weight (overnight shifts count for more).
+//      weight (a shift's weight comes from its per-type setting; default 1).
 //
 // All dates are wall-clock dates at the scheduled location; the server is
 // assumed to run in (or be configured for) that location's timezone.
 
 import { vacationAvailable } from './db.js';
 import type {
-  Assignment, Db, PreferenceStats, ScheduleDraft, Settings, ShiftType, Slot, TimeOff, User,
+  Assignment, Db, PreferenceStats, ScheduleDraft, ShiftType, Slot, TimeOff, User,
 } from '../shared/types.js';
 
 const REST_MINUTES = 8 * 60;
@@ -91,19 +91,19 @@ export function isOvernight(st: ShiftType) {
 }
 
 // Fairness weight of a shift type. An explicit per-type weight (0 allowed)
-// wins; otherwise overnight types default to the global overnight weight and
-// everything else to 1. Weight 0 = standby/backup duty: the shift is still
-// assigned, blocks the day, and obeys rest rules, but adds nothing to load and
-// does not count toward minimums, maximums, or desired-shift targets.
-export function weightOf(st: ShiftType, settings: { overnightWeight?: number }) {
-  // null/undefined/'' mean "automatic" — only an explicit number (0 allowed)
-  // overrides. Number(null) is 0, so the raw value must be checked first.
+// wins; otherwise the weight is 1 — to make a shift (overnight or not) count
+// for more, set its weight in the shift type. Weight 0 = standby/backup duty:
+// the shift is still assigned, blocks the day, and obeys rest rules, but adds
+// nothing to load and does not count toward minimums or maximums.
+export function weightOf(st: ShiftType) {
+  // null/undefined/'' mean "automatic" (resolves to 1) — only an explicit
+  // number (0 allowed) overrides. Number(null) is 0, so check raw first.
   const raw: unknown = st?.weight;
   if (raw !== null && raw !== undefined && raw !== '') {
     const w = Number(raw);
     if (Number.isFinite(w) && w >= 0) return w;
   }
-  return isOvernight(st) ? Number(settings?.overnightWeight) || 1.5 : 1;
+  return 1;
 }
 
 // Concrete start/end of one occurrence, in epoch minutes (local clock).
@@ -373,7 +373,7 @@ export function requiredFor(db: Db, schedule: unknown, userId: string): number {
 export function countingShifts(db: Db, schedule: ScheduleDraft, userId: string): number {
   const stById = Object.fromEntries(db.shiftTypes.map((s) => [s.id, s]));
   return schedule.assignments.filter(
-    (a) => a.userId === userId && stById[a.shiftTypeId] && weightOf(stById[a.shiftTypeId], db.settings) > 0
+    (a) => a.userId === userId && stById[a.shiftTypeId] && weightOf(stById[a.shiftTypeId]) > 0
   ).length;
 }
 
@@ -394,7 +394,7 @@ export function summarizeSchedule(db: Db, schedule: ScheduleDraft) {
   const counts: Record<string, number> = Object.fromEntries(db.users.map((u) => [u.id, 0]));
   for (const a of schedule.assignments) {
     const st = stById[a.shiftTypeId];
-    if (a.userId in counts && st && weightOf(st, db.settings) > 0) counts[a.userId]++;
+    if (a.userId in counts && st && weightOf(st) > 0) counts[a.userId]++;
   }
 
   const warnings: string[] = [];
@@ -463,7 +463,6 @@ export function summarizeSchedule(db: Db, schedule: ScheduleDraft) {
 
 export function generateSchedule(db: Db, { startDate, endDate, userIds }: { startDate: string; endDate: string; userIds?: string[] }) {
   const employees = includedUsers(db, { userIds });
-  const settings = db.settings || {};
   const shiftById = Object.fromEntries(db.shiftTypes.map((s) => [s.id, s]));
   const slots = buildSlots(db.shiftTypes, startDate, endDate);
 
@@ -542,7 +541,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
   const available = (u: User, date: string, st: ShiftType) =>
     // The shift maximum only gates counting shifts; weight-0 standby duty is
     // always assignable capacity-wise.
-    (weightOf(st, settings) === 0 || counts.get(u.id) < effMax.get(u.id)) &&
+    (weightOf(st) === 0 || counts.get(u.id) < effMax.get(u.id)) &&
     !vacation.has(`${u.id}|${date}`) &&
     !workingDay.has(`${u.id}|${date}`) &&
     restOk(held.get(u.id), shiftById, date, st) &&
@@ -551,7 +550,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
   const give = (a: Assignment, u: User) => {
     a.userId = u.id;
     const st = shiftById[a.shiftTypeId];
-    const w = weightOf(st, settings);
+    const w = weightOf(st);
     if (w > 0) counts.set(u.id, counts.get(u.id) + 1); // weight 0 doesn't count
     loads.set(u.id, loads.get(u.id) + w);
     if (isOvernight(st)) overnights.set(u.id, overnights.get(u.id) + 1);
@@ -565,7 +564,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
   const take = (a: Assignment) => {
     const u = a.userId;
     const st = shiftById[a.shiftTypeId];
-    const w = weightOf(st, settings);
+    const w = weightOf(st);
     if (w > 0) counts.set(u, counts.get(u) - 1);
     loads.set(u, loads.get(u) - w);
     if (isOvernight(st)) overnights.set(u, overnights.get(u) - 1);
@@ -625,7 +624,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
     // Weight-0 (standby) slots invert the need-based tiers: people who still
     // need counting shifts are *reserved* (standby would burn their day), and
     // standby duty rotates by who has done it least.
-    const slotCounts = weightOf(st, settings) > 0;
+    const slotCounts = weightOf(st) > 0;
     const needDir = slotCounts ? 1 : -1;
     const { min: minRun, max: maxRun } = runBounds(st);
     // Per-candidate run signals. `sticky` = mid-run below the target (continue
@@ -741,7 +740,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
           (a) =>
             a.userId !== u.id &&
             // Moving a weight-0 (standby) shift can't raise anyone's count.
-            weightOf(shiftById[a.shiftTypeId], settings) > 0 &&
+            weightOf(shiftById[a.shiftTypeId]) > 0 &&
             counts.get(a.userId) > effMin.get(a.userId) &&
             available(u, a.date, shiftById[a.shiftTypeId])
         )

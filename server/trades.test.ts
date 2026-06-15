@@ -28,7 +28,7 @@ function mkDb(users: User[], assignments: Assignment[], timeOff: TimeOff[] = [])
   return {
     users,
     shiftTypes: [day, eve, night],
-    settings: { maxVacationPerDay: 2, overnightWeight: 1.5 },
+    settings: { maxVacationPerDay: 2 },
     timeOff,
     schedules: [schedule],
     trades: [],

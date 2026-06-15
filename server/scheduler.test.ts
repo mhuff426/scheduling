@@ -13,7 +13,7 @@ const mkUser = (id: string, name: string, extra: Record<string, any> = {}): User
 });
 const mkDb = (users: User[], shiftTypes: ShiftType[], timeOff: TimeOff[] = []): Db => ({
   users, shiftTypes, timeOff,
-  settings: { maxVacationPerDay: 2, overnightWeight: 1.5 },
+  settings: { maxVacationPerDay: 2 },
   schedules: [], trades: [], notifications: [],
   meta: { rotationCursor: 0 },
 });
@@ -402,18 +402,17 @@ assert.deepStrictEqual(runBounds({ minRun: 5, maxRun: null }), { min: 5, max: In
 
 // ===== per-shift-type weights =====
 
-// ---- weight resolution: explicit (incl. 0) wins; overnight default; plain 1
+// ---- weight resolution: explicit (incl. 0) wins; otherwise 1 (no overnight default)
 {
-  const settings = { overnightWeight: 1.5 };
-  assert.strictEqual(weightOf({ ...night, weight: 2 }, settings), 2, 'explicit weight wins');
-  assert.strictEqual(weightOf({ ...day, weight: 0 }, settings), 0, 'explicit 0 allowed');
-  assert.strictEqual(weightOf(night, settings), 1.5, 'overnight falls back to overnight default');
-  assert.strictEqual(weightOf(day, settings), 1, 'plain shift defaults to 1');
+  assert.strictEqual(weightOf({ ...night, weight: 2 }), 2, 'explicit weight wins');
+  assert.strictEqual(weightOf({ ...day, weight: 0 }), 0, 'explicit 0 allowed');
+  assert.strictEqual(weightOf(night), 1, 'overnight has no special default — plain 1');
+  assert.strictEqual(weightOf(day), 1, 'plain shift defaults to 1');
   // Regression: a stored weight of null (the edit form's "automatic") must NOT
   // be read as 0 — Number(null) is 0.
-  assert.strictEqual(weightOf({ ...day, weight: null }, settings), 1, 'null weight = automatic, not standby');
-  assert.strictEqual(weightOf({ ...night, weight: null }, settings), 1.5, 'null weight on overnight = auto default');
-  assert.strictEqual(weightOf({ ...day, weight: '' as any }, settings), 1, 'empty-string weight = automatic');
+  assert.strictEqual(weightOf({ ...day, weight: null }), 1, 'null weight = automatic, not standby');
+  assert.strictEqual(weightOf({ ...night, weight: null }), 1, 'null weight on overnight is automatic (1)');
+  assert.strictEqual(weightOf({ ...day, weight: '' as any }), 1, 'empty-string weight = automatic');
 }
 
 // ---- weight-0 shifts don't count toward minimums (but are still assigned)
