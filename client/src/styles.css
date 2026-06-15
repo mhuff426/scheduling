@@ -243,3 +243,37 @@ select, input {
 .standing-high { color: #15803d; font-weight: 700; }
 .stat-num { font-size: 30px; font-weight: 800; color: var(--accent); }
 .stat-label { font-size: 12.5px; color: var(--muted); }
+
+/* role multi-select combobox (roster + shift-type role picker) */
+.role-pick { display: flex; flex-direction: column; gap: 4px; }
+.ms { position: relative; min-width: 200px; font-size: 13px; }
+.ms-control {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+  border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px;
+  background: var(--card); cursor: text; min-height: 34px;
+}
+.ms-open .ms-control { border-color: var(--accent); box-shadow: 0 0 0 3px #eef2ff; }
+.ms-pill {
+  display: inline-flex; align-items: center; gap: 2px;
+  background: var(--accent); color: var(--accent-ink);
+  border-radius: 999px; padding: 2px 4px 2px 10px; font-size: 12px; font-weight: 600;
+}
+.ms-pill-locked { background: #e0e7ff; color: var(--accent); padding-right: 10px; }
+.ms-pill-x {
+  border: none; background: transparent; color: inherit; cursor: pointer;
+  font-size: 14px; line-height: 1; padding: 0 4px; opacity: 0.85;
+}
+.ms-pill-x:hover { opacity: 1; }
+.ms-input {
+  flex: 1; min-width: 60px; border: none; outline: none; background: transparent;
+  font: inherit; color: var(--ink); padding: 2px;
+}
+.ms-caret { color: var(--muted); padding: 0 2px; cursor: pointer; user-select: none; }
+.ms-menu {
+  position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; right: 0;
+  background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.14); max-height: 220px; overflow-y: auto;
+}
+.ms-option { padding: 7px 10px; cursor: pointer; }
+.ms-option:hover { background: #eef2ff; color: var(--accent); font-weight: 600; }
+.ms-empty { padding: 8px 10px; color: var(--muted); }

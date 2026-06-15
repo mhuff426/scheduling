@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api } from '../api';
 import { DOW, formatTime, todayYmd, prettyDate } from '../dates';
 import { UNITS, upcomingBlocks, isValidCadence } from '../../../shared/blocks.js';
+import RoleMultiSelect from './RoleMultiSelect';
 import type { AppState, ShiftType, User } from '../../../shared/types.js';
 import type { Act } from '../App';
 
@@ -41,12 +42,6 @@ function ShiftTypes({ db, act }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const set = (k: string) => (e: any) => setForm({ ...form, [k]: e.target.value });
   const roleName = (id: string) => db.roles.find((r) => r.id === id)?.name || id;
-  const toggleAllowedRole = (id: string) => setForm((prev: any) => ({
-    ...prev,
-    allowedRoles: (prev.allowedRoles || []).includes(id)
-      ? prev.allowedRoles.filter((x: string) => x !== id)
-      : [...(prev.allowedRoles || []), id],
-  }));
 
   const startEdit = (s: ShiftType) => {
     setEditingId(s.id);
@@ -142,22 +137,16 @@ function ShiftTypes({ db, act }: Props) {
         <label title="How much one of these shifts counts when balancing workload. Blank = automatic (1, or the overnight default). 0 = standby/backup duty: still scheduled and blocks the day, but doesn't count toward minimums, maximums, or load.">
           Weight<input type="number" min="0" step="0.1" value={form.weight} onChange={set('weight')} placeholder="auto" />
         </label>
-        <label className="role-pick">
-          Roles that can fill this shift
-          <span className="role-tags">
-            {db.roles.map((r) => (
-              <label key={r.id} className="role-tag">
-                <input
-                  type="checkbox"
-                  checked={(form.allowedRoles || []).includes(r.id)}
-                  onChange={() => toggleAllowedRole(r.id)}
-                />
-                {r.name}
-              </label>
-            ))}
-          </span>
+        <div className="role-pick">
+          <span className="muted small">Roles that can fill this shift</span>
+          <RoleMultiSelect
+            roles={db.roles}
+            selected={form.allowedRoles || []}
+            onChange={(next) => setForm((prev: any) => ({ ...prev, allowedRoles: next }))}
+            placeholder="Anyone (add roles to restrict)…"
+          />
           <span className="muted small">None selected = anyone can fill it.</span>
-        </label>
+        </div>
         <button className="btn primary" type="submit">{editingId ? 'Save changes' : 'Add shift type'}</button>
         {editingId && <button className="btn ghost" type="button" onClick={cancelEdit}>Cancel</button>}
       </form>
@@ -212,28 +201,12 @@ function Roster({ db, act }: Props) {
             <tr key={u.id}>
               <td><span className="dot" style={{ background: u.color }} /> {u.name}</td>
               <td>
-                <div className="role-tags">
-                  {db.roles.map((r) => {
-                    const checked = (u.roles || []).includes(r.id);
-                    const locked = r.id === 'role-employee';
-                    return (
-                      <label key={r.id} className="role-tag" title={r.name}>
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          disabled={locked}
-                          onChange={() => {
-                            const next = checked
-                              ? (u.roles || []).filter((x) => x !== r.id)
-                              : [...(u.roles || []), r.id];
-                            act(() => api.updateUser(u.id, { roles: next }));
-                          }}
-                        />
-                        {r.name}
-                      </label>
-                    );
-                  })}
-                </div>
+                <RoleMultiSelect
+                  roles={db.roles}
+                  selected={u.roles || []}
+                  lockedIds={['role-employee']}
+                  onChange={(next) => { act(() => api.updateUser(u.id, { roles: next })); }}
+                />
               </td>
               <td>
                 <input

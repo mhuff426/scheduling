@@ -7,7 +7,11 @@
       "vacationDays": 15,
       "color": "#14b8a6",
       "requiredShifts": 48,
-      "startDate": "2026-06-01"
+      "startDate": "2026-06-01",
+      "roles": [
+        "role-admin",
+        "role-employee"
+      ]
     },
     {
       "id": "u-mq8tle5q-wb2ly",
@@ -18,7 +22,11 @@
       "desiredShifts": null,
       "maxConsecutiveNights": 3,
       "requiredShifts": 48,
-      "startDate": "2026-06-01"
+      "startDate": "2026-06-01",
+      "roles": [
+        "role-employee",
+        "role-mqfthgru-kmpgr"
+      ]
     },
     {
       "id": "u-mq8tljk2-lumtw",
@@ -28,7 +36,11 @@
       "color": "#eab308",
       "maxConsecutiveNights": 3,
       "requiredShifts": 48,
-      "startDate": "2026-06-01"
+      "startDate": "2026-06-01",
+      "roles": [
+        "role-employee",
+        "role-mqfthgru-kmpgr"
+      ]
     },
     {
       "id": "u-mq8tlpb8-x030k",
@@ -38,7 +50,11 @@
       "color": "#22c55e",
       "maxConsecutiveNights": 4,
       "requiredShifts": 48,
-      "startDate": "2026-06-01"
+      "startDate": "2026-06-01",
+      "roles": [
+        "role-employee",
+        "role-mqfthgru-kmpgr"
+      ]
     },
     {
       "id": "u-mq8tnifi-13va6",
@@ -48,7 +64,11 @@
       "color": "#14b8a6",
       "maxConsecutiveNights": 5,
       "requiredShifts": 48,
-      "startDate": "2026-06-01"
+      "startDate": "2026-06-01",
+      "roles": [
+        "role-employee",
+        "role-mqfthgru-kmpgr"
+      ]
     },
     {
       "id": "u-mq8tqqj0-2lrq6",
@@ -58,7 +78,11 @@
       "color": "#0ea5e9",
       "maxConsecutiveNights": 2,
       "requiredShifts": 48,
-      "startDate": "2026-06-01"
+      "startDate": "2026-06-01",
+      "roles": [
+        "role-employee",
+        "role-mqfthgru-kmpgr"
+      ]
     },
     {
       "id": "u-mq8tqxv4-wgn5p",
@@ -69,7 +93,12 @@
       "maxConsecutiveNights": 2,
       "maxShiftsOverride": null,
       "requiredShifts": 48,
-      "startDate": "2026-06-01"
+      "startDate": "2026-06-01",
+      "roles": [
+        "role-admin",
+        "role-employee",
+        "role-mqfthgru-kmpgr"
+      ]
     },
     {
       "id": "u-mq8tr54q-jwp4p",
@@ -79,7 +108,11 @@
       "color": "#a855f7",
       "maxConsecutiveNights": 3,
       "requiredShifts": 48,
-      "startDate": "2026-06-01"
+      "startDate": "2026-06-01",
+      "roles": [
+        "role-employee",
+        "role-mqfthgru-kmpgr"
+      ]
     },
     {
       "id": "u-mq8xwhzj-tvgh4",
@@ -89,7 +122,11 @@
       "color": "#ec4899",
       "maxConsecutiveNights": 3,
       "requiredShifts": 48,
-      "startDate": "2026-06-01"
+      "startDate": "2026-06-01",
+      "roles": [
+        "role-employee",
+        "role-mqfthgru-kmpgr"
+      ]
     },
     {
       "id": "u-mqaxr0so-h7xoy",
@@ -98,7 +135,11 @@
       "vacationDays": 12,
       "color": "#84cc16",
       "requiredShifts": 48,
-      "startDate": "2026-06-01"
+      "startDate": "2026-06-01",
+      "roles": [
+        "role-employee",
+        "role-mqfthgru-kmpgr"
+      ]
     }
   ],
   "shiftTypes": [
@@ -112,7 +153,10 @@
       "staffRequired": 1,
       "minRun": 5,
       "maxRun": 7,
-      "weight": null
+      "weight": null,
+      "allowedRoles": [
+        "role-mqfthgru-kmpgr"
+      ]
     },
     {
       "id": "s-mq8tmjmy-30eij",
@@ -123,7 +167,11 @@
       "dayOfWeek": null,
       "staffRequired": 1,
       "minRun": 2,
-      "maxRun": 5
+      "maxRun": 4,
+      "allowedRoles": [
+        "role-mqfthgru-kmpgr"
+      ],
+      "weight": null
     },
     {
       "id": "s-mq8tms0r-f0rjn",
@@ -134,7 +182,11 @@
       "dayOfWeek": null,
       "staffRequired": 1,
       "minRun": 2,
-      "maxRun": 5
+      "maxRun": 4,
+      "allowedRoles": [
+        "role-mqfthgru-kmpgr"
+      ],
+      "weight": null
     },
     {
       "id": "s-mq8tnduo-vsog4",
@@ -145,8 +197,11 @@
       "dayOfWeek": null,
       "staffRequired": 1,
       "minRun": 3,
-      "maxRun": 6,
-      "weight": 0
+      "maxRun": 4,
+      "weight": 0,
+      "allowedRoles": [
+        "role-mqfthgru-kmpgr"
+      ]
     },
     {
       "id": "s-mq8tq1w4-ksf3o",
@@ -157,8 +212,11 @@
       "dayOfWeek": null,
       "staffRequired": 1,
       "minRun": 2,
-      "maxRun": 5,
-      "weight": null
+      "maxRun": 4,
+      "weight": null,
+      "allowedRoles": [
+        "role-mqfthgru-kmpgr"
+      ]
     }
   ],
   "settings": {
@@ -2496,12 +2554,11 @@
   ],
   "schedules": [
     {
-      "id": "sch-mqcozt2h-9rmap",
+      "id": "sch-mqftknr0-qnltp",
       "startDate": "2026-07-01",
       "endDate": "2026-09-30",
-      "minShifts": 48,
-      "maxShifts": 51,
       "userIds": [
+        "u-mq8tkj7h-95721",
         "u-mq8tle5q-wb2ly",
         "u-mq8tljk2-lumtw",
         "u-mq8tlpb8-x030k",
@@ -2511,153 +2568,153 @@
         "u-mq8xwhzj-tvgh4",
         "u-mqaxr0so-h7xoy"
       ],
-      "createdAt": "2026-06-13T18:32:06.377Z",
+      "createdAt": "2026-06-15T23:03:36.252Z",
       "extraElections": {},
       "assignments": [
         {
           "date": "2026-07-01",
           "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tr54q-jwp4p"
-        },
-        {
-          "date": "2026-07-01",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
           "userId": "u-mq8tqqj0-2lrq6"
         },
         {
           "date": "2026-07-01",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-07-01",
           "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8xwhzj-tvgh4"
+          "userId": "u-mq8tlpb8-x030k"
         },
         {
           "date": "2026-07-01",
           "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mqaxr0so-h7xoy"
+          "userId": "u-mq8tljk2-lumtw"
         },
         {
           "date": "2026-07-01",
           "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-07-02",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-07-02",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tr54q-jwp4p"
-        },
-        {
-          "date": "2026-07-02",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tqqj0-2lrq6"
-        },
-        {
-          "date": "2026-07-02",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
           "userId": "u-mq8xwhzj-tvgh4"
         },
         {
           "date": "2026-07-02",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tle5q-wb2ly"
-        },
-        {
-          "date": "2026-07-03",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tr54q-jwp4p"
-        },
-        {
-          "date": "2026-07-03",
           "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-07-03",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tqqj0-2lrq6"
-        },
-        {
-          "date": "2026-07-03",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
           "userId": "u-mq8xwhzj-tvgh4"
         },
         {
-          "date": "2026-07-03",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-07-04",
+          "date": "2026-07-02",
           "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tr54q-jwp4p"
-        },
-        {
-          "date": "2026-07-04",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
           "userId": "u-mq8tqqj0-2lrq6"
         },
         {
-          "date": "2026-07-04",
+          "date": "2026-07-02",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-07-02",
           "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tlpb8-x030k"
+        },
+        {
+          "date": "2026-07-02",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
           "userId": "u-mqaxr0so-h7xoy"
         },
         {
-          "date": "2026-07-04",
+          "date": "2026-07-03",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tqqj0-2lrq6"
+        },
+        {
+          "date": "2026-07-03",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8xwhzj-tvgh4"
+        },
+        {
+          "date": "2026-07-03",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-07-03",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tle5q-wb2ly"
+        },
+        {
+          "date": "2026-07-03",
           "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tnifi-13va6"
+        },
+        {
+          "date": "2026-07-04",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
           "userId": "u-mq8tle5q-wb2ly"
         },
         {
           "date": "2026-07-04",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tnifi-13va6"
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tqqj0-2lrq6"
         },
         {
-          "date": "2026-07-05",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "date": "2026-07-04",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-07-04",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-07-04",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
           "userId": "u-mqaxr0so-h7xoy"
         },
         {
           "date": "2026-07-05",
           "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tle5q-wb2ly"
+          "userId": "u-mqaxr0so-h7xoy"
         },
         {
           "date": "2026-07-05",
           "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tr54q-jwp4p"
+          "userId": "u-mq8tqqj0-2lrq6"
+        },
+        {
+          "date": "2026-07-05",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tle5q-wb2ly"
         },
         {
           "date": "2026-07-05",
           "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tqqj0-2lrq6"
+          "userId": "u-mq8tr54q-jwp4p"
         },
         {
           "date": "2026-07-05",
           "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-07-06",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tle5q-wb2ly"
+          "userId": "u-mq8xwhzj-tvgh4"
         },
         {
           "date": "2026-07-06",
           "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tr54q-jwp4p"
+          "userId": "u-mq8tqqj0-2lrq6"
         },
         {
           "date": "2026-07-06",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tnifi-13va6"
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tljk2-lumtw"
         },
         {
           "date": "2026-07-06",
           "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tqqj0-2lrq6"
+          "userId": "u-mq8tnifi-13va6"
+        },
+        {
+          "date": "2026-07-06",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8xwhzj-tvgh4"
         },
         {
           "date": "2026-07-06",
@@ -2666,112 +2723,107 @@
         },
         {
           "date": "2026-07-07",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8xwhzj-tvgh4"
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tljk2-lumtw"
         },
         {
           "date": "2026-07-07",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
           "userId": "u-mq8tnifi-13va6"
         },
         {
           "date": "2026-07-07",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8xwhzj-tvgh4"
+        },
+        {
+          "date": "2026-07-07",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tqqj0-2lrq6"
+        },
+        {
+          "date": "2026-07-07",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tle5q-wb2ly"
+        },
+        {
+          "date": "2026-07-08",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-07-08",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tnifi-13va6"
+        },
+        {
+          "date": "2026-07-08",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8xwhzj-tvgh4"
+        },
+        {
+          "date": "2026-07-08",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-07-08",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tqqj0-2lrq6"
+        },
+        {
+          "date": "2026-07-09",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tlpb8-x030k"
+        },
+        {
+          "date": "2026-07-09",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tnifi-13va6"
+        },
+        {
+          "date": "2026-07-09",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-07-09",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mqaxr0so-h7xoy"
+        },
+        {
+          "date": "2026-07-09",
           "shiftTypeId": "s-mq8tq1w4-ksf3o",
           "userId": "u-mq8tle5q-wb2ly"
         },
         {
-          "date": "2026-07-07",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "date": "2026-07-10",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
           "userId": "u-mq8tr54q-jwp4p"
         },
         {
-          "date": "2026-07-07",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mqaxr0so-h7xoy"
-        },
-        {
-          "date": "2026-07-08",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8xwhzj-tvgh4"
-        },
-        {
-          "date": "2026-07-08",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-07-08",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tqqj0-2lrq6"
-        },
-        {
-          "date": "2026-07-08",
+          "date": "2026-07-10",
           "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tle5q-wb2ly"
+        },
+        {
+          "date": "2026-07-10",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mq8tlpb8-x030k"
         },
         {
-          "date": "2026-07-08",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mqaxr0so-h7xoy"
-        },
-        {
-          "date": "2026-07-09",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-07-09",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mqaxr0so-h7xoy"
-        },
-        {
-          "date": "2026-07-09",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-07-09",
+          "date": "2026-07-10",
           "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8xwhzj-tvgh4"
-        },
-        {
-          "date": "2026-07-09",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
           "userId": "u-mq8tljk2-lumtw"
         },
         {
           "date": "2026-07-10",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mqaxr0so-h7xoy"
-        },
-        {
-          "date": "2026-07-10",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8xwhzj-tvgh4"
-        },
-        {
-          "date": "2026-07-10",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-07-10",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-07-10",
           "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tr54q-jwp4p"
+          "userId": "u-mq8tqqj0-2lrq6"
         },
         {
           "date": "2026-07-11",
           "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mqaxr0so-h7xoy"
-        },
-        {
-          "date": "2026-07-11",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
           "userId": "u-mq8tlpb8-x030k"
         },
         {
@@ -2782,17 +2834,22 @@
         {
           "date": "2026-07-11",
           "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tr54q-jwp4p"
+          "userId": "u-mq8tqqj0-2lrq6"
+        },
+        {
+          "date": "2026-07-11",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tle5q-wb2ly"
         },
         {
           "date": "2026-07-11",
           "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tqqj0-2lrq6"
+          "userId": "u-mq8tnifi-13va6"
         },
         {
           "date": "2026-07-12",
           "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mqaxr0so-h7xoy"
+          "userId": "u-mq8tlpb8-x030k"
         },
         {
           "date": "2026-07-12",
@@ -2801,13 +2858,13 @@
         },
         {
           "date": "2026-07-12",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tr54q-jwp4p"
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tnifi-13va6"
         },
         {
           "date": "2026-07-12",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tle5q-wb2ly"
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mqaxr0so-h7xoy"
         },
         {
           "date": "2026-07-12",
@@ -2817,62 +2874,67 @@
         {
           "date": "2026-07-13",
           "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tle5q-wb2ly"
-        },
-        {
-          "date": "2026-07-13",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mqaxr0so-h7xoy"
-        },
-        {
-          "date": "2026-07-13",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tljk2-lumtw"
+          "userId": "u-mq8tnifi-13va6"
         },
         {
           "date": "2026-07-13",
           "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tqqj0-2lrq6"
+          "userId": "u-mqaxr0so-h7xoy"
+        },
+        {
+          "date": "2026-07-13",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tlpb8-x030k"
+        },
+        {
+          "date": "2026-07-13",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tljk2-lumtw"
         },
         {
           "date": "2026-07-13",
           "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tqqj0-2lrq6"
+        },
+        {
+          "date": "2026-07-14",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mqaxr0so-h7xoy"
+        },
+        {
+          "date": "2026-07-14",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tqqj0-2lrq6"
+        },
+        {
+          "date": "2026-07-14",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mq8tlpb8-x030k"
         },
         {
           "date": "2026-07-14",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
           "userId": "u-mq8tle5q-wb2ly"
         },
         {
           "date": "2026-07-14",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8xwhzj-tvgh4"
+        },
+        {
+          "date": "2026-07-15",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8xwhzj-tvgh4"
+        },
+        {
+          "date": "2026-07-15",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
           "userId": "u-mqaxr0so-h7xoy"
         },
         {
-          "date": "2026-07-14",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-07-14",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tqqj0-2lrq6"
-        },
-        {
-          "date": "2026-07-14",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
           "date": "2026-07-15",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
           "userId": "u-mq8tqqj0-2lrq6"
-        },
-        {
-          "date": "2026-07-15",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tljk2-lumtw"
         },
         {
           "date": "2026-07-15",
@@ -2881,108 +2943,98 @@
         },
         {
           "date": "2026-07-15",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8xwhzj-tvgh4"
-        },
-        {
-          "date": "2026-07-15",
           "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tnifi-13va6"
+          "userId": "u-mq8tle5q-wb2ly"
         },
         {
           "date": "2026-07-16",
           "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-07-16",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8xwhzj-tvgh4"
+          "userId": "u-mq8tle5q-wb2ly"
         },
         {
           "date": "2026-07-16",
           "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8xwhzj-tvgh4"
+        },
+        {
+          "date": "2026-07-16",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-07-16",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
           "userId": "u-mq8tlpb8-x030k"
         },
         {
           "date": "2026-07-16",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tle5q-wb2ly"
-        },
-        {
-          "date": "2026-07-16",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mqaxr0so-h7xoy"
-        },
-        {
-          "date": "2026-07-17",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-07-17",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-07-17",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tle5q-wb2ly"
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tr54q-jwp4p"
         },
         {
           "date": "2026-07-17",
           "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-07-17",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tle5q-wb2ly"
+        },
+        {
+          "date": "2026-07-17",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-07-17",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
           "userId": "u-mq8xwhzj-tvgh4"
         },
         {
           "date": "2026-07-17",
           "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tr54q-jwp4p"
-        },
-        {
-          "date": "2026-07-18",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-07-18",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
           "userId": "u-mqaxr0so-h7xoy"
         },
         {
           "date": "2026-07-18",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mq8tle5q-wb2ly"
         },
         {
           "date": "2026-07-18",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-07-18",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
           "userId": "u-mq8tljk2-lumtw"
         },
         {
           "date": "2026-07-18",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tqqj0-2lrq6"
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tnifi-13va6"
         },
         {
-          "date": "2026-07-19",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "date": "2026-07-18",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
           "userId": "u-mq8tqqj0-2lrq6"
         },
         {
           "date": "2026-07-19",
           "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tnifi-13va6"
+          "userId": "u-mq8tle5q-wb2ly"
         },
         {
           "date": "2026-07-19",
           "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mqaxr0so-h7xoy"
+          "userId": "u-mq8tqqj0-2lrq6"
         },
         {
           "date": "2026-07-19",
           "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tr54q-jwp4p"
+          "userId": "u-mq8tnifi-13va6"
         },
         {
           "date": "2026-07-19",
@@ -2990,49 +3042,54 @@
           "userId": "u-mq8xwhzj-tvgh4"
         },
         {
-          "date": "2026-07-20",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tr54q-jwp4p"
-        },
-        {
-          "date": "2026-07-20",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "date": "2026-07-19",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
           "userId": "u-mqaxr0so-h7xoy"
         },
         {
           "date": "2026-07-20",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
           "userId": "u-mq8tnifi-13va6"
         },
         {
           "date": "2026-07-20",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mqaxr0so-h7xoy"
+        },
+        {
+          "date": "2026-07-20",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-07-20",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mq8tle5q-wb2ly"
         },
         {
           "date": "2026-07-20",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8xwhzj-tvgh4"
-        },
-        {
-          "date": "2026-07-21",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8xwhzj-tvgh4"
-        },
-        {
-          "date": "2026-07-21",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tnifi-13va6"
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tlpb8-x030k"
         },
         {
           "date": "2026-07-21",
           "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mqaxr0so-h7xoy"
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-07-21",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tle5q-wb2ly"
         },
         {
           "date": "2026-07-21",
           "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tr54q-jwp4p"
+          "userId": "u-mq8tnifi-13va6"
+        },
+        {
+          "date": "2026-07-21",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mqaxr0so-h7xoy"
         },
         {
           "date": "2026-07-21",
@@ -3042,71 +3099,66 @@
         {
           "date": "2026-07-22",
           "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8xwhzj-tvgh4"
-        },
-        {
-          "date": "2026-07-22",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
           "userId": "u-mqaxr0so-h7xoy"
         },
         {
           "date": "2026-07-22",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tlpb8-x030k"
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tr54q-jwp4p"
         },
         {
           "date": "2026-07-22",
           "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tqqj0-2lrq6"
+          "userId": "u-mq8tnifi-13va6"
+        },
+        {
+          "date": "2026-07-22",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8xwhzj-tvgh4"
         },
         {
           "date": "2026-07-22",
           "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tle5q-wb2ly"
-        },
-        {
-          "date": "2026-07-23",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mq8tlpb8-x030k"
         },
         {
           "date": "2026-07-23",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tqqj0-2lrq6"
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8xwhzj-tvgh4"
         },
         {
           "date": "2026-07-23",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
           "userId": "u-mq8tr54q-jwp4p"
         },
         {
           "date": "2026-07-23",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tle5q-wb2ly"
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tqqj0-2lrq6"
         },
         {
           "date": "2026-07-23",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-07-24",
           "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tle5q-wb2ly"
-        },
-        {
-          "date": "2026-07-24",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mq8tlpb8-x030k"
         },
         {
-          "date": "2026-07-24",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tnifi-13va6"
+          "date": "2026-07-23",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tle5q-wb2ly"
         },
         {
           "date": "2026-07-24",
           "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tqqj0-2lrq6"
+        },
+        {
+          "date": "2026-07-24",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tlpb8-x030k"
+        },
+        {
+          "date": "2026-07-24",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mq8xwhzj-tvgh4"
         },
         {
@@ -3115,14 +3167,9 @@
           "userId": "u-mqaxr0so-h7xoy"
         },
         {
-          "date": "2026-07-25",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8xwhzj-tvgh4"
-        },
-        {
-          "date": "2026-07-25",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tlpb8-x030k"
+          "date": "2026-07-24",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tnifi-13va6"
         },
         {
           "date": "2026-07-25",
@@ -3131,8 +3178,18 @@
         },
         {
           "date": "2026-07-25",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8xwhzj-tvgh4"
+        },
+        {
+          "date": "2026-07-25",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tqqj0-2lrq6"
+        },
+        {
+          "date": "2026-07-25",
           "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tle5q-wb2ly"
+          "userId": "u-mq8tlpb8-x030k"
         },
         {
           "date": "2026-07-25",
@@ -3142,42 +3199,37 @@
         {
           "date": "2026-07-26",
           "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-07-26",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-07-26",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
           "userId": "u-mq8tljk2-lumtw"
         },
         {
           "date": "2026-07-26",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tqqj0-2lrq6"
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tnifi-13va6"
         },
         {
           "date": "2026-07-26",
           "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tr54q-jwp4p"
+          "userId": "u-mq8tlpb8-x030k"
         },
         {
-          "date": "2026-07-27",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tr54q-jwp4p"
-        },
-        {
-          "date": "2026-07-27",
+          "date": "2026-07-26",
           "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tljk2-lumtw"
+          "userId": "u-mq8tqqj0-2lrq6"
+        },
+        {
+          "date": "2026-07-26",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tr54q-jwp4p"
         },
         {
           "date": "2026-07-27",
           "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tlpb8-x030k"
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-07-27",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tqqj0-2lrq6"
         },
         {
           "date": "2026-07-27",
@@ -3186,193 +3238,188 @@
         },
         {
           "date": "2026-07-27",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
           "userId": "u-mq8xwhzj-tvgh4"
+        },
+        {
+          "date": "2026-07-27",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tle5q-wb2ly"
         },
         {
           "date": "2026-07-28",
           "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8xwhzj-tvgh4"
+        },
+        {
+          "date": "2026-07-28",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-07-28",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
           "userId": "u-mq8tr54q-jwp4p"
         },
         {
           "date": "2026-07-28",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tlpb8-x030k"
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mqaxr0so-h7xoy"
         },
         {
           "date": "2026-07-28",
           "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tle5q-wb2ly"
+        },
+        {
+          "date": "2026-07-29",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tle5q-wb2ly"
+        },
+        {
+          "date": "2026-07-29",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mq8tljk2-lumtw"
         },
         {
-          "date": "2026-07-28",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tqqj0-2lrq6"
-        },
-        {
-          "date": "2026-07-28",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tle5q-wb2ly"
-        },
-        {
           "date": "2026-07-29",
           "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tle5q-wb2ly"
-        },
-        {
-          "date": "2026-07-29",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
           "userId": "u-mqaxr0so-h7xoy"
         },
         {
           "date": "2026-07-29",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
           "userId": "u-mq8xwhzj-tvgh4"
         },
         {
           "date": "2026-07-29",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tqqj0-2lrq6"
-        },
-        {
-          "date": "2026-07-29",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
           "userId": "u-mq8tnifi-13va6"
         },
         {
           "date": "2026-07-30",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mqaxr0so-h7xoy"
-        },
-        {
-          "date": "2026-07-30",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tqqj0-2lrq6"
-        },
-        {
-          "date": "2026-07-30",
           "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tnifi-13va6"
+          "userId": "u-mq8tljk2-lumtw"
         },
         {
           "date": "2026-07-30",
           "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mqaxr0so-h7xoy"
+        },
+        {
+          "date": "2026-07-30",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
           "userId": "u-mq8tle5q-wb2ly"
         },
         {
           "date": "2026-07-30",
           "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-07-31",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-07-31",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tle5q-wb2ly"
-        },
-        {
-          "date": "2026-07-31",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mqaxr0so-h7xoy"
-        },
-        {
-          "date": "2026-07-31",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-07-31",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-08-01",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-08-01",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mq8tqqj0-2lrq6"
         },
         {
-          "date": "2026-08-01",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tle5q-wb2ly"
+          "date": "2026-07-30",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tr54q-jwp4p"
         },
         {
-          "date": "2026-08-01",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "date": "2026-07-31",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-07-31",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-07-31",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
           "userId": "u-mqaxr0so-h7xoy"
         },
         {
-          "date": "2026-08-01",
+          "date": "2026-07-31",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tqqj0-2lrq6"
+        },
+        {
+          "date": "2026-07-31",
           "shiftTypeId": "s-mq8tnduo-vsog4",
           "userId": "u-mq8xwhzj-tvgh4"
+        },
+        {
+          "date": "2026-08-01",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tqqj0-2lrq6"
+        },
+        {
+          "date": "2026-08-01",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-08-01",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-08-01",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tle5q-wb2ly"
+        },
+        {
+          "date": "2026-08-01",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tnifi-13va6"
         },
         {
           "date": "2026-08-02",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tlpb8-x030k"
+        },
+        {
+          "date": "2026-08-02",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
           "userId": "u-mq8xwhzj-tvgh4"
         },
         {
           "date": "2026-08-02",
           "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mqaxr0so-h7xoy"
+        },
+        {
+          "date": "2026-08-02",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mq8tljk2-lumtw"
         },
         {
           "date": "2026-08-02",
           "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mqaxr0so-h7xoy"
-        },
-        {
-          "date": "2026-08-02",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-08-02",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tqqj0-2lrq6"
+          "userId": "u-mq8tnifi-13va6"
         },
         {
           "date": "2026-08-03",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8xwhzj-tvgh4"
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tnifi-13va6"
+        },
+        {
+          "date": "2026-08-03",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mqaxr0so-h7xoy"
         },
         {
           "date": "2026-08-03",
           "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tlpb8-x030k"
+        },
+        {
+          "date": "2026-08-03",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
           "userId": "u-mq8tr54q-jwp4p"
         },
         {
           "date": "2026-08-03",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-08-03",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-08-03",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tqqj0-2lrq6"
-        },
-        {
-          "date": "2026-08-04",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-08-04",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tqqj0-2lrq6"
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8xwhzj-tvgh4"
         },
         {
           "date": "2026-08-04",
@@ -3382,12 +3429,22 @@
         {
           "date": "2026-08-04",
           "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tr54q-jwp4p"
+          "userId": "u-mq8tlpb8-x030k"
+        },
+        {
+          "date": "2026-08-04",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tnifi-13va6"
+        },
+        {
+          "date": "2026-08-04",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mqaxr0so-h7xoy"
         },
         {
           "date": "2026-08-04",
           "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tljk2-lumtw"
+          "userId": "u-mq8tqqj0-2lrq6"
         },
         {
           "date": "2026-08-05",
@@ -3397,16 +3454,11 @@
         {
           "date": "2026-08-05",
           "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tr54q-jwp4p"
-        },
-        {
-          "date": "2026-08-05",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
           "userId": "u-mq8tlpb8-x030k"
         },
         {
           "date": "2026-08-05",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
           "userId": "u-mq8tnifi-13va6"
         },
         {
@@ -3415,14 +3467,19 @@
           "userId": "u-mqaxr0so-h7xoy"
         },
         {
-          "date": "2026-08-06",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mqaxr0so-h7xoy"
+          "date": "2026-08-05",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tljk2-lumtw"
         },
         {
           "date": "2026-08-06",
           "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mq8xwhzj-tvgh4"
+        },
+        {
+          "date": "2026-08-06",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tljk2-lumtw"
         },
         {
           "date": "2026-08-06",
@@ -3437,12 +3494,12 @@
         {
           "date": "2026-08-06",
           "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tljk2-lumtw"
+          "userId": "u-mq8tqqj0-2lrq6"
         },
         {
           "date": "2026-08-07",
           "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mqaxr0so-h7xoy"
+          "userId": "u-mq8tljk2-lumtw"
         },
         {
           "date": "2026-08-07",
@@ -3451,208 +3508,203 @@
         },
         {
           "date": "2026-08-07",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-08-07",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tlpb8-x030k"
+        },
+        {
+          "date": "2026-08-07",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mqaxr0so-h7xoy"
+        },
+        {
+          "date": "2026-08-08",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tlpb8-x030k"
+        },
+        {
+          "date": "2026-08-08",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-08-08",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8xwhzj-tvgh4"
+        },
+        {
+          "date": "2026-08-08",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-08-08",
           "shiftTypeId": "s-mq8tnduo-vsog4",
           "userId": "u-mq8tnifi-13va6"
         },
         {
-          "date": "2026-08-07",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tr54q-jwp4p"
-        },
-        {
-          "date": "2026-08-07",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-08-08",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-08-08",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mqaxr0so-h7xoy"
-        },
-        {
-          "date": "2026-08-08",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8xwhzj-tvgh4"
-        },
-        {
-          "date": "2026-08-08",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-08-08",
+          "date": "2026-08-09",
           "shiftTypeId": "s-mq8tmjmy-30eij",
           "userId": "u-mq8tr54q-jwp4p"
         },
         {
           "date": "2026-08-09",
           "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-08-09",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mqaxr0so-h7xoy"
-        },
-        {
-          "date": "2026-08-09",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-08-09",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tle5q-wb2ly"
+          "userId": "u-mq8tlpb8-x030k"
         },
         {
           "date": "2026-08-09",
           "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tlpb8-x030k"
+          "userId": "u-mq8xwhzj-tvgh4"
         },
         {
-          "date": "2026-08-10",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tlpb8-x030k"
+          "date": "2026-08-09",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mqaxr0so-h7xoy"
         },
         {
-          "date": "2026-08-10",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "date": "2026-08-09",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
           "userId": "u-mq8tnifi-13va6"
         },
         {
           "date": "2026-08-10",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tnifi-13va6"
+        },
+        {
+          "date": "2026-08-10",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mqaxr0so-h7xoy"
+        },
+        {
+          "date": "2026-08-10",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
           "userId": "u-mq8tle5q-wb2ly"
         },
         {
           "date": "2026-08-10",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tqqj0-2lrq6"
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tljk2-lumtw"
         },
         {
           "date": "2026-08-10",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tr54q-jwp4p"
-        },
-        {
-          "date": "2026-08-11",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tr54q-jwp4p"
-        },
-        {
-          "date": "2026-08-11",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-08-11",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
           "userId": "u-mq8tqqj0-2lrq6"
         },
         {
           "date": "2026-08-11",
           "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tle5q-wb2ly"
+        },
+        {
+          "date": "2026-08-11",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-08-11",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
           "userId": "u-mq8tnifi-13va6"
         },
         {
           "date": "2026-08-11",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8xwhzj-tvgh4"
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tqqj0-2lrq6"
         },
         {
-          "date": "2026-08-12",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "date": "2026-08-11",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
           "userId": "u-mq8tlpb8-x030k"
         },
         {
           "date": "2026-08-12",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mq8tr54q-jwp4p"
         },
         {
           "date": "2026-08-12",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
           "userId": "u-mq8tnifi-13va6"
         },
         {
           "date": "2026-08-12",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
           "userId": "u-mq8tle5q-wb2ly"
         },
         {
           "date": "2026-08-12",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
           "userId": "u-mq8tljk2-lumtw"
         },
         {
-          "date": "2026-08-13",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-08-13",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-08-13",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tqqj0-2lrq6"
-        },
-        {
-          "date": "2026-08-13",
+          "date": "2026-08-12",
           "shiftTypeId": "s-mq8tnduo-vsog4",
           "userId": "u-mq8xwhzj-tvgh4"
         },
         {
           "date": "2026-08-13",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-08-14",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tqqj0-2lrq6"
-        },
-        {
-          "date": "2026-08-14",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-08-14",
           "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tlpb8-x030k"
+          "userId": "u-mq8tr54q-jwp4p"
         },
         {
-          "date": "2026-08-14",
+          "date": "2026-08-13",
           "shiftTypeId": "s-mq8tmjmy-30eij",
           "userId": "u-mq8tle5q-wb2ly"
         },
         {
+          "date": "2026-08-13",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8xwhzj-tvgh4"
+        },
+        {
+          "date": "2026-08-13",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tlpb8-x030k"
+        },
+        {
+          "date": "2026-08-13",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tqqj0-2lrq6"
+        },
+        {
+          "date": "2026-08-14",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8xwhzj-tvgh4"
+        },
+        {
+          "date": "2026-08-14",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tqqj0-2lrq6"
+        },
+        {
+          "date": "2026-08-14",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-08-14",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mqaxr0so-h7xoy"
+        },
+        {
           "date": "2026-08-14",
           "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-08-15",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mq8tr54q-jwp4p"
         },
         {
           "date": "2026-08-15",
           "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tle5q-wb2ly"
-        },
-        {
-          "date": "2026-08-15",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-08-15",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tljk2-lumtw"
+          "userId": "u-mqaxr0so-h7xoy"
         },
         {
           "date": "2026-08-15",
@@ -3662,217 +3714,212 @@
         {
           "date": "2026-08-15",
           "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tle5q-wb2ly"
+        },
+        {
+          "date": "2026-08-15",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tlpb8-x030k"
+        },
+        {
+          "date": "2026-08-16",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tlpb8-x030k"
+        },
+        {
+          "date": "2026-08-16",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-08-16",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
           "userId": "u-mqaxr0so-h7xoy"
         },
         {
           "date": "2026-08-16",
           "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8xwhzj-tvgh4"
-        },
-        {
-          "date": "2026-08-16",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tle5q-wb2ly"
-        },
-        {
-          "date": "2026-08-16",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-08-16",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mq8tqqj0-2lrq6"
         },
         {
           "date": "2026-08-16",
           "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-08-17",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tqqj0-2lrq6"
+        },
+        {
+          "date": "2026-08-17",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tlpb8-x030k"
+        },
+        {
+          "date": "2026-08-17",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mq8tr54q-jwp4p"
         },
         {
           "date": "2026-08-17",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-08-17",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tqqj0-2lrq6"
-        },
-        {
-          "date": "2026-08-17",
           "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tle5q-wb2ly"
-        },
-        {
-          "date": "2026-08-17",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8xwhzj-tvgh4"
+          "userId": "u-mqaxr0so-h7xoy"
         },
         {
           "date": "2026-08-17",
           "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mqaxr0so-h7xoy"
-        },
-        {
-          "date": "2026-08-18",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tqqj0-2lrq6"
-        },
-        {
-          "date": "2026-08-18",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-08-18",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
           "userId": "u-mq8tle5q-wb2ly"
         },
         {
           "date": "2026-08-18",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
           "userId": "u-mq8tlpb8-x030k"
         },
         {
           "date": "2026-08-18",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tr54q-jwp4p"
-        },
-        {
-          "date": "2026-08-19",
           "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-08-19",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tqqj0-2lrq6"
-        },
-        {
-          "date": "2026-08-19",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-08-19",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
           "userId": "u-mq8tljk2-lumtw"
         },
         {
-          "date": "2026-08-19",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mqaxr0so-h7xoy"
-        },
-        {
-          "date": "2026-08-20",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tqqj0-2lrq6"
-        },
-        {
-          "date": "2026-08-20",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-08-20",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-08-20",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-08-20",
+          "date": "2026-08-18",
           "shiftTypeId": "s-mq8tnduo-vsog4",
           "userId": "u-mq8xwhzj-tvgh4"
         },
         {
-          "date": "2026-08-21",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tqqj0-2lrq6"
-        },
-        {
-          "date": "2026-08-21",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-08-21",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tr54q-jwp4p"
-        },
-        {
-          "date": "2026-08-21",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mqaxr0so-h7xoy"
-        },
-        {
-          "date": "2026-08-21",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tle5q-wb2ly"
-        },
-        {
-          "date": "2026-08-22",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mqaxr0so-h7xoy"
-        },
-        {
-          "date": "2026-08-22",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tr54q-jwp4p"
-        },
-        {
-          "date": "2026-08-22",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tqqj0-2lrq6"
-        },
-        {
-          "date": "2026-08-22",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-08-22",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-08-23",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tr54q-jwp4p"
-        },
-        {
-          "date": "2026-08-23",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mqaxr0so-h7xoy"
-        },
-        {
-          "date": "2026-08-23",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-08-23",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tle5q-wb2ly"
-        },
-        {
-          "date": "2026-08-23",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tqqj0-2lrq6"
-        },
-        {
-          "date": "2026-08-24",
+          "date": "2026-08-18",
           "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mq8tnifi-13va6"
         },
         {
-          "date": "2026-08-24",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "date": "2026-08-18",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-08-19",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-08-19",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-08-19",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tnifi-13va6"
+        },
+        {
+          "date": "2026-08-19",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
           "userId": "u-mqaxr0so-h7xoy"
+        },
+        {
+          "date": "2026-08-19",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tqqj0-2lrq6"
+        },
+        {
+          "date": "2026-08-20",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tnifi-13va6"
+        },
+        {
+          "date": "2026-08-20",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tqqj0-2lrq6"
+        },
+        {
+          "date": "2026-08-20",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8xwhzj-tvgh4"
+        },
+        {
+          "date": "2026-08-20",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-08-20",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tle5q-wb2ly"
+        },
+        {
+          "date": "2026-08-21",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tnifi-13va6"
+        },
+        {
+          "date": "2026-08-21",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8xwhzj-tvgh4"
+        },
+        {
+          "date": "2026-08-21",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tle5q-wb2ly"
+        },
+        {
+          "date": "2026-08-21",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mqaxr0so-h7xoy"
+        },
+        {
+          "date": "2026-08-21",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-08-22",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tle5q-wb2ly"
+        },
+        {
+          "date": "2026-08-22",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tnifi-13va6"
+        },
+        {
+          "date": "2026-08-22",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mqaxr0so-h7xoy"
+        },
+        {
+          "date": "2026-08-22",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tqqj0-2lrq6"
+        },
+        {
+          "date": "2026-08-22",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-08-23",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tqqj0-2lrq6"
+        },
+        {
+          "date": "2026-08-23",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mqaxr0so-h7xoy"
+        },
+        {
+          "date": "2026-08-23",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tle5q-wb2ly"
+        },
+        {
+          "date": "2026-08-23",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tnifi-13va6"
+        },
+        {
+          "date": "2026-08-23",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tr54q-jwp4p"
         },
         {
           "date": "2026-08-24",
@@ -3882,132 +3929,147 @@
         {
           "date": "2026-08-24",
           "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tle5q-wb2ly"
-        },
-        {
-          "date": "2026-08-25",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-08-25",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tqqj0-2lrq6"
-        },
-        {
-          "date": "2026-08-25",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tle5q-wb2ly"
-        },
-        {
-          "date": "2026-08-25",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
           "userId": "u-mqaxr0so-h7xoy"
         },
         {
-          "date": "2026-08-25",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tr54q-jwp4p"
-        },
-        {
-          "date": "2026-08-26",
+          "date": "2026-08-24",
           "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mq8tnifi-13va6"
         },
         {
-          "date": "2026-08-26",
+          "date": "2026-08-24",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-08-24",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-08-25",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-08-25",
           "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tqqj0-2lrq6"
+        },
+        {
+          "date": "2026-08-25",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tle5q-wb2ly"
+        },
+        {
+          "date": "2026-08-25",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-08-25",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
           "userId": "u-mq8tlpb8-x030k"
         },
         {
           "date": "2026-08-26",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mq8tle5q-wb2ly"
         },
         {
           "date": "2026-08-26",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-08-26",
           "shiftTypeId": "s-mq8tq1w4-ksf3o",
           "userId": "u-mq8tr54q-jwp4p"
         },
         {
           "date": "2026-08-26",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-08-27",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tr54q-jwp4p"
-        },
-        {
-          "date": "2026-08-27",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-08-27",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-08-27",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tqqj0-2lrq6"
-        },
-        {
-          "date": "2026-08-27",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-08-28",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-08-28",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tr54q-jwp4p"
-        },
-        {
-          "date": "2026-08-28",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-08-28",
           "shiftTypeId": "s-mq8tmjmy-30eij",
           "userId": "u-mqaxr0so-h7xoy"
         },
         {
+          "date": "2026-08-26",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tnifi-13va6"
+        },
+        {
+          "date": "2026-08-27",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tle5q-wb2ly"
+        },
+        {
+          "date": "2026-08-27",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mqaxr0so-h7xoy"
+        },
+        {
+          "date": "2026-08-27",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-08-27",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tlpb8-x030k"
+        },
+        {
+          "date": "2026-08-27",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tqqj0-2lrq6"
+        },
+        {
+          "date": "2026-08-28",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tnifi-13va6"
+        },
+        {
+          "date": "2026-08-28",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tle5q-wb2ly"
+        },
+        {
+          "date": "2026-08-28",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mqaxr0so-h7xoy"
+        },
+        {
+          "date": "2026-08-28",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
           "date": "2026-08-28",
           "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tle5q-wb2ly"
-        },
-        {
-          "date": "2026-08-29",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tlpb8-x030k"
+          "userId": "u-mq8xwhzj-tvgh4"
         },
         {
           "date": "2026-08-29",
           "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tljk2-lumtw"
+          "userId": "u-mq8tqqj0-2lrq6"
         },
         {
           "date": "2026-08-29",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
           "userId": "u-mq8tnifi-13va6"
         },
         {
           "date": "2026-08-29",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tqqj0-2lrq6"
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tle5q-wb2ly"
         },
         {
           "date": "2026-08-29",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8xwhzj-tvgh4"
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tlpb8-x030k"
+        },
+        {
+          "date": "2026-08-29",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tljk2-lumtw"
         },
         {
           "date": "2026-08-30",
@@ -4016,8 +4078,8 @@
         },
         {
           "date": "2026-08-30",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8xwhzj-tvgh4"
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tqqj0-2lrq6"
         },
         {
           "date": "2026-08-30",
@@ -4026,8 +4088,8 @@
         },
         {
           "date": "2026-08-30",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tqqj0-2lrq6"
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tnifi-13va6"
         },
         {
           "date": "2026-08-30",
@@ -4036,48 +4098,28 @@
         },
         {
           "date": "2026-08-31",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tnifi-13va6"
+        },
+        {
+          "date": "2026-08-31",
           "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mq8tle5q-wb2ly"
+        },
+        {
+          "date": "2026-08-31",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tlpb8-x030k"
         },
         {
           "date": "2026-08-31",
           "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tqqj0-2lrq6"
+          "userId": "u-mq8tr54q-jwp4p"
         },
         {
           "date": "2026-08-31",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
           "userId": "u-mq8xwhzj-tvgh4"
-        },
-        {
-          "date": "2026-08-31",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-08-31",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-09-01",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tle5q-wb2ly"
-        },
-        {
-          "date": "2026-09-01",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-09-01",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-09-01",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tljk2-lumtw"
         },
         {
           "date": "2026-09-01",
@@ -4085,39 +4127,59 @@
           "userId": "u-mq8tr54q-jwp4p"
         },
         {
-          "date": "2026-09-02",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tqqj0-2lrq6"
-        },
-        {
-          "date": "2026-09-02",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-09-02",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tle5q-wb2ly"
-        },
-        {
-          "date": "2026-09-02",
+          "date": "2026-09-01",
           "shiftTypeId": "s-mq8tmjmy-30eij",
           "userId": "u-mq8tlpb8-x030k"
         },
         {
-          "date": "2026-09-02",
+          "date": "2026-09-01",
           "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tqqj0-2lrq6"
+        },
+        {
+          "date": "2026-09-01",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-09-01",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8xwhzj-tvgh4"
+        },
+        {
+          "date": "2026-09-02",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-09-02",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mqaxr0so-h7xoy"
         },
         {
-          "date": "2026-09-03",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "date": "2026-09-02",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tqqj0-2lrq6"
+        },
+        {
+          "date": "2026-09-02",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tnifi-13va6"
+        },
+        {
+          "date": "2026-09-02",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
           "userId": "u-mq8tle5q-wb2ly"
         },
         {
           "date": "2026-09-03",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tqqj0-2lrq6"
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tle5q-wb2ly"
+        },
+        {
+          "date": "2026-09-03",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mqaxr0so-h7xoy"
         },
         {
           "date": "2026-09-03",
@@ -4126,33 +4188,33 @@
         },
         {
           "date": "2026-09-03",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
           "userId": "u-mq8xwhzj-tvgh4"
         },
         {
           "date": "2026-09-03",
           "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-09-04",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8xwhzj-tvgh4"
+          "userId": "u-mq8tlpb8-x030k"
         },
         {
           "date": "2026-09-04",
           "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tle5q-wb2ly"
+          "userId": "u-mqaxr0so-h7xoy"
         },
         {
           "date": "2026-09-04",
           "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tnifi-13va6"
+          "userId": "u-mq8xwhzj-tvgh4"
+        },
+        {
+          "date": "2026-09-04",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tle5q-wb2ly"
         },
         {
           "date": "2026-09-04",
           "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mqaxr0so-h7xoy"
+          "userId": "u-mq8tr54q-jwp4p"
         },
         {
           "date": "2026-09-04",
@@ -4166,33 +4228,28 @@
         },
         {
           "date": "2026-09-05",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-09-05",
           "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tle5q-wb2ly"
+          "userId": "u-mqaxr0so-h7xoy"
         },
         {
           "date": "2026-09-05",
           "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tle5q-wb2ly"
+        },
+        {
+          "date": "2026-09-05",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
           "userId": "u-mq8xwhzj-tvgh4"
         },
         {
           "date": "2026-09-05",
           "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tr54q-jwp4p"
+          "userId": "u-mq8tljk2-lumtw"
         },
         {
           "date": "2026-09-06",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-09-06",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8xwhzj-tvgh4"
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mqaxr0so-h7xoy"
         },
         {
           "date": "2026-09-06",
@@ -4202,157 +4259,162 @@
         {
           "date": "2026-09-06",
           "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tlpb8-x030k"
+        },
+        {
+          "date": "2026-09-06",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
           "userId": "u-mq8tr54q-jwp4p"
         },
         {
           "date": "2026-09-06",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-09-07",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
           "userId": "u-mq8tljk2-lumtw"
         },
         {
           "date": "2026-09-07",
           "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tlpb8-x030k"
+        },
+        {
+          "date": "2026-09-07",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
           "userId": "u-mq8tr54q-jwp4p"
         },
         {
           "date": "2026-09-07",
           "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-09-07",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-09-07",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8xwhzj-tvgh4"
+          "userId": "u-mqaxr0so-h7xoy"
         },
         {
           "date": "2026-09-07",
           "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tqqj0-2lrq6"
+          "userId": "u-mq8tle5q-wb2ly"
         },
         {
           "date": "2026-09-08",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-09-08",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-09-08",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
           "userId": "u-mq8tr54q-jwp4p"
         },
         {
           "date": "2026-09-08",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-09-08",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tlpb8-x030k"
+        },
+        {
+          "date": "2026-09-08",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mqaxr0so-h7xoy"
         },
         {
           "date": "2026-09-08",
           "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tle5q-wb2ly"
-        },
-        {
-          "date": "2026-09-09",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-09-09",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mqaxr0so-h7xoy"
-        },
-        {
-          "date": "2026-09-09",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-09-09",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tqqj0-2lrq6"
-        },
-        {
-          "date": "2026-09-09",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tle5q-wb2ly"
-        },
-        {
-          "date": "2026-09-10",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tqqj0-2lrq6"
-        },
-        {
-          "date": "2026-09-10",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-09-10",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-09-10",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mqaxr0so-h7xoy"
-        },
-        {
-          "date": "2026-09-10",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-09-11",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tle5q-wb2ly"
-        },
-        {
-          "date": "2026-09-11",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-09-11",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mqaxr0so-h7xoy"
-        },
-        {
-          "date": "2026-09-11",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-09-11",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
           "userId": "u-mq8xwhzj-tvgh4"
         },
         {
+          "date": "2026-09-09",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-09-09",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tlpb8-x030k"
+        },
+        {
+          "date": "2026-09-09",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tnifi-13va6"
+        },
+        {
+          "date": "2026-09-09",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tqqj0-2lrq6"
+        },
+        {
+          "date": "2026-09-09",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tle5q-wb2ly"
+        },
+        {
+          "date": "2026-09-10",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tnifi-13va6"
+        },
+        {
+          "date": "2026-09-10",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tqqj0-2lrq6"
+        },
+        {
+          "date": "2026-09-10",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8xwhzj-tvgh4"
+        },
+        {
+          "date": "2026-09-10",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-09-10",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mqaxr0so-h7xoy"
+        },
+        {
+          "date": "2026-09-11",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8xwhzj-tvgh4"
+        },
+        {
+          "date": "2026-09-11",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tnifi-13va6"
+        },
+        {
+          "date": "2026-09-11",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-09-11",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tle5q-wb2ly"
+        },
+        {
+          "date": "2026-09-11",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tlpb8-x030k"
+        },
+        {
           "date": "2026-09-12",
           "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tnifi-13va6"
+          "userId": "u-mq8tlpb8-x030k"
         },
         {
           "date": "2026-09-12",
           "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tljk2-lumtw"
+          "userId": "u-mq8tnifi-13va6"
         },
         {
           "date": "2026-09-12",
           "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mqaxr0so-h7xoy"
+          "userId": "u-mq8tljk2-lumtw"
         },
         {
           "date": "2026-09-12",
           "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tlpb8-x030k"
+          "userId": "u-mqaxr0so-h7xoy"
         },
         {
           "date": "2026-09-12",
@@ -4362,72 +4424,72 @@
         {
           "date": "2026-09-13",
           "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8xwhzj-tvgh4"
+          "userId": "u-mq8tle5q-wb2ly"
         },
         {
           "date": "2026-09-13",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mq8tnifi-13va6"
         },
         {
           "date": "2026-09-13",
           "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-09-13",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
           "userId": "u-mq8tr54q-jwp4p"
         },
         {
           "date": "2026-09-13",
           "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tle5q-wb2ly"
-        },
-        {
-          "date": "2026-09-13",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mqaxr0so-h7xoy"
-        },
-        {
-          "date": "2026-09-14",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mqaxr0so-h7xoy"
-        },
-        {
-          "date": "2026-09-14",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tr54q-jwp4p"
-        },
-        {
-          "date": "2026-09-14",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
           "userId": "u-mq8xwhzj-tvgh4"
         },
         {
           "date": "2026-09-14",
           "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-09-14",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tnifi-13va6"
+        },
+        {
+          "date": "2026-09-14",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
           "userId": "u-mq8tle5q-wb2ly"
         },
         {
           "date": "2026-09-14",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tlpb8-x030k"
+        },
+        {
+          "date": "2026-09-14",
           "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mqaxr0so-h7xoy"
+        },
+        {
+          "date": "2026-09-15",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
           "userId": "u-mq8tlpb8-x030k"
         },
         {
           "date": "2026-09-15",
           "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mqaxr0so-h7xoy"
+          "userId": "u-mq8tnifi-13va6"
         },
         {
           "date": "2026-09-15",
           "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tle5q-wb2ly"
+          "userId": "u-mq8tr54q-jwp4p"
         },
         {
           "date": "2026-09-15",
           "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8xwhzj-tvgh4"
-        },
-        {
-          "date": "2026-09-15",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tr54q-jwp4p"
+          "userId": "u-mq8tqqj0-2lrq6"
         },
         {
           "date": "2026-09-15",
@@ -4436,63 +4498,58 @@
         },
         {
           "date": "2026-09-16",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mqaxr0so-h7xoy"
-        },
-        {
-          "date": "2026-09-16",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tr54q-jwp4p"
-        },
-        {
-          "date": "2026-09-16",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tle5q-wb2ly"
-        },
-        {
-          "date": "2026-09-16",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-09-16",
           "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-09-17",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-09-17",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mqaxr0so-h7xoy"
-        },
-        {
-          "date": "2026-09-17",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tr54q-jwp4p"
-        },
-        {
-          "date": "2026-09-17",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8xwhzj-tvgh4"
-        },
-        {
-          "date": "2026-09-17",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
           "userId": "u-mq8tqqj0-2lrq6"
         },
         {
-          "date": "2026-09-18",
+          "date": "2026-09-16",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tlpb8-x030k"
+        },
+        {
+          "date": "2026-09-16",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tle5q-wb2ly"
+        },
+        {
+          "date": "2026-09-16",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mqaxr0so-h7xoy"
+        },
+        {
+          "date": "2026-09-16",
           "shiftTypeId": "s-mq8tms0r-f0rjn",
           "userId": "u-mq8xwhzj-tvgh4"
         },
         {
+          "date": "2026-09-17",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8xwhzj-tvgh4"
+        },
+        {
+          "date": "2026-09-17",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mqaxr0so-h7xoy"
+        },
+        {
+          "date": "2026-09-17",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8tlpb8-x030k"
+        },
+        {
+          "date": "2026-09-17",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-09-17",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tle5q-wb2ly"
+        },
+        {
           "date": "2026-09-18",
           "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tnifi-13va6"
+          "userId": "u-mq8tle5q-wb2ly"
         },
         {
           "date": "2026-09-18",
@@ -4501,33 +4558,38 @@
         },
         {
           "date": "2026-09-18",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8xwhzj-tvgh4"
+        },
+        {
+          "date": "2026-09-18",
           "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tlpb8-x030k"
+          "userId": "u-mq8tljk2-lumtw"
         },
         {
           "date": "2026-09-18",
           "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tle5q-wb2ly"
+          "userId": "u-mq8tnifi-13va6"
+        },
+        {
+          "date": "2026-09-19",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mqaxr0so-h7xoy"
         },
         {
           "date": "2026-09-19",
           "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-09-19",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mq8tljk2-lumtw"
         },
         {
           "date": "2026-09-19",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
           "userId": "u-mq8tqqj0-2lrq6"
         },
         {
           "date": "2026-09-19",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tle5q-wb2ly"
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tlpb8-x030k"
         },
         {
           "date": "2026-09-19",
@@ -4542,97 +4604,112 @@
         {
           "date": "2026-09-20",
           "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tljk2-lumtw"
+          "userId": "u-mqaxr0so-h7xoy"
         },
         {
           "date": "2026-09-20",
           "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8xwhzj-tvgh4"
-        },
-        {
-          "date": "2026-09-20",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
           "userId": "u-mq8tlpb8-x030k"
         },
         {
           "date": "2026-09-20",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8xwhzj-tvgh4"
+        },
+        {
+          "date": "2026-09-20",
           "shiftTypeId": "s-mq8tnduo-vsog4",
           "userId": "u-mq8tnifi-13va6"
         },
         {
           "date": "2026-09-21",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-09-21",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
           "userId": "u-mq8xwhzj-tvgh4"
         },
         {
           "date": "2026-09-21",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-09-21",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
           "userId": "u-mq8tlpb8-x030k"
         },
         {
           "date": "2026-09-21",
           "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mqaxr0so-h7xoy"
+          "userId": "u-mq8tljk2-lumtw"
         },
         {
           "date": "2026-09-21",
           "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tr54q-jwp4p"
-        },
-        {
-          "date": "2026-09-22",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tr54q-jwp4p"
-        },
-        {
-          "date": "2026-09-22",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-09-22",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8xwhzj-tvgh4"
-        },
-        {
-          "date": "2026-09-22",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-09-22",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
           "userId": "u-mq8tnifi-13va6"
         },
         {
-          "date": "2026-09-23",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tljk2-lumtw"
+          "date": "2026-09-22",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tnifi-13va6"
         },
         {
-          "date": "2026-09-23",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "date": "2026-09-22",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mq8tr54q-jwp4p"
         },
         {
-          "date": "2026-09-23",
+          "date": "2026-09-22",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tlpb8-x030k"
+        },
+        {
+          "date": "2026-09-22",
           "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8xwhzj-tvgh4"
+        },
+        {
+          "date": "2026-09-22",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
           "userId": "u-mq8tle5q-wb2ly"
         },
         {
           "date": "2026-09-23",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-09-23",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mq8xwhzj-tvgh4"
+        },
+        {
+          "date": "2026-09-23",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tnifi-13va6"
+        },
+        {
+          "date": "2026-09-23",
           "shiftTypeId": "s-mq8tms0r-f0rjn",
           "userId": "u-mqaxr0so-h7xoy"
         },
         {
           "date": "2026-09-23",
           "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tqqj0-2lrq6"
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-09-24",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tr54q-jwp4p"
+        },
+        {
+          "date": "2026-09-24",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mqaxr0so-h7xoy"
+        },
+        {
+          "date": "2026-09-24",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8tnifi-13va6"
         },
         {
           "date": "2026-09-24",
@@ -4641,28 +4718,8 @@
         },
         {
           "date": "2026-09-24",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mqaxr0so-h7xoy"
-        },
-        {
-          "date": "2026-09-24",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tljk2-lumtw"
-        },
-        {
-          "date": "2026-09-24",
           "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8xwhzj-tvgh4"
-        },
-        {
-          "date": "2026-09-24",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tnifi-13va6"
-        },
-        {
-          "date": "2026-09-25",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tnifi-13va6"
+          "userId": "u-mq8tlpb8-x030k"
         },
         {
           "date": "2026-09-25",
@@ -4677,21 +4734,26 @@
         {
           "date": "2026-09-25",
           "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mqaxr0so-h7xoy"
+          "userId": "u-mq8tnifi-13va6"
+        },
+        {
+          "date": "2026-09-25",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8xwhzj-tvgh4"
         },
         {
           "date": "2026-09-25",
           "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-09-26",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tr54q-jwp4p"
+          "userId": "u-mq8tljk2-lumtw"
         },
         {
           "date": "2026-09-26",
           "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8xwhzj-tvgh4"
+        },
+        {
+          "date": "2026-09-26",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mq8tqqj0-2lrq6"
         },
         {
@@ -4701,28 +4763,28 @@
         },
         {
           "date": "2026-09-26",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "shiftTypeId": "s-mq8tnduo-vsog4",
           "userId": "u-mqaxr0so-h7xoy"
         },
         {
           "date": "2026-09-26",
-          "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8xwhzj-tvgh4"
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tlpb8-x030k"
         },
         {
           "date": "2026-09-27",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
           "userId": "u-mq8tlpb8-x030k"
         },
         {
           "date": "2026-09-27",
           "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tr54q-jwp4p"
+          "userId": "u-mq8tnifi-13va6"
         },
         {
           "date": "2026-09-27",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mqaxr0so-h7xoy"
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
+          "userId": "u-mq8xwhzj-tvgh4"
         },
         {
           "date": "2026-09-27",
@@ -4732,130 +4794,131 @@
         {
           "date": "2026-09-27",
           "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tljk2-lumtw"
+        },
+        {
+          "date": "2026-09-28",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mq8tnifi-13va6"
         },
         {
           "date": "2026-09-28",
-          "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tlpb8-x030k"
-        },
-        {
-          "date": "2026-09-28",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
-          "userId": "u-mq8tr54q-jwp4p"
-        },
-        {
-          "date": "2026-09-28",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
           "userId": "u-mq8tqqj0-2lrq6"
         },
         {
           "date": "2026-09-28",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
-          "userId": "u-mq8tljk2-lumtw"
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mqaxr0so-h7xoy"
         },
         {
           "date": "2026-09-28",
           "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mq8xwhzj-tvgh4"
-        },
-        {
-          "date": "2026-09-29",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mq8tr54q-jwp4p"
         },
         {
-          "date": "2026-09-29",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8tqqj0-2lrq6"
-        },
-        {
-          "date": "2026-09-29",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "date": "2026-09-28",
+          "shiftTypeId": "s-mq8tq1w4-ksf3o",
           "userId": "u-mq8tljk2-lumtw"
         },
         {
           "date": "2026-09-29",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "userId": "u-mq8tnifi-13va6"
+        },
+        {
+          "date": "2026-09-29",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mqaxr0so-h7xoy"
+        },
+        {
+          "date": "2026-09-29",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
+          "userId": "u-mq8tqqj0-2lrq6"
+        },
+        {
+          "date": "2026-09-29",
           "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tlpb8-x030k"
+          "userId": "u-mq8tljk2-lumtw"
         },
         {
           "date": "2026-09-29",
           "shiftTypeId": "s-mq8tnduo-vsog4",
+          "userId": "u-mq8tlpb8-x030k"
+        },
+        {
+          "date": "2026-09-30",
+          "shiftTypeId": "s-mq8tm6w1-jvk5j",
           "userId": "u-mq8tnifi-13va6"
         },
         {
           "date": "2026-09-30",
           "shiftTypeId": "s-mq8tq1w4-ksf3o",
-          "userId": "u-mq8tqqj0-2lrq6"
-        },
-        {
-          "date": "2026-09-30",
-          "shiftTypeId": "s-mq8tmjmy-30eij",
-          "userId": "u-mq8xwhzj-tvgh4"
-        },
-        {
-          "date": "2026-09-30",
-          "shiftTypeId": "s-mq8tms0r-f0rjn",
           "userId": "u-mq8tljk2-lumtw"
         },
         {
           "date": "2026-09-30",
-          "shiftTypeId": "s-mq8tm6w1-jvk5j",
+          "shiftTypeId": "s-mq8tmjmy-30eij",
+          "userId": "u-mqaxr0so-h7xoy"
+        },
+        {
+          "date": "2026-09-30",
+          "shiftTypeId": "s-mq8tms0r-f0rjn",
           "userId": "u-mq8tle5q-wb2ly"
         },
         {
           "date": "2026-09-30",
           "shiftTypeId": "s-mq8tnduo-vsog4",
-          "userId": "u-mqaxr0so-h7xoy"
+          "userId": "u-mq8xwhzj-tvgh4"
         }
       ],
-      "unfilled": [
-        {
-          "date": "2026-08-24",
-          "shiftTypeId": "s-mq8tnduo-vsog4"
-        }
-      ],
+      "unfilled": [],
       "warnings": [
-        "Open shift: Backup on 2026-08-24 — no one available. Consider outside help or reassigning.",
+        "Morgan (Manager) has 0 of 48 minimum shifts, 4 covered by vacation days — 44 short.",
+        "Other Person was scheduled on 2026-07-05 despite preferring it off.",
         "Ale Gabella was scheduled on 2026-07-06 despite preferring it off.",
-        "Evee Lopez was scheduled on 2026-08-09 despite preferring it off.",
-        "Matt who sucks was scheduled on 2026-09-23 despite preferring it off.",
-        "George returns on 2026-08-10 with only 1 day off after a 6-day stretch (ideally 2).",
-        "George returns on 2026-09-19 with only 1 day off after a 5-day stretch (ideally 2).",
-        "Matt who sucks returns on 2026-07-08 with only 1 day off after a 6-day stretch (ideally 2).",
-        "Matt who sucks returns on 2026-08-27 with only 1 day off after a 10-day stretch (ideally 2).",
-        "Priya Nair returns on 2026-07-16 with only 1 day off after a 8-day stretch (ideally 2).",
-        "Priya Nair returns on 2026-07-24 with only 1 day off after a 5-day stretch (ideally 2).",
-        "Steven returns on 2026-07-23 with only 1 day off after a 8-day stretch (ideally 2).",
-        "Steven returns on 2026-07-29 with only 1 day off after a 5-day stretch (ideally 2).",
-        "Steven returns on 2026-08-22 with only 1 day off after a 5-day stretch (ideally 2).",
-        "Ale Gabella returns on 2026-08-08 with only 1 day off after a 5-day stretch (ideally 2).",
-        "Matt who sucks asked for 22 preferred days (roster norm 5.5); the first 18 kept full priority."
+        "Ale Gabella was scheduled on 2026-07-20 despite preferring it off.",
+        "Steven was scheduled on 2026-08-02 despite preferring it off.",
+        "Matt who sucks was scheduled on 2026-08-06 despite preferring it off.",
+        "Ale Gabella was scheduled on 2026-08-25 despite preferring it off.",
+        "Other Person was scheduled on 2026-08-28 despite preferring it off.",
+        "Matt who sucks returns on 2026-07-10 with only 1 day off after a 8-day stretch (ideally 2).",
+        "George returns on 2026-08-21 with only 1 day off after a 8-day stretch (ideally 2).",
+        "Ale Gabella returns on 2026-07-16 with only 1 day off after a 6-day stretch (ideally 2).",
+        "Ale Gabella returns on 2026-08-11 with only 1 day off after a 8-day stretch (ideally 2).",
+        "Priya Nair returns on 2026-09-10 with only 1 day off after a 7-day stretch (ideally 2).",
+        "Evee Lopez returns on 2026-07-23 with only 1 day off after a 8-day stretch (ideally 2).",
+        "Evee Lopez returns on 2026-09-02 with only 1 day off after a 7-day stretch (ideally 2).",
+        "Steven returns on 2026-07-24 with only 1 day off after a 5-day stretch (ideally 2).",
+        "Steven returns on 2026-08-26 with only 1 day off after a 7-day stretch (ideally 2).",
+        "Steven returns on 2026-09-27 with only 1 day off after a 6-day stretch (ideally 2).",
+        "Matt who sucks asked for 22 preferred days (roster norm 6); the first 17 kept full priority."
       ],
       "counts": {
         "u-mq8tkj7h-95721": 0,
-        "u-mq8tle5q-wb2ly": 46,
-        "u-mq8tljk2-lumtw": 47,
-        "u-mq8tlpb8-x030k": 46,
-        "u-mq8tnifi-13va6": 48,
+        "u-mq8tle5q-wb2ly": 45,
+        "u-mq8tljk2-lumtw": 45,
+        "u-mq8tlpb8-x030k": 44,
+        "u-mq8tnifi-13va6": 49,
         "u-mq8tqqj0-2lrq6": 46,
         "u-mq8tqxv4-wgn5p": 0,
         "u-mq8tr54q-jwp4p": 47,
-        "u-mq8xwhzj-tvgh4": 42,
-        "u-mqaxr0so-h7xoy": 46
+        "u-mq8xwhzj-tvgh4": 45,
+        "u-mqaxr0so-h7xoy": 47
       },
       "vacationCharged": {
-        "u-mq8tle5q-wb2ly": 2,
-        "u-mq8tljk2-lumtw": 1,
-        "u-mq8tlpb8-x030k": 2,
+        "u-mq8tkj7h-95721": 4,
+        "u-mq8tle5q-wb2ly": 3,
+        "u-mq8tljk2-lumtw": 3,
+        "u-mq8tlpb8-x030k": 4,
         "u-mq8tqqj0-2lrq6": 2,
         "u-mq8tr54q-jwp4p": 1,
-        "u-mq8xwhzj-tvgh4": 6,
-        "u-mqaxr0so-h7xoy": 2
+        "u-mq8xwhzj-tvgh4": 3,
+        "u-mqaxr0so-h7xoy": 1
       },
       "preferenceStats": {
         "asks": {
+          "u-mq8tkj7h-95721": 6,
           "u-mq8tle5q-wb2ly": 6,
           "u-mq8tljk2-lumtw": 0,
           "u-mq8tlpb8-x030k": 11,
@@ -4865,12 +4928,12 @@
           "u-mq8xwhzj-tvgh4": 7,
           "u-mqaxr0so-h7xoy": 3
         },
-        "median": 5.5
+        "median": 6
       }
     }
   ],
   "meta": {
-    "rotationCursor": 6
+    "rotationCursor": 5
   },
   "trades": [
     {
@@ -5731,5 +5794,21 @@
       "createdAt": "2026-06-13T13:45:08.840Z"
     }
   ],
-  "awayTime": []
+  "awayTime": [],
+  "roles": [
+    {
+      "id": "role-admin",
+      "name": "Admin",
+      "system": true
+    },
+    {
+      "id": "role-employee",
+      "name": "Employee",
+      "system": true
+    },
+    {
+      "id": "role-mqfthgru-kmpgr",
+      "name": "Physician"
+    }
+  ]
 }
