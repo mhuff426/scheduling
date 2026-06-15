@@ -333,6 +333,14 @@ export function isAway(db: Db, userId: string, date: string): boolean {
   return db.awayTime.some((a) => a.userId === userId && a.start <= date && date <= a.end);
 }
 
+// True if the user holds a role allowed to fill this shift type. A shift with
+// no allowedRoles (empty/absent) is open to everyone.
+export function hasRequiredRole(user: User, st: { allowedRoles?: string[] }): boolean {
+  if (!st.allowedRoles || st.allowedRoles.length === 0) return true;
+  const roles = user.roles || [];
+  return st.allowedRoles.some((r) => roles.includes(r));
+}
+
 // Must-have-off entries a user filed inside the block.
 export function mustOffInRange(db: Db, userId: string, { startDate, endDate }: { startDate: string; endDate: string }) {
   return db.timeOff.filter(
@@ -556,6 +564,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
     !vacation.has(`${u.id}|${date}`) &&
     !isBeforeStart(u, date) &&
     !isAway(db, u.id, date) &&
+    hasRequiredRole(u, st) &&
     !workingDay.has(`${u.id}|${date}`) &&
     restOk(held.get(u.id), shiftById, date, st) &&
     nightCapOkLocal(u, date, st);

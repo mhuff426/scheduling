@@ -15,7 +15,7 @@ import { newId, vacationAvailable } from './db.js';
 import {
   restOk, nightCapOk, summarizeSchedule, includedUsers,
   weightOf, countingShifts, requiredFor, extraDays,
-  isBeforeStart, isAway,
+  isBeforeStart, isAway, hasRequiredRole,
 } from './scheduler.js';
 import type {
   Assignment, Db, ExtraElection, Schedule, ShiftType, Slot, Trade, TradeType, User,
@@ -70,6 +70,8 @@ export function canTakeShift(db: Db, schedule: Schedule, slot: Slot, user: User,
   const stMap = shiftById(db);
   const st = stMap[slot.shiftTypeId];
   if (!st) return 'That shift type no longer exists.';
+  if (!hasRequiredRole(user, st))
+    return `${user.name} doesn't have a role allowed for that shift.`;
   if (
     db.timeOff.some(
       (t) => t.userId === user.id && t.date === slot.date && t.type === 'vacation'

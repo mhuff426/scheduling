@@ -5,16 +5,16 @@ import {
   computeCaps, preferenceStandings, DEMOTED_CLAIM,
   isGrouped, runBounds, nightCapOk, effectiveMaximums, weightOf,
   recoveryNeed, effectiveMinimums, requiredFor,
-  isAway, isBeforeStart,
+  isAway, isBeforeStart, hasRequiredRole,
 } from './scheduler.js';
 import { vacationAvailable } from './db.js';
 import type { Assignment, Db, ShiftType, TimeOff, User } from '../shared/types.js';
 
 const mkUser = (id: string, name: string, extra: Record<string, any> = {}): User => ({
-  id, name, role: 'employee', vacationDays: 10, color: '#888', ...extra,
+  id, name, roles: ['role-employee'], vacationDays: 10, color: '#888', ...extra,
 });
 const mkDb = (users: User[], shiftTypes: ShiftType[], timeOff: TimeOff[] = []): Db => ({
-  users, shiftTypes, timeOff,
+  users, roles: [], shiftTypes, timeOff,
   settings: { maxVacationPerDay: 2 },
   schedules: [], trades: [], notifications: [], awayTime: [],
   meta: { rotationCursor: 0 },
@@ -864,6 +864,63 @@ assert.strictEqual(recoveryNeed(9), 2);
   // days 5-7 once available. So C covers at least the 4 pre-start days.
   assert.ok(r.counts['c'] >= 4, `C must cover the 4 days only it can work, got ${r.counts['c']}`);
   assert.strictEqual(r.counts['b'] + r.counts['c'], 7, 'B (from its start date) and C together cover all 7 slots');
+}
+
+// ===== custom employee roles (new feature) =====
+
+// ---- hasRequiredRole boundaries
+{
+  const plain = mkUser('a', 'A');                                  // ['role-employee']
+  const mgr = mkUser('m', 'M', { roles: ['role-employee', 'role-mgr'] });
+  assert.strictEqual(hasRequiredRole(plain, { allowedRoles: [] }), true, 'empty allowedRoles = anyone');
+  assert.strictEqual(hasRequiredRole(plain, {}), true, 'absent allowedRoles = anyone');
+  assert.strictEqual(hasRequiredRole(mgr, { allowedRoles: ['role-mgr'] }), true, 'a role-holder is allowed');
+  assert.strictEqual(hasRequiredRole(plain, { allowedRoles: ['role-mgr'] }), false, 'a non-holder is blocked');
+  assert.strictEqual(hasRequiredRole({ ...plain, roles: [] }, { allowedRoles: ['role-mgr'] }), false, 'no roles = blocked when restricted');
+}
+
+const mgrShift: ShiftType = { id: 'mgr', name: 'Manager', startTime: '08:00', endTime: '16:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1, allowedRoles: ['role-mgr'] };
+
+// ---- a role-restricted shift only goes to employees who hold the role
+{
+  const db = mkDb(
+    [mkUser('m', 'M', { roles: ['role-employee', 'role-mgr'] }), mkUser('e', 'E')],
+    [mgrShift]
+  );
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-03' });
+  assert.ok(r.assignments.length > 0, 'manager shifts are filled');
+  assert.ok(r.assignments.every((a) => a.userId === 'm'), `only the role-holder fills it: ${JSON.stringify(r.counts)}`);
+  assert.ok(!r.assignments.some((a) => a.userId === 'e'), 'a non-holder is never assigned a role-restricted shift');
+  assert.strictEqual(r.unfilled.length, 0, 'the role-holder covers every day');
+}
+
+// ---- empty allowedRoles is open to everyone (regression)
+{
+  const open: ShiftType = { ...mgrShift, id: 'open', allowedRoles: [] };
+  const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [open]);
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-04' });
+  assert.strictEqual(r.unfilled.length, 0, 'an unrestricted shift fills');
+  assert.ok(r.assignments.every((a) => a.userId === 'a' || a.userId === 'b'), 'anyone may fill an unrestricted shift');
+}
+
+// ---- a role-restricted shift with no eligible employee goes unfilled (no crash)
+{
+  const db = mkDb([mkUser('e', 'E')], [mgrShift]); // nobody holds role-mgr
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-02' });
+  assert.strictEqual(r.assignments.length, 0, 'no eligible employee -> nothing assigned');
+  assert.strictEqual(r.unfilled.length, 2, 'both days go open');
+  assert.ok(r.warnings.some((w) => w.toLowerCase().includes('open shift')), `open-shift warning expected: ${JSON.stringify(r.warnings)}`);
+}
+
+// ---- the repair pass never donates a role-restricted shift to an ineligible under-min user
+{
+  const db = mkDb(
+    [mkUser('m', 'M', { roles: ['role-employee', 'role-mgr'] }), mkUser('e', 'E', { requiredShifts: 2 })],
+    [mgrShift]
+  );
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-05' });
+  assert.strictEqual(r.counts['e'] || 0, 0, 'ineligible E gets nothing even though it is under its minimum');
+  assert.ok(r.warnings.some((w) => w.includes('E has')), `E is reported short (floor kept): ${JSON.stringify(r.warnings)}`);
 }
 
 console.log('All scheduler tests passed.');

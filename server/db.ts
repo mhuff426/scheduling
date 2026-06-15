@@ -1,16 +1,23 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import type { Db, User } from '../shared/types.js';
+import type { Db, RoleTag, User } from '../shared/types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const DATA_FILE = path.join(DATA_DIR, 'data.json');
 
+// The two roles the system always provides; they can't be renamed or deleted.
+const SYSTEM_ROLES: RoleTag[] = [
+  { id: 'role-admin', name: 'Admin', system: true },
+  { id: 'role-employee', name: 'Employee', system: true },
+];
+
 const DEFAULT_DATA: Db = {
   users: [
-    { id: 'u-admin', name: 'Admin', role: 'admin', vacationDays: 15, color: '#6366f1', requiredShifts: null },
+    { id: 'u-admin', name: 'Admin', roles: ['role-admin', 'role-employee'], vacationDays: 15, color: '#6366f1', requiredShifts: null },
   ],
+  roles: SYSTEM_ROLES.map((r) => ({ ...r })),
   shiftTypes: [],
   settings: { maxVacationPerDay: 2, cadence: null },
   timeOff: [],
@@ -37,7 +44,19 @@ export function loadDb(): Db {
   loaded.trades ??= [];
   loaded.notifications ??= [];
   loaded.awayTime ??= [];
-  for (const u of loaded.users) u.requiredShifts ??= null;
+  // Roles: ensure the list exists and both system roles are always present.
+  loaded.roles ??= [];
+  for (const sys of SYSTEM_ROLES) {
+    if (!loaded.roles.some((r) => r.id === sys.id)) loaded.roles.push({ ...sys });
+  }
+  for (const u of loaded.users) {
+    u.requiredShifts ??= null;
+    // Migrate the legacy single `role` field into role tags (then it's dead).
+    u.roles ??= [];
+    if ((u as any).role === 'admin' && !u.roles.includes('role-admin')) u.roles.push('role-admin');
+    if (!u.roles.includes('role-employee')) u.roles.push('role-employee');
+  }
+  for (const st of loaded.shiftTypes) st.allowedRoles ??= [];
   cache = loaded;
   return loaded;
 }

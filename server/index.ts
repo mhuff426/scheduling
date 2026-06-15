@@ -40,12 +40,15 @@ app.get('/api/state', (req, res) => {
 // ---- roster ----
 app.post('/api/users', (req, res) => {
   const db = loadDb();
-  const { name, role, vacationDays, startDate } = req.body;
+  const { name, roles, vacationDays, startDate } = req.body;
   if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required.' });
+  const valid = new Set(db.roles.map((r) => r.id));
+  const reqRoles = (Array.isArray(roles) ? roles : []).filter((id: string) => valid.has(id));
+  if (!reqRoles.includes('role-employee')) reqRoles.push('role-employee');
   const user: User = {
     id: newId('u'),
     name: name.trim(),
-    role: role === 'admin' ? 'admin' : 'employee',
+    roles: reqRoles,
     vacationDays: Math.max(0, Number(vacationDays) || 0),
     color: PALETTE[db.users.length % PALETTE.length],
     startDate: isDate(startDate) ? startDate : null,
@@ -55,23 +58,27 @@ app.post('/api/users', (req, res) => {
   res.json(user);
 });
 
+const isAdminUser = (u: User) => (u.roles || []).includes('role-admin');
 const isLastAdmin = (db: Db, user: User) =>
-  user.role === 'admin' && db.users.filter((u) => u.role === 'admin').length === 1;
+  isAdminUser(user) && db.users.filter(isAdminUser).length === 1;
 
 app.put('/api/users/:id', (req, res) => {
   const db = loadDb();
   const user = db.users.find((u) => u.id === req.params.id);
   if (!user) return res.status(404).json({ error: 'User not found.' });
-  const { name, role, vacationDays } = req.body;
+  const { name, roles, vacationDays } = req.body;
   if (name !== undefined) user.name = String(name).trim() || user.name;
-  if (role !== undefined) {
-    const newRole = role === 'admin' ? 'admin' : 'employee';
-    if (newRole === 'employee' && isLastAdmin(db, user)) {
+  if (roles !== undefined) {
+    const valid = new Set(db.roles.map((r) => r.id));
+    const next = (Array.isArray(roles) ? roles : []).filter((id: string) => valid.has(id));
+    if (!next.includes('role-employee')) next.push('role-employee'); // Employee always implied
+    // Can't strip the Admin tag (admin access) from the only admin.
+    if (isAdminUser(user) && !next.includes('role-admin') && isLastAdmin(db, user)) {
       return res.status(400).json({
         error: `${user.name} is the only admin. Make someone else an admin first.`,
       });
     }
-    user.role = newRole;
+    user.roles = next;
   }
   if (vacationDays !== undefined) user.vacationDays = Math.max(0, Number(vacationDays) || 0);
   if (req.body.requiredShifts !== undefined) {
@@ -110,11 +117,51 @@ app.delete('/api/users/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// ---- employee roles (capability tags; Admin/Employee are system roles) ----
+app.post('/api/roles', (req, res) => {
+  const db = loadDb();
+  const name = String(req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Role name is required.' });
+  if (db.roles.some((r) => r.name.toLowerCase() === name.toLowerCase()))
+    return res.status(400).json({ error: 'A role with that name already exists.' });
+  const role = { id: newId('role'), name };
+  db.roles.push(role);
+  saveDb();
+  res.json(role);
+});
+
+app.put('/api/roles/:id', (req, res) => {
+  const db = loadDb();
+  const role = db.roles.find((r) => r.id === req.params.id);
+  if (!role) return res.status(404).json({ error: 'Role not found.' });
+  if (role.system) return res.status(400).json({ error: 'System roles cannot be renamed.' });
+  const name = String(req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Role name is required.' });
+  if (db.roles.some((r) => r.id !== role.id && r.name.toLowerCase() === name.toLowerCase()))
+    return res.status(400).json({ error: 'A role with that name already exists.' });
+  role.name = name;
+  saveDb();
+  res.json(role);
+});
+
+app.delete('/api/roles/:id', (req, res) => {
+  const db = loadDb();
+  const role = db.roles.find((r) => r.id === req.params.id);
+  if (!role) return res.status(404).json({ error: 'Role not found.' });
+  if (role.system) return res.status(400).json({ error: 'System roles cannot be deleted.' });
+  // Cascade: drop the role id from every user and every shift type.
+  for (const u of db.users) u.roles = (u.roles || []).filter((r) => r !== role.id);
+  for (const st of db.shiftTypes) st.allowedRoles = (st.allowedRoles || []).filter((r) => r !== role.id);
+  db.roles = db.roles.filter((r) => r.id !== role.id);
+  saveDb();
+  res.json({ ok: true });
+});
+
 // ---- shift types ----
 // Validate and normalize the shift-type fields shared by create and edit.
 // Returns { error } on failure or { fields } on success.
 function parseShiftType(body: any): { error: string; fields?: undefined } | { error?: undefined; fields: Omit<ShiftType, 'id'> } {
-  const { name, startTime, endTime, frequency, dayOfWeek, staffRequired, minRun, maxRun, weight } = body;
+  const { name, startTime, endTime, frequency, dayOfWeek, staffRequired, minRun, maxRun, weight, allowedRoles } = body;
   if (!name || !name.trim()) return { error: 'Shift name is required.' };
   if (!isTime(startTime) || !isTime(endTime))
     return { error: 'Start and end times are required (HH:MM).' };
@@ -140,6 +187,7 @@ function parseShiftType(body: any): { error: string; fields?: undefined } | { er
       staffRequired: Math.max(1, Number(staffRequired) || 1),
       minRun: min,
       maxRun: max,
+      allowedRoles: Array.isArray(allowedRoles) ? allowedRoles.filter((r: any) => typeof r === 'string') : [],
     },
   };
 }

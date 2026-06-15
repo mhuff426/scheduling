@@ -14,7 +14,7 @@ const eve: ShiftType = { id: 'eve', name: 'Evening', startTime: '17:00', endTime
 const night: ShiftType = { id: 'night', name: 'Night', startTime: '22:00', endTime: '06:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
 
 const mkUser = (id: string, name: string, extra: Record<string, any> = {}): User => ({
-  id, name, role: 'employee', vacationDays: 10, color: '#888', ...extra,
+  id, name, roles: ['role-employee'], vacationDays: 10, color: '#888', ...extra,
 });
 const A = (userId: string, date: string, shiftTypeId: string): Assignment => ({ userId, date, shiftTypeId });
 
@@ -27,6 +27,7 @@ function mkDb(users: User[], assignments: Assignment[], timeOff: TimeOff[] = [])
   };
   return {
     users,
+    roles: [],
     shiftTypes: [day, eve, night],
     settings: { maxVacationPerDay: 2 },
     timeOff,
@@ -434,6 +435,26 @@ const notesFor = (db: Db, uid: string) => db.notifications.filter((n) => n.userI
   );
   const ok = canTakeShift(db, db.schedules[0], { date: '2099-01-10', shiftTypeId: 'day' }, db.users[1]);
   assert.strictEqual(ok, null, `start-date-on-the-day with no away should be allowed, got: ${ok}`);
+}
+
+// ===== role eligibility gates canTakeShift (new feature) =====
+
+// ---- a shift's allowed roles block employees who don't hold one ----
+{
+  const db = mkDb(
+    [mkUser('a', 'Ann', { roles: ['role-employee', 'role-mgr'] }), mkUser('b', 'Ben')],
+    [A('a', '2099-01-05', 'mgr')]
+  );
+  db.shiftTypes.push({ id: 'mgr', name: 'Manager', startTime: '08:00', endTime: '16:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1, allowedRoles: ['role-mgr'] });
+  // Ben lacks role-mgr -> blocked from the manager shift.
+  const err = canTakeShift(db, db.schedules[0], { date: '2099-01-06', shiftTypeId: 'mgr' }, db.users[1]);
+  assert.ok(err && err.includes('role'), `expected a role block, got: ${err}`);
+  // Ann holds role-mgr and the day is free -> allowed.
+  const ok = canTakeShift(db, db.schedules[0], { date: '2099-01-07', shiftTypeId: 'mgr' }, db.users[0]);
+  assert.strictEqual(ok, null, `manager should be allowed: ${ok}`);
+  // An unrestricted shift type is open to Ben.
+  const ok2 = canTakeShift(db, db.schedules[0], { date: '2099-01-08', shiftTypeId: 'day' }, db.users[1]);
+  assert.strictEqual(ok2, null, `unrestricted shift should be allowed: ${ok2}`);
 }
 
 console.log('All trade tests passed.');

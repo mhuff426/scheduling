@@ -3,7 +3,7 @@
 // Kept deliberately loose where the runtime is loose (optional fields that older
 // data files may omit) — this mirrors the defensive `??`/`|| 0` reads in the code.
 
-export type Role = 'admin' | 'employee';
+export interface RoleTag { id: string; name: string; system?: boolean; }
 export type Frequency = 'daily' | 'weekly';
 export type TimeOffType = 'vacation' | 'preferred';
 export type LengthUnit = 'days' | 'weeks' | 'months' | 'quarters' | 'years';
@@ -13,7 +13,7 @@ export type TradeStatus = 'open' | 'completed' | 'expired' | 'rejected' | 'cance
 export interface User {
   id: string;
   name: string;
-  role: Role;
+  roles: string[];
   vacationDays: number;
   color: string;
   // Per-employee floor (null/absent = no minimum) and ceiling (null/absent =
@@ -35,6 +35,7 @@ export interface ShiftType {
   minRun?: number;
   maxRun?: number | null;
   weight?: number | null; // null/absent = automatic; 0 = uncounted standby
+  allowedRoles?: string[]; // role ids; empty/absent = anyone
 }
 
 export interface TimeOff {
@@ -141,6 +142,7 @@ export interface Meta {
 
 export interface Db {
   users: User[];
+  roles: RoleTag[];
   shiftTypes: ShiftType[];
   settings: Settings;
   timeOff: TimeOff[];
