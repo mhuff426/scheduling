@@ -17,6 +17,7 @@ const DEFAULT_DATA: Db = {
   schedules: [],
   trades: [],
   notifications: [],
+  awayTime: [],
   meta: { rotationCursor: 0 },
 };
 
@@ -35,6 +36,7 @@ export function loadDb(): Db {
   loaded.meta ??= { rotationCursor: 0 };
   loaded.trades ??= [];
   loaded.notifications ??= [];
+  loaded.awayTime ??= [];
   for (const u of loaded.users) u.requiredShifts ??= null;
   cache = loaded;
   return loaded;

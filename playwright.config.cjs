@@ -1,7 +1,16 @@
 // CommonJS config (.cjs): this repo is "type":"module", and the installed
 // Node (18.12) is below Playwright's 18.19 floor for loading an ESM config —
-// so the config itself must be CommonJS. Spec files are still ESM (Playwright
-// transpiles them with its own loader).
+// so the config itself must be CommonJS.
+//
+// The spec files are ESM TypeScript (.spec.ts). On this Node version Playwright
+// hands them to Node's native ESM loader, which can't transpile .ts ("Unknown
+// file extension"). Register tsx's ESM loader via NODE_OPTIONS here (before the
+// runner spawns its loader/worker processes, which inherit this env) so the
+// .ts specs load. Idempotent; harmless if already set.
+if (!(process.env.NODE_OPTIONS || '').includes('tsx/esm')) {
+  process.env.NODE_OPTIONS = `${process.env.NODE_OPTIONS || ''} --loader tsx/esm`.trim();
+}
+
 const { defineConfig, devices } = require('@playwright/test');
 
 // The dev script boots both the API (server/index.js) and Vite (port 5173).

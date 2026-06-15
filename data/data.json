@@ -5,7 +5,9 @@
       "name": "Morgan (Manager)",
       "role": "admin",
       "vacationDays": 15,
-      "color": "#14b8a6"
+      "color": "#14b8a6",
+      "requiredShifts": 48,
+      "startDate": "2026-06-01"
     },
     {
       "id": "u-mq8tle5q-wb2ly",
@@ -14,7 +16,9 @@
       "vacationDays": 10,
       "color": "#f97316",
       "desiredShifts": null,
-      "maxConsecutiveNights": 3
+      "maxConsecutiveNights": 3,
+      "requiredShifts": 48,
+      "startDate": "2026-06-01"
     },
     {
       "id": "u-mq8tljk2-lumtw",
@@ -22,7 +26,9 @@
       "role": "employee",
       "vacationDays": 10,
       "color": "#eab308",
-      "maxConsecutiveNights": 3
+      "maxConsecutiveNights": 3,
+      "requiredShifts": 48,
+      "startDate": "2026-06-01"
     },
     {
       "id": "u-mq8tlpb8-x030k",
@@ -30,7 +36,9 @@
       "role": "employee",
       "vacationDays": 10,
       "color": "#22c55e",
-      "maxConsecutiveNights": 4
+      "maxConsecutiveNights": 4,
+      "requiredShifts": 48,
+      "startDate": "2026-06-01"
     },
     {
       "id": "u-mq8tnifi-13va6",
@@ -38,7 +46,9 @@
       "role": "employee",
       "vacationDays": 10,
       "color": "#14b8a6",
-      "maxConsecutiveNights": 5
+      "maxConsecutiveNights": 5,
+      "requiredShifts": 48,
+      "startDate": "2026-06-01"
     },
     {
       "id": "u-mq8tqqj0-2lrq6",
@@ -46,7 +56,9 @@
       "role": "employee",
       "vacationDays": 10,
       "color": "#0ea5e9",
-      "maxConsecutiveNights": 2
+      "maxConsecutiveNights": 2,
+      "requiredShifts": 48,
+      "startDate": "2026-06-01"
     },
     {
       "id": "u-mq8tqxv4-wgn5p",
@@ -55,7 +67,9 @@
       "vacationDays": 10,
       "color": "#6366f1",
       "maxConsecutiveNights": 2,
-      "maxShiftsOverride": null
+      "maxShiftsOverride": null,
+      "requiredShifts": 48,
+      "startDate": "2026-06-01"
     },
     {
       "id": "u-mq8tr54q-jwp4p",
@@ -63,7 +77,9 @@
       "role": "employee",
       "vacationDays": 10,
       "color": "#a855f7",
-      "maxConsecutiveNights": 3
+      "maxConsecutiveNights": 3,
+      "requiredShifts": 48,
+      "startDate": "2026-06-01"
     },
     {
       "id": "u-mq8xwhzj-tvgh4",
@@ -71,14 +87,18 @@
       "role": "employee",
       "vacationDays": 10,
       "color": "#ec4899",
-      "maxConsecutiveNights": 3
+      "maxConsecutiveNights": 3,
+      "requiredShifts": 48,
+      "startDate": "2026-06-01"
     },
     {
       "id": "u-mqaxr0so-h7xoy",
       "name": "Priya Nair",
       "role": "employee",
       "vacationDays": 12,
-      "color": "#84cc16"
+      "color": "#84cc16",
+      "requiredShifts": 48,
+      "startDate": "2026-06-01"
     }
   ],
   "shiftTypes": [
@@ -5710,5 +5730,6 @@
       "read": true,
       "createdAt": "2026-06-13T13:45:08.840Z"
     }
-  ]
+  ],
+  "awayTime": []
 }

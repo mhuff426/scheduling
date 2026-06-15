@@ -40,7 +40,7 @@ app.get('/api/state', (req, res) => {
 // ---- roster ----
 app.post('/api/users', (req, res) => {
   const db = loadDb();
-  const { name, role, vacationDays } = req.body;
+  const { name, role, vacationDays, startDate } = req.body;
   if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required.' });
   const user: User = {
     id: newId('u'),
@@ -48,6 +48,7 @@ app.post('/api/users', (req, res) => {
     role: role === 'admin' ? 'admin' : 'employee',
     vacationDays: Math.max(0, Number(vacationDays) || 0),
     color: PALETTE[db.users.length % PALETTE.length],
+    startDate: isDate(startDate) ? startDate : null,
   };
   db.users.push(user);
   saveDb();
@@ -85,6 +86,10 @@ app.put('/api/users/:id', (req, res) => {
     const n = req.body.maxShiftsOverride;
     user.maxShiftsOverride = n === null || n === '' ? null : Math.max(1, Number(n) || 1);
   }
+  if (req.body.startDate !== undefined) {
+    const d = req.body.startDate;
+    user.startDate = d === null || d === '' ? null : (isDate(d) ? d : user.startDate);
+  }
   saveDb();
   res.json(user);
 });
@@ -100,6 +105,7 @@ app.delete('/api/users/:id', (req, res) => {
   }
   db.users.splice(idx, 1);
   db.timeOff = db.timeOff.filter((t) => t.userId !== req.params.id);
+  db.awayTime = db.awayTime.filter((a) => a.userId !== req.params.id);
   saveDb();
   res.json({ ok: true });
 });
@@ -233,6 +239,43 @@ app.delete('/api/timeoff/:id', (req, res) => {
   const idx = db.timeOff.findIndex((t) => t.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Request not found.' });
   db.timeOff.splice(idx, 1);
+  saveDb();
+  res.json({ ok: true });
+});
+
+// ---- away time (admin-managed; never counts against vacation) ----
+app.post('/api/awaytime', (req, res) => {
+  const db = loadDb();
+  const { userId, start, end } = req.body;
+  const user = db.users.find((u) => u.id === userId);
+  if (!user) return res.status(404).json({ error: 'User not found.' });
+  if (!isDate(start) || !isDate(end)) return res.status(400).json({ error: 'Away time needs a valid start and end date.' });
+  if (end < start) return res.status(400).json({ error: 'The away end date must be on or after the start date.' });
+  const entry = { id: newId('aw'), userId, start, end };
+  db.awayTime.push(entry);
+  saveDb();
+  res.json(entry);
+});
+
+app.put('/api/awaytime/:id', (req, res) => {
+  const db = loadDb();
+  const entry = db.awayTime.find((a) => a.id === req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Away time not found.' });
+  const newStart = req.body.start !== undefined ? req.body.start : entry.start;
+  const newEnd = req.body.end !== undefined ? req.body.end : entry.end;
+  if (!isDate(newStart) || !isDate(newEnd)) return res.status(400).json({ error: 'Away time needs a valid start and end date.' });
+  if (newEnd < newStart) return res.status(400).json({ error: 'The away end date must be on or after the start date.' });
+  entry.start = newStart;
+  entry.end = newEnd;
+  saveDb();
+  res.json(entry);
+});
+
+app.delete('/api/awaytime/:id', (req, res) => {
+  const db = loadDb();
+  const idx = db.awayTime.findIndex((a) => a.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Away time not found.' });
+  db.awayTime.splice(idx, 1);
   saveDb();
   res.json({ ok: true });
 });

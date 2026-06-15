@@ -6,8 +6,8 @@
 
 # Test info
 
-- Name: schedule-cadence.spec.js >> happy path: set a cadence then generate a block
-- Location: e2e\schedule-cadence.spec.js:45:1
+- Name: schedule-cadence.spec.ts >> happy path: set a cadence then generate a block
+- Location: e2e\schedule-cadence.spec.ts:1:1541
 
 # Error details
 
@@ -34,7 +34,8 @@ Call log:
 # Test source
 
 ```ts
-  1   | import { test, expect } from '@playwright/test';
+> 1   | import { test, expect } from '@playwright/test';
+      |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               ^ Error: expect(locator).toBeEnabled() failed
   2   | 
   3   | // These tests mutate the dev data file (data/data.json) — generating real
   4   | // schedules and persisting a cadence. A later phase restores the data file.
@@ -87,8 +88,7 @@ Call log:
   51  |   await c.length.fill('2');
   52  |   await c.unit.selectOption('weeks');
   53  |   await c.anchor.fill(todayYmd());
-> 54  |   await expect(c.save).toBeEnabled();
-      |                        ^ Error: expect(locator).toBeEnabled() failed
+  54  |   await expect(c.save).toBeEnabled();
   55  |   await c.save.click();
   56  | 
   57  |   // Persisted: the "Currently: ..." summary appears.
@@ -136,57 +136,4 @@ Call log:
   99  | 
   100 |   // If the current block hasn't been generated yet, generate it first so we can
   101 |   // then prove the duplicate is rejected. Read the DOM `disabled` property
-  102 |   // directly — Playwright's disabled helpers are unreliable on <option>.
-  103 |   const alreadyDisabled = await firstOption.evaluate((o) => o.disabled);
-  104 |   if (!alreadyDisabled) {
-  105 |     await blockSelect.selectOption(firstValue);
-  106 |     await gen.getByRole('button', { name: /Generate schedule/ }).click();
-  107 |     await expect(page.locator('.banner.error')).toHaveCount(0);
-  108 |   }
-  109 | 
-  110 |   // Now the first option is marked "already generated" and disabled in the UI.
-  111 |   await expect(generateCard(page).locator('label', { hasText: 'Schedule block' })
-  112 |     .locator('option').first()).toContainText('already generated');
-  113 |   // toBeDisabled() is unreliable on <option> elements; assert the DOM
-  114 |   // `disabled` property directly, which is dependable for HTMLOptionElement.
-  115 |   await expect(generateCard(page).locator('label', { hasText: 'Schedule block' })
-  116 |     .locator('option').first()).toHaveJSProperty('disabled', true);
-  117 | });
-  118 | 
-  119 | test('change-cadence rule: past anchor disabled, future anchor accepted', async ({ page }) => {
-  120 |   await gotoAdmin(page);
-  121 |   const c = cadenceInputs(page);
-  122 | 
-  123 |   // Ensure a cadence already exists (so the strictly-future rule applies).
-  124 |   const hasCadence = await settingsCard(page).getByText(/Currently: every/).count();
-  125 |   if (!hasCadence) {
-  126 |     await c.length.fill('2');
-  127 |     await c.unit.selectOption('weeks');
-  128 |     await c.anchor.fill(todayYmd());
-  129 |     await c.save.click();
-  130 |     await expect(settingsCard(page).getByText(/Currently: every/)).toBeVisible();
-  131 |   }
-  132 | 
-  133 |   // A past anchor disables Save (changing an existing cadence needs a strictly
-  134 |   // future anchor).
-  135 |   await c.anchor.fill(addDays(-1));
-  136 |   await expect(c.save).toBeDisabled();
-  137 | 
-  138 |   // Today is also not strictly future for an existing cadence -> still disabled.
-  139 |   await c.anchor.fill(todayYmd());
-  140 |   await expect(c.save).toBeDisabled();
-  141 | 
-  142 |   // A future anchor is accepted: Save enables and persists.
-  143 |   const future = addDays(30);
-  144 |   await c.length.fill('3');
-  145 |   await c.unit.selectOption('weeks');
-  146 |   await c.anchor.fill(future);
-  147 |   await expect(c.save).toBeEnabled();
-  148 |   await c.save.click();
-  149 |   await expect(page.locator('.banner.error')).toHaveCount(0);
-  150 |   await expect(settingsCard(page).getByText(new RegExp(`anchored ${future}`))).toBeVisible();
-  151 | });
-  152 | 
-  153 | // Empty-state coverage. Simulating "no cadence" requires resetting persisted
-  154 | // data, which the shared dev data file makes brittle; if a cadence already
 ```
