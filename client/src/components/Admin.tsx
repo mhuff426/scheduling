@@ -12,6 +12,7 @@ export default function Admin({ db, act }: Props) {
     <div className="admin-grid">
       <ShiftTypes db={db} act={act} />
       <Roster db={db} act={act} />
+      <RolesManager db={db} act={act} />
       <Settings db={db} act={act} />
       <GenerateSchedule db={db} act={act} />
       <AwayTimeManager db={db} act={act} />
@@ -22,7 +23,7 @@ export default function Admin({ db, act }: Props) {
 const BLANK_SHIFT = {
   name: '', startTime: '08:00', endTime: '16:00',
   frequency: 'daily', dayOfWeek: 1, staffRequired: 1,
-  minRun: '', maxRun: '', weight: '',
+  minRun: '', maxRun: '', weight: '', allowedRoles: [] as string[],
 };
 
 // Effective fairness weight shown in the table: an explicit weight wins,
@@ -39,6 +40,13 @@ function ShiftTypes({ db, act }: Props) {
   const [form, setForm] = useState<any>(BLANK_SHIFT);
   const [editingId, setEditingId] = useState<string | null>(null);
   const set = (k: string) => (e: any) => setForm({ ...form, [k]: e.target.value });
+  const roleName = (id: string) => db.roles.find((r) => r.id === id)?.name || id;
+  const toggleAllowedRole = (id: string) => setForm((prev: any) => ({
+    ...prev,
+    allowedRoles: (prev.allowedRoles || []).includes(id)
+      ? prev.allowedRoles.filter((x: string) => x !== id)
+      : [...(prev.allowedRoles || []), id],
+  }));
 
   const startEdit = (s: ShiftType) => {
     setEditingId(s.id);
@@ -54,6 +62,7 @@ function ShiftTypes({ db, act }: Props) {
       minRun: (s.minRun ?? 0) > 1 ? s.minRun : '',
       maxRun: s.maxRun ?? '',
       weight: s.weight ?? '',
+      allowedRoles: s.allowedRoles ?? [],
     });
   };
   const cancelEdit = () => { setEditingId(null); setForm(BLANK_SHIFT); };
@@ -72,7 +81,7 @@ function ShiftTypes({ db, act }: Props) {
       <p className="muted small">Each shift type repeats on its frequency and needs the listed headcount every occurrence.</p>
       {db.shiftTypes.length > 0 && (
         <table className="table">
-          <thead><tr><th>Name</th><th>Time</th><th>Repeats</th><th>People</th><th title="Consecutive days one person stays on this shift type">Run</th><th title="Fairness weight: how much one of these shifts counts toward someone's load and shift count. 0 = standby duty that doesn't count at all.">Weight</th><th /></tr></thead>
+          <thead><tr><th>Name</th><th>Time</th><th>Repeats</th><th>People</th><th title="Consecutive days one person stays on this shift type">Run</th><th title="Fairness weight: how much one of these shifts counts toward someone's load and shift count. 0 = standby duty that doesn't count at all.">Weight</th><th>Roles</th><th /></tr></thead>
           <tbody>
             {db.shiftTypes.map((s) => (
               <tr key={s.id} className={editingId === s.id ? 'row-editing' : ''}>
@@ -87,6 +96,7 @@ function ShiftTypes({ db, act }: Props) {
                 <td>{s.staffRequired}</td>
                 <td>{runLabel(s)}</td>
                 <td>{weightLabel(s)}</td>
+                <td>{s.allowedRoles && s.allowedRoles.length ? s.allowedRoles.map(roleName).join(', ') : 'Anyone'}</td>
                 <td className="row-actions">
                   <button className="btn ghost sm" onClick={() => startEdit(s)}>Edit</button>
                   <button
@@ -132,6 +142,22 @@ function ShiftTypes({ db, act }: Props) {
         <label title="How much one of these shifts counts when balancing workload. Blank = automatic (1, or the overnight default). 0 = standby/backup duty: still scheduled and blocks the day, but doesn't count toward minimums, maximums, or load.">
           Weight<input type="number" min="0" step="0.1" value={form.weight} onChange={set('weight')} placeholder="auto" />
         </label>
+        <label className="role-pick">
+          Roles that can fill this shift
+          <span className="role-tags">
+            {db.roles.map((r) => (
+              <label key={r.id} className="role-tag">
+                <input
+                  type="checkbox"
+                  checked={(form.allowedRoles || []).includes(r.id)}
+                  onChange={() => toggleAllowedRole(r.id)}
+                />
+                {r.name}
+              </label>
+            ))}
+          </span>
+          <span className="muted small">None selected = anyone can fill it.</span>
+        </label>
         <button className="btn primary" type="submit">{editingId ? 'Save changes' : 'Add shift type'}</button>
         {editingId && <button className="btn ghost" type="button" onClick={cancelEdit}>Cancel</button>}
       </form>
@@ -161,7 +187,7 @@ function standingClass(s: number | null | undefined) {
 }
 
 function Roster({ db, act }: Props) {
-  const [form, setForm] = useState<any>({ name: '', role: 'employee', vacationDays: 10, startDate: '' });
+  const [form, setForm] = useState<any>({ name: '', vacationDays: 10, startDate: '' });
   const set = (k: string) => (e: any) => setForm({ ...form, [k]: e.target.value });
 
   const submit = async (e: any) => {
@@ -180,19 +206,34 @@ function Roster({ db, act }: Props) {
     <section className="card">
       <h2>👥 Roster</h2>
       <table className="table">
-        <thead><tr><th>Employee</th><th>Role</th><th>Vacation days / yr</th><th>Used ({yearNow})</th><th>Required / block</th><th title="Hard cap on this person's shifts per schedule block. Blank = unlimited (no cap).">Max / block</th><th title="Preference standing: 1.00 is neutral. Drops when someone consistently asks for more preferred days off than the roster norm; recovers after a few normal blocks. Read-only.">Pref standing</th><th>Start date</th><th /></tr></thead>
+        <thead><tr><th>Employee</th><th>Roles</th><th>Vacation days / yr</th><th>Used ({yearNow})</th><th>Required / block</th><th title="Hard cap on this person's shifts per schedule block. Blank = unlimited (no cap).">Max / block</th><th title="Preference standing: 1.00 is neutral. Drops when someone consistently asks for more preferred days off than the roster norm; recovers after a few normal blocks. Read-only.">Pref standing</th><th>Start date</th><th /></tr></thead>
         <tbody>
           {db.users.map((u) => (
             <tr key={u.id}>
               <td><span className="dot" style={{ background: u.color }} /> {u.name}</td>
               <td>
-                <select
-                  value={u.role}
-                  onChange={(e) => act(() => api.updateUser(u.id, { role: e.target.value }))}
-                >
-                  <option value="employee">Employee</option>
-                  <option value="admin">Admin</option>
-                </select>
+                <div className="role-tags">
+                  {db.roles.map((r) => {
+                    const checked = (u.roles || []).includes(r.id);
+                    const locked = r.id === 'role-employee';
+                    return (
+                      <label key={r.id} className="role-tag" title={r.name}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={locked}
+                          onChange={() => {
+                            const next = checked
+                              ? (u.roles || []).filter((x) => x !== r.id)
+                              : [...(u.roles || []), r.id];
+                            act(() => api.updateUser(u.id, { roles: next }));
+                          }}
+                        />
+                        {r.name}
+                      </label>
+                    );
+                  })}
+                </div>
               </td>
               <td>
                 <input
@@ -258,12 +299,6 @@ function Roster({ db, act }: Props) {
       </table>
       <form onSubmit={submit} className="form-grid">
         <label>Name<input required value={form.name} onChange={set('name')} placeholder="Jane Smith" /></label>
-        <label>Role
-          <select value={form.role} onChange={set('role')}>
-            <option value="employee">Employee</option>
-            <option value="admin">Admin</option>
-          </select>
-        </label>
         <label>Vacation days / year<input type="number" min="0" value={form.vacationDays} onChange={set('vacationDays')} /></label>
         <label>Start date<input type="date" value={form.startDate} onChange={set('startDate')} /></label>
         <button className="btn primary" type="submit">Add to roster</button>
@@ -427,6 +462,64 @@ function AwayTimeManager({ db, act }: Props) {
         <label>To<input type="date" value={end} onChange={(e) => setEnd(e.target.value)} /></label>
         <button className="btn primary" onClick={add} disabled={!start || !end || end < start}>Add away time</button>
       </div>
+    </section>
+  );
+}
+
+function RolesManager({ db, act }: Props) {
+  const [name, setName] = useState('');
+  const add = async () => {
+    const n = name.trim();
+    if (!n) return;
+    const ok = await act(() => api.addRole({ name: n }));
+    if (ok) setName('');
+  };
+  return (
+    <section className="card">
+      <h2>🏷️ Roles</h2>
+      <p className="muted small">
+        Capability tags. Assign them to employees in the roster and to shifts in Shift Types.
+        Admin and Employee are built-in and can't be renamed or deleted.
+      </p>
+      <table className="table">
+        <thead><tr><th>Role</th><th /></tr></thead>
+        <tbody>
+          {db.roles.map((r) => (
+            <tr key={r.id}>
+              <td>
+                {r.system ? (
+                  <span>{r.name} <span className="muted small">(system)</span></span>
+                ) : (
+                  <input
+                    className="inline-num"
+                    defaultValue={r.name}
+                    onBlur={(e) => {
+                      const v = e.target.value.trim();
+                      if (v && v !== r.name) act(() => api.updateRole(r.id, { name: v }));
+                    }}
+                  />
+                )}
+              </td>
+              <td className="row-actions">
+                {!r.system && (
+                  <button
+                    className="btn danger ghost sm"
+                    title="Delete role"
+                    onClick={() => {
+                      if (confirm(`Delete the "${r.name}" role? It will be removed from all employees and shifts.`))
+                        act(() => api.deleteRole(r.id));
+                    }}
+                  >✕</button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <form className="form-grid" onSubmit={(e) => { e.preventDefault(); add(); }}>
+        <label>New role<input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Manager" /></label>
+        <button className="btn primary" type="submit">Add role</button>
+      </form>
     </section>
   );
 }

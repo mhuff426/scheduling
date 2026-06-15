@@ -30,7 +30,7 @@ export default function App() {
   if (!db) return <div className="loading">Loading…</div>;
 
   const currentUser = db.users.find((u) => u.id === currentUserId) || db.users[0];
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = (currentUser?.roles || []).includes('role-admin');
 
   // Wraps a mutation: runs it, refreshes state, surfaces server errors.
   const act: Act = async (fn) => {
@@ -91,7 +91,7 @@ export default function App() {
           >
             {db.users.map((u) => (
               <option key={u.id} value={u.id}>
-                {u.name} {u.role === 'admin' ? '(admin)' : ''}
+                {u.name} {(u.roles || []).includes('role-admin') ? '(admin)' : ''}
               </option>
             ))}
           </select>
