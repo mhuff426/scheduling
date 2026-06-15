@@ -163,7 +163,7 @@ export function swapPartners(db: Db, scheduleId: string, userId: string, offered
 // never count, so giving one away never needs a day.)
 function giveawayNeedsDay(db: Db, schedule: Schedule, giverId: string, offered: Slot) {
   const st = db.shiftTypes.find((s) => s.id === offered.shiftTypeId);
-  const losesCount = st && weightOf(st, db.settings) > 0 ? 1 : 0;
+  const losesCount = st && weightOf(st) > 0 ? 1 : 0;
   const after = countingShifts(db, schedule, giverId) - losesCount;
   const charged = schedule.vacationCharged?.[giverId] || 0;
   return after + charged < requiredFor(db, schedule, giverId);
@@ -377,7 +377,7 @@ export function claimGiveaway(db: Db, tradeId: string, { userId }: { userId: str
   const year = Number(schedule.startDate.slice(0, 4));
   const needsDay = giveawayNeedsDay(db, schedule, trade.fromUserId, trade.offered);
   const st = db.shiftTypes.find((s) => s.id === trade.offered.shiftTypeId);
-  const losesCount = st && weightOf(st, db.settings) > 0 ? 1 : 0;
+  const losesCount = st && weightOf(st) > 0 ? 1 : 0;
   const predictedExtra = Math.max(
     0,
     countingShifts(db, schedule, trade.fromUserId) - losesCount +

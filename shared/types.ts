@@ -51,7 +51,6 @@ export interface Cadence {
 
 export interface Settings {
   maxVacationPerDay: number;
-  overnightWeight?: number;
   cadence?: Cadence | null;
 }
 

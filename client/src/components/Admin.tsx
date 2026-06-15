@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { api } from '../api';
 import { DOW, formatTime, todayYmd, prettyDate } from '../dates';
 import { UNITS, upcomingBlocks, isValidCadence } from '../../../shared/blocks.js';
-import type { AppState, ShiftType, User, Settings } from '../../../shared/types.js';
+import type { AppState, ShiftType, User } from '../../../shared/types.js';
 import type { Act } from '../App';
 
 interface Props { db: AppState; act: Act; }
@@ -24,16 +24,14 @@ const BLANK_SHIFT = {
   minRun: '', maxRun: '', weight: '',
 };
 
-const isOvernightShift = (s: ShiftType) => s.endTime <= s.startTime && s.endTime !== '00:00';
-
-// Effective fairness weight shown in the table: explicit weight wins, else
-// the overnight default from settings, else 1.
-function weightLabel(s: ShiftType, settings: Settings) {
+// Effective fairness weight shown in the table: an explicit weight wins,
+// otherwise the default of 1.
+function weightLabel(s: ShiftType) {
   const w = Number(s.weight);
   if (Number.isFinite(w) && w >= 0 && s.weight !== null && s.weight !== undefined) {
     return w === 0 ? '0 (uncounted)' : String(w);
   }
-  return isOvernightShift(s) ? `${settings.overnightWeight ?? 1.5} (auto 🌙)` : '1';
+  return '1';
 }
 
 function ShiftTypes({ db, act }: Props) {
@@ -87,7 +85,7 @@ function ShiftTypes({ db, act }: Props) {
                 <td>{s.frequency === 'daily' ? 'Every day' : `Weekly (${DOW[s.dayOfWeek ?? 0]})`}</td>
                 <td>{s.staffRequired}</td>
                 <td>{runLabel(s)}</td>
-                <td>{weightLabel(s, db.settings)}</td>
+                <td>{weightLabel(s)}</td>
                 <td className="row-actions">
                   <button className="btn ghost sm" onClick={() => startEdit(s)}>Edit</button>
                   <button
@@ -316,23 +314,6 @@ function Settings({ db, act }: Props) {
       </label>
       <p className="muted small">
         Once this many people have claimed vacation on a date, further vacation requests for that date are rejected.
-      </p>
-      <label className="row">
-        Overnight shift weight
-        <input
-          className="inline-num"
-          type="number" min="1" step="0.1" defaultValue={db.settings.overnightWeight}
-          onBlur={(e) => {
-            const v = Number(e.target.value);
-            if (v !== db.settings.overnightWeight)
-              act(() => api.updateSettings({ overnightWeight: v }));
-          }}
-        />
-      </label>
-      <p className="muted small">
-        Default weight for overnight shifts (🌙 crosses midnight) that don't set their own weight in
-        Shift Types. 1 = same as any shift; 1.5 = one overnight ≈ a shift and a half. A per-shift-type
-        weight always wins over this default. Overnights are also spread evenly head-for-head.
       </p>
       <h3 style={{ marginTop: '1rem', marginBottom: '0.5rem' }}>Schedule cadence</h3>
       {existingCadence && (

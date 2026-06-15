@@ -315,7 +315,7 @@ function StartTrade({ db, act, me, schedule, futureShiftsOf, slotLabel, slotKey,
   const offeredSlot = shiftKey ? slotFromKey(shiftKey) : null;
   const losesCount =
     offeredSlot && stById[offeredSlot.shiftTypeId] &&
-    shiftWeight(stById[offeredSlot.shiftTypeId], db.settings) > 0 ? 1 : 0;
+    shiftWeight(stById[offeredSlot.shiftTypeId]) > 0 ? 1 : 0;
   const needsDay = offeredSlot
     ? settle.count - losesCount + settle.charged < settle.required
     : false;

@@ -172,11 +172,9 @@ app.delete('/api/shift-types/:id', (req, res) => {
 // ---- settings ----
 app.put('/api/settings', (req, res) => {
   const db = loadDb();
-  const { maxVacationPerDay, overnightWeight } = req.body;
+  const { maxVacationPerDay } = req.body;
   if (maxVacationPerDay !== undefined)
     db.settings.maxVacationPerDay = Math.max(1, Number(maxVacationPerDay) || 1);
-  if (overnightWeight !== undefined)
-    db.settings.overnightWeight = Math.max(1, Number(overnightWeight) || 1.5);
   if (req.body.cadence !== undefined) {
     const c = req.body.cadence;
     if (!isValidCadence(c))
@@ -313,9 +311,9 @@ app.post('/api/schedules/:id/reassign', (req, res) => {
     const maxAllowed = effectiveMaximums(db).get(to.id) ?? Infinity;
     const countingHeld = schedule.assignments.filter(
       (a) =>
-        a.userId === toUserId && a !== moving && weightOf(shiftById[a.shiftTypeId], db.settings) > 0
+        a.userId === toUserId && a !== moving && weightOf(shiftById[a.shiftTypeId]) > 0
     ).length;
-    if (weightOf(st, db.settings) > 0 && countingHeld + 1 > maxAllowed)
+    if (weightOf(st) > 0 && countingHeld + 1 > maxAllowed)
       return res.status(400).json({
         error: `${to.name} is already at their maximum of ${maxAllowed} shifts for this schedule.`,
       });

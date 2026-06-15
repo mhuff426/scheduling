@@ -4,16 +4,15 @@
 
 import type { Db, Schedule, ShiftType, User } from '../../shared/types.js';
 
-export function shiftWeight(st: ShiftType, settings: { overnightWeight?: number }): number {
-  // null/undefined/'' mean "automatic" — only an explicit number (0 allowed)
-  // overrides. Number(null) is 0, so the raw value must be checked first.
+export function shiftWeight(st: ShiftType): number {
+  // null/undefined/'' mean "automatic" (resolves to 1) — only an explicit
+  // number (0 allowed) overrides. Number(null) is 0, so check raw first.
   const raw: unknown = st?.weight;
   if (raw !== null && raw !== undefined && raw !== '') {
     const w = Number(raw);
     if (Number.isFinite(w) && w >= 0) return w;
   }
-  const overnight = st.endTime <= st.startTime && st.endTime !== '00:00';
-  return overnight ? Number(settings?.overnightWeight) || 1.5 : 1;
+  return 1;
 }
 
 export function countingShifts(db: Db, schedule: Schedule, userId: string): number {
@@ -22,7 +21,7 @@ export function countingShifts(db: Db, schedule: Schedule, userId: string): numb
     (a) =>
       a.userId === userId &&
       stById[a.shiftTypeId] &&
-      shiftWeight(stById[a.shiftTypeId], db.settings) > 0
+      shiftWeight(stById[a.shiftTypeId]) > 0
   ).length;
 }
 
