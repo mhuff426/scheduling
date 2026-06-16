@@ -14,6 +14,27 @@
   --radius: 10px;
 }
 
+:root[data-theme="dark"] {
+  --bg: #0f1420;
+  --card: #1a2030;
+  --ink: #e6e9f2;
+  --muted: #9aa4b8;
+  --line: #2b3346;
+  --accent: #6366f1;
+  --accent-ink: #ffffff;
+  --danger: #f87171;
+  --vac: #b45309;
+  --pref: #1e40af;
+}
+
+:root[data-theme="dark"] .tab:hover { background: #232b3d; }
+:root[data-theme="dark"] .cal-cell { background: #161c2a; }
+:root[data-theme="dark"] .chip-full { background: #232b3d; }
+:root[data-theme="dark"] .notif-list li.unread { background: #1e2740; }
+:root[data-theme="dark"] .legend-btn.active { background: #1e2740; }
+:root[data-theme="dark"] .ms-option:hover { background: #1e2740; }
+:root[data-theme="dark"] .ms-open .ms-control { box-shadow: 0 0 0 3px #1e2740; }
+
 body {
   margin: 0;
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
@@ -277,3 +298,6 @@ select, input {
 .ms-option { padding: 7px 10px; cursor: pointer; }
 .ms-option:hover { background: #eef2ff; color: var(--accent); font-weight: 600; }
 .ms-empty { padding: 8px 10px; color: var(--muted); }
+
+/* preferences screen */
+.color-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

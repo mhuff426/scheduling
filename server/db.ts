@@ -5,7 +5,9 @@ import type { Db, RoleTag, User } from '../shared/types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, '..', 'data');
-const DATA_FILE = path.join(DATA_DIR, 'data.json');
+// DATA_FILE may be overridden via env (e2e points it at an isolated, seeded
+// file so tests never touch the real dev datastore).
+const DATA_FILE = process.env.DATA_FILE || path.join(DATA_DIR, 'data.json');
 
 // The two roles the system always provides; they can't be renamed or deleted.
 const SYSTEM_ROLES: RoleTag[] = [
@@ -55,6 +57,10 @@ export function loadDb(): Db {
     u.roles ??= [];
     if ((u as any).role === 'admin' && !u.roles.includes('role-admin')) u.roles.push('role-admin');
     if (!u.roles.includes('role-employee')) u.roles.push('role-employee');
+    u.theme ??= 'light';
+    u.othersColorMode ??= 'distinct';
+    u.othersSharedColor ??= '#9ca3af';
+    u.shiftColors ??= {};
   }
   for (const st of loaded.shiftTypes) st.allowedRoles ??= [];
   cache = loaded;
@@ -66,6 +72,15 @@ export function saveDb(): void {
   const tmp = DATA_FILE + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(cache, null, 2));
   fs.renameSync(tmp, DATA_FILE);
+}
+
+// Test-only: overwrite the (isolated) data file with a known seed and drop the
+// in-memory cache so the next loadDb() reads it fresh. Used by the e2e reset
+// endpoint to give each test a deterministic starting state.
+export function installDbForTests(newDb: Db): void {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(DATA_FILE, JSON.stringify(newDb, null, 2));
+  cache = null;
 }
 
 export function newId(prefix: string): string {

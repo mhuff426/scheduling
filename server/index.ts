@@ -3,7 +3,7 @@ import type { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { loadDb, saveDb, newId, vacationCountForDate } from './db.js';
+import { loadDb, saveDb, newId, vacationCountForDate, installDbForTests } from './db.js';
 import {
   generateSchedule, summarizeSchedule, preferenceStandings,
   effectiveMaximums, weightOf,
@@ -20,6 +20,16 @@ import type { Db, ShiftType, User } from '../shared/types.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(express.json());
+
+// Test-only reset hook: e2e seeds a known DB state before each test so cases
+// never depend on ambient dev data. Gated behind E2E_TESTING so it never
+// exists in normal runs.
+if (process.env.E2E_TESTING === '1') {
+  app.post('/api/test/reset', (req: Request, res: Response) => {
+    installDbForTests(req.body as Db);
+    res.json({ ok: true });
+  });
+}
 
 const PALETTE = [
   '#ef4444', '#f97316', '#eab308', '#22c55e', '#14b8a6',
@@ -97,6 +107,11 @@ app.put('/api/users/:id', (req, res) => {
     const d = req.body.startDate;
     user.startDate = d === null || d === '' ? null : (isDate(d) ? d : user.startDate);
   }
+  if (req.body.color !== undefined && typeof req.body.color === 'string') user.color = req.body.color;
+  if (req.body.theme !== undefined) user.theme = req.body.theme === 'dark' ? 'dark' : 'light';
+  if (req.body.othersColorMode !== undefined) user.othersColorMode = req.body.othersColorMode === 'shared' ? 'shared' : 'distinct';
+  if (req.body.othersSharedColor !== undefined && typeof req.body.othersSharedColor === 'string') user.othersSharedColor = req.body.othersSharedColor;
+  if (req.body.shiftColors !== undefined && req.body.shiftColors && typeof req.body.shiftColors === 'object') user.shiftColors = req.body.shiftColors;
   saveDb();
   res.json(user);
 });

@@ -155,8 +155,8 @@ test('a block can be generated and a schedule is produced', async ({ page }) => 
 test('employee Time-Off screen no longer shows the old "desired shifts" input', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('.user-switch select')).toBeVisible();
-  // The Time-Off screen is the "My Requests" tab (visible to every user).
-  await page.locator('.tab', { hasText: 'My Requests' }).click();
+  // The Preferences screen is the "Preferences" tab (visible to every user).
+  await page.locator('.tab', { hasText: 'Preferences' }).click();
 
   // The removed per-user soft target input had id="desired-shifts".
   await expect(page.locator('#desired-shifts')).toHaveCount(0);

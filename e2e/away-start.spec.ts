@@ -114,7 +114,7 @@ test('employee sees their away time read-only on My Requests', async ({ page }) 
 
   // Switch the top-bar user to that employee and open My Requests.
   await page.locator('.user-switch select').selectOption({ label: targetLabel });
-  await page.locator('.tab', { hasText: 'My Requests' }).click();
+  await page.locator('.tab', { hasText: 'Preferences' }).click();
 
   // The read-only "Scheduled away (set by your manager)" card is visible.
   const away = myRequestsAwayCard(page);

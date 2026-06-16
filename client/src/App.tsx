@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { api } from './api';
 import ScheduleView from './components/ScheduleView';
-import TimeOff from './components/TimeOff';
+import Preferences from './components/Preferences';
 import Admin from './components/Admin';
 import Trades from './components/Trades';
 import type { AppState } from '../../shared/types.js';
@@ -27,6 +27,14 @@ export default function App() {
     });
   }, [refresh]);
 
+  // Apply per-user theme; runs on first load, user switch, and after a theme save.
+  // Computed here (before the early return) so the hook is never called conditionally.
+  useEffect(() => {
+    const user = db?.users.find((u) => u.id === currentUserId) ?? db?.users[0];
+    const t = user?.theme ?? 'light';
+    document.documentElement.setAttribute('data-theme', t);
+  }, [db, currentUserId]);
+
   if (!db) return <div className="loading">Loading…</div>;
 
   const currentUser = db.users.find((u) => u.id === currentUserId) || db.users[0];
@@ -51,7 +59,7 @@ export default function App() {
 
   const tabs: { id: string; label: string; badge?: number }[] = [
     { id: 'schedule', label: 'Schedule' },
-    { id: 'timeoff', label: 'My Requests' },
+    { id: 'preferences', label: 'Preferences' },
     { id: 'trades', label: 'Trades', badge: unread },
     ...(isAdmin ? [{ id: 'admin', label: 'Admin' }] : []),
   ];
@@ -107,7 +115,7 @@ export default function App() {
 
       <main className="content">
         {tab === 'schedule' && <ScheduleView db={db} currentUser={currentUser} act={act} isAdmin={isAdmin} />}
-        {tab === 'timeoff' && <TimeOff db={db} currentUser={currentUser} act={act} />}
+        {tab === 'preferences' && <Preferences db={db} currentUser={currentUser} act={act} />}
         {tab === 'trades' && <Trades db={db} currentUser={currentUser} act={act} />}
         {tab === 'admin' && isAdmin && <Admin db={db} act={act} />}
       </main>

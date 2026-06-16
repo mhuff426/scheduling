@@ -1,0 +1,22 @@
+{
+  "users": [
+    { "id": "u-admin", "name": "Admin", "roles": ["role-admin", "role-employee"], "vacationDays": 15, "color": "#6366f1", "requiredShifts": null, "theme": "light", "othersColorMode": "distinct", "othersSharedColor": "#9ca3af", "shiftColors": {} },
+    { "id": "u-bea", "name": "Bea", "roles": ["role-employee"], "vacationDays": 15, "color": "#22c55e", "requiredShifts": null, "theme": "light", "othersColorMode": "distinct", "othersSharedColor": "#9ca3af", "shiftColors": {} },
+    { "id": "u-cy", "name": "Cy", "roles": ["role-employee"], "vacationDays": 15, "color": "#f97316", "requiredShifts": null, "theme": "light", "othersColorMode": "distinct", "othersSharedColor": "#9ca3af", "shiftColors": {} }
+  ],
+  "roles": [
+    { "id": "role-admin", "name": "Admin", "system": true },
+    { "id": "role-employee", "name": "Employee", "system": true }
+  ],
+  "shiftTypes": [
+    { "id": "s-day", "name": "Day", "startTime": "08:00", "endTime": "16:00", "frequency": "daily", "dayOfWeek": null, "staffRequired": 1, "allowedRoles": [] },
+    { "id": "s-eve", "name": "Evening", "startTime": "16:00", "endTime": "22:00", "frequency": "daily", "dayOfWeek": null, "staffRequired": 1, "allowedRoles": [] }
+  ],
+  "settings": { "maxVacationPerDay": 2, "cadence": null },
+  "timeOff": [],
+  "schedules": [],
+  "trades": [],
+  "notifications": [],
+  "awayTime": [],
+  "meta": { "rotationCursor": 0 }
+}

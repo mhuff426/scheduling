@@ -22,6 +22,10 @@ export interface User {
   maxShiftsOverride?: number | null;
   maxConsecutiveNights?: number | null;
   startDate?: string | null;
+  theme?: 'light' | 'dark';
+  othersColorMode?: 'distinct' | 'shared';
+  othersSharedColor?: string;
+  shiftColors?: Record<string, string>;
 }
 
 export interface ShiftType {
