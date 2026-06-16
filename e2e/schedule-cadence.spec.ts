@@ -1,12 +1,26 @@
 import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 
-// These tests mutate the dev data file (data/data.json) — generating real
-// schedules and persisting a cadence. A later phase restores the data file.
+// These tests run against an ISOLATED, seeded data file (not the real dev
+// datastore — see playwright.config.cjs DATA_FILE/E2E_TESTING). The beforeEach
+// below resets the DB to e2e/seed.json before every test, so each case starts
+// from the same known state: users + shift types, and crucially NO cadence.
+// That determinism is what fixes the old flake — the happy path can always
+// anchor "today" (first-time setup), and the empty-state case always applies.
 //
 // App context (no auth): the first roster user is an admin (seed "Admin").
 // The top bar has a .user-switch select; tabs are .tab buttons; server errors
 // surface in .banner.error. The Admin tab renders an "⚙️ Settings" card with
 // the cadence form and an "✨ Generate Schedule" card.
+
+const SEED = JSON.parse(readFileSync(new URL('./seed.json', import.meta.url), 'utf8'));
+
+test.beforeEach(async ({ request }) => {
+  // Re-seed the isolated DB so this test doesn't inherit cadence/schedules a
+  // previously-run spec persisted.
+  const res = await request.post('/api/test/reset', { data: SEED });
+  expect(res.ok()).toBeTruthy();
+});
 
 // ----- date helpers (local YYYY-MM-DD, mirrors shared/blocks.js) -----
 const pad = (n) => String(n).padStart(2, '0');
@@ -150,13 +164,11 @@ test('change-cadence rule: past anchor disabled, future anchor accepted', async 
   await expect(settingsCard(page).getByText(new RegExp(`anchored ${future}`))).toBeVisible();
 });
 
-// Empty-state coverage. Simulating "no cadence" requires resetting persisted
-// data, which the shared dev data file makes brittle; if a cadence already
-// exists this is skipped (and noted).
+// Empty-state coverage. The beforeEach reset guarantees no cadence is set, so
+// the generate card shows its "set a cadence first" prompt.
 test('empty state when no cadence is configured', async ({ page }) => {
   await gotoAdmin(page);
-  const hasCadence = await settingsCard(page).getByText(/Currently: every/).count();
-  test.skip(hasCadence > 0, 'A cadence is already configured in the shared dev data; cannot simulate the empty state without resetting data.');
+  await expect(settingsCard(page).getByText(/Currently: every/)).toHaveCount(0);
 
   await expect(
     generateCard(page).getByText('Set a schedule cadence in Settings first.')

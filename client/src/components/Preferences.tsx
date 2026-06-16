@@ -7,7 +7,7 @@ import type { Act } from '../App';
 
 interface Props { db: AppState; currentUser: User; act: Act; }
 
-export default function TimeOff({ db, currentUser, act }: Props) {
+export default function Preferences({ db, currentUser, act }: Props) {
   const now = new Date();
   const [cursor, setCursor] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
   const [mode, setMode] = useState('vacation');
@@ -46,8 +46,113 @@ export default function TimeOff({ db, currentUser, act }: Props) {
     }
   };
 
+  const setShiftColor = (stId: string, color: string) =>
+    act(() => api.updateUser(currentUser.id, { shiftColors: { ...(currentUser.shiftColors || {}), [stId]: color } }));
+
+  const resetShiftColor = (stId: string) => {
+    const next = { ...(currentUser.shiftColors || {}) };
+    delete next[stId];
+    act(() => api.updateUser(currentUser.id, { shiftColors: next }));
+  };
+
   return (
     <div>
+      {/* Theme */}
+      <div className="card">
+        <h2>🎨 Theme</h2>
+        <div className="seg">
+          <button
+            className={(!currentUser.theme || currentUser.theme === 'light') ? 'active' : ''}
+            onClick={() => act(() => api.updateUser(currentUser.id, { theme: 'light' }))}
+          >
+            ☀️ Light
+          </button>
+          <button
+            className={currentUser.theme === 'dark' ? 'active' : ''}
+            onClick={() => act(() => api.updateUser(currentUser.id, { theme: 'dark' }))}
+          >
+            🌙 Dark
+          </button>
+        </div>
+      </div>
+
+      {/* Colors */}
+      <div className="card">
+        <h2>🖌️ Colors</h2>
+        <div className="color-row" style={{ marginBottom: 12 }}>
+          <span>Your color</span>
+          <input
+            type="color"
+            defaultValue={currentUser.color}
+            onBlur={(e) => act(() => api.updateUser(currentUser.id, { color: e.target.value }))}
+          />
+        </div>
+        <div className="color-row" style={{ marginBottom: 12 }}>
+          <span>Other people's colors</span>
+          <div className="seg">
+            <button
+              className={(!currentUser.othersColorMode || currentUser.othersColorMode === 'distinct') ? 'active' : ''}
+              onClick={() => act(() => api.updateUser(currentUser.id, { othersColorMode: 'distinct' }))}
+            >
+              Distinct
+            </button>
+            <button
+              className={currentUser.othersColorMode === 'shared' ? 'active' : ''}
+              onClick={() => act(() => api.updateUser(currentUser.id, { othersColorMode: 'shared' }))}
+            >
+              Shared
+            </button>
+          </div>
+          {currentUser.othersColorMode === 'shared' && (
+            <input
+              type="color"
+              defaultValue={currentUser.othersSharedColor ?? '#9ca3af'}
+              onBlur={(e) => act(() => api.updateUser(currentUser.id, { othersSharedColor: e.target.value }))}
+            />
+          )}
+        </div>
+        {db.shiftTypes.length > 0 && (
+          <div>
+            <div className="muted small" style={{ marginBottom: 6 }}>Per-shift-type color overrides</div>
+            {db.shiftTypes.map((st) => (
+              <div key={st.id} className="color-row" style={{ marginBottom: 6 }}>
+                <span>{st.name}</span>
+                <input
+                  type="color"
+                  key={`${st.id}-${currentUser.shiftColors?.[st.id] ?? ''}`}
+                  defaultValue={currentUser.shiftColors?.[st.id] ?? '#9ca3af'}
+                  onBlur={(e) => setShiftColor(st.id, e.target.value)}
+                />
+                {currentUser.shiftColors?.[st.id] && (
+                  <button className="btn ghost sm" onClick={() => resetShiftColor(st.id)}>Reset</button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Scheduling limits */}
+      <div className="card">
+        <h2>⏱ Scheduling limits</h2>
+        <div className="color-row">
+          <label className="stat-label" htmlFor="max-nights">Max overnight shifts in a row</label>
+          <input
+            id="max-nights"
+            className="inline-num"
+            type="number" min="1" placeholder="no limit"
+            defaultValue={currentUser.maxConsecutiveNights ?? ''}
+            onBlur={(e) => {
+              const v = e.target.value === '' ? null : Number(e.target.value);
+              if (v !== (currentUser.maxConsecutiveNights ?? null))
+                act(() => api.updateUser(currentUser.id, { maxConsecutiveNights: v }));
+            }}
+          />
+          <span className="muted small">a hard cap — you'll never be scheduled more overnight shifts back-to-back than this</span>
+        </div>
+      </div>
+
+      {/* Requested days off */}
       <div className="card stats-row">
         <div className="stat">
           <div className="stat-num">{available}</div>
@@ -68,21 +173,6 @@ export default function TimeOff({ db, currentUser, act }: Props) {
           <div className="stat-num">{mine.filter((t) => t.type === 'preferred').length}</div>
           <div className="stat-label">preferred-off days</div>
         </div>
-        <div className="stat">
-          <label className="stat-label" htmlFor="max-nights">max overnight shifts in a row</label>
-          <input
-            id="max-nights"
-            className="inline-num"
-            type="number" min="1" placeholder="no limit"
-            defaultValue={currentUser.maxConsecutiveNights ?? ''}
-            onBlur={(e) => {
-              const v = e.target.value === '' ? null : Number(e.target.value);
-              if (v !== (currentUser.maxConsecutiveNights ?? null))
-                act(() => api.updateUser(currentUser.id, { maxConsecutiveNights: v }));
-            }}
-          />
-          <div className="stat-label">a hard cap — you'll never be scheduled more overnight shifts back-to-back than this</div>
-        </div>
       </div>
 
       <div className="toolbar">
@@ -102,15 +192,6 @@ export default function TimeOff({ db, currentUser, act }: Props) {
           Max {db.settings.maxVacationPerDay} people may have the same day off.
         </span>
       </div>
-
-      {myAway.length > 0 && (
-        <div className="card">
-          <h3 style={{ margin: '0 0 0.5rem' }}>✈️ Scheduled away (set by your manager)</h3>
-          <ul className="muted small" style={{ margin: 0 }}>
-            {myAway.map((a) => <li key={a.id}>{prettyDate(a.start)} → {prettyDate(a.end)}</li>)}
-          </ul>
-        </div>
-      )}
 
       <div className="cal-wrap">
         <div className="cal-nav">
@@ -152,6 +233,16 @@ export default function TimeOff({ db, currentUser, act }: Props) {
           })}
         </div>
       </div>
+
+      {/* Scheduled away (read-only) */}
+      {myAway.length > 0 && (
+        <div className="card">
+          <h3 style={{ margin: '0 0 0.5rem' }}>✈️ Scheduled away (set by your manager)</h3>
+          <ul className="muted small" style={{ margin: 0 }}>
+            {myAway.map((a) => <li key={a.id}>{prettyDate(a.start)} → {prettyDate(a.end)}</li>)}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

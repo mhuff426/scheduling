@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { api } from '../api';
 import { DOW, MONTHS, monthGrid, prettyDate, formatTime, addDays, weekStart } from '../dates';
 import { settlementFor } from '../shiftMath';
+import { displayColor } from '../colors';
 import type { AppState, Assignment, Schedule, Slot, User } from '../../../shared/types.js';
 import type { Act } from '../App';
 
@@ -209,7 +210,7 @@ export default function ScheduleView({ db, currentUser, act, isAdmin }: Props) {
                       <div
                         key={j}
                         className={`chip ${a.userId === currentUser.id ? 'mine' : ''} ${isAdmin ? 'editable' : ''}`}
-                        style={{ background: u ? u.color : '#9ca3af' }}
+                        style={{ background: displayColor(currentUser, u, a.shiftTypeId) }}
                         title={`${u ? u.name : 'Former employee'} — ${st.name} (${formatTime(st.startTime)}–${formatTime(st.endTime)})${isAdmin ? ' — click to reassign' : ''}`}
                         onClick={() => isAdmin && setEditKey(key)}
                       >
@@ -279,7 +280,7 @@ export default function ScheduleView({ db, currentUser, act, isAdmin }: Props) {
                     <tr key={i}>
                       <td>{prettyDate(a.date)}</td>
                       <td>
-                        <span className="dot" style={{ background: listUser.color }} /> {st?.name}
+                        <span className="dot" style={{ background: displayColor(currentUser, listUser, a.shiftTypeId) }} /> {st?.name}
                       </td>
                       <td>{st ? `${formatTime(st.startTime)} – ${formatTime(st.endTime)}` : ''}</td>
                     </tr>
@@ -518,7 +519,7 @@ function WeekView({ weekCursor, setWeekCursor, schedule, assignments, openSlots,
                         height: Math.max(((s.end - s.start) / 60) * HOUR_H - 2, 14),
                         left: `${(s.lane || 0) * width}%`,
                         width: `calc(${width}% - 3px)`,
-                        background: s.open ? undefined : (u ? u.color : '#9ca3af'),
+                        background: s.open ? undefined : displayColor(currentUser, u ?? undefined, s.st.id),
                       }}
                       title={title}
                     >
