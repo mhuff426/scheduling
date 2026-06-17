@@ -46,15 +46,6 @@ export default function Preferences({ db, currentUser, act }: Props) {
     }
   };
 
-  const setShiftColor = (stId: string, color: string) =>
-    act(() => api.updateUser(currentUser.id, { shiftColors: { ...(currentUser.shiftColors || {}), [stId]: color } }));
-
-  const resetShiftColor = (stId: string) => {
-    const next = { ...(currentUser.shiftColors || {}) };
-    delete next[stId];
-    act(() => api.updateUser(currentUser.id, { shiftColors: next }));
-  };
-
   return (
     <div>
       {/* Theme */}
@@ -74,62 +65,6 @@ export default function Preferences({ db, currentUser, act }: Props) {
             🌙 Dark
           </button>
         </div>
-      </div>
-
-      {/* Colors */}
-      <div className="card">
-        <h2>🖌️ Colors</h2>
-        <div className="color-row" style={{ marginBottom: 12 }}>
-          <span>Your color</span>
-          <input
-            type="color"
-            defaultValue={currentUser.color}
-            onBlur={(e) => act(() => api.updateUser(currentUser.id, { color: e.target.value }))}
-          />
-        </div>
-        <div className="color-row" style={{ marginBottom: 12 }}>
-          <span>Other people's colors</span>
-          <div className="seg">
-            <button
-              className={(!currentUser.othersColorMode || currentUser.othersColorMode === 'distinct') ? 'active' : ''}
-              onClick={() => act(() => api.updateUser(currentUser.id, { othersColorMode: 'distinct' }))}
-            >
-              Distinct
-            </button>
-            <button
-              className={currentUser.othersColorMode === 'shared' ? 'active' : ''}
-              onClick={() => act(() => api.updateUser(currentUser.id, { othersColorMode: 'shared' }))}
-            >
-              Shared
-            </button>
-          </div>
-          {currentUser.othersColorMode === 'shared' && (
-            <input
-              type="color"
-              defaultValue={currentUser.othersSharedColor ?? '#9ca3af'}
-              onBlur={(e) => act(() => api.updateUser(currentUser.id, { othersSharedColor: e.target.value }))}
-            />
-          )}
-        </div>
-        {db.shiftTypes.length > 0 && (
-          <div>
-            <div className="muted small" style={{ marginBottom: 6 }}>Per-shift-type color overrides</div>
-            {db.shiftTypes.map((st) => (
-              <div key={st.id} className="color-row" style={{ marginBottom: 6 }}>
-                <span>{st.name}</span>
-                <input
-                  type="color"
-                  key={`${st.id}-${currentUser.shiftColors?.[st.id] ?? ''}`}
-                  defaultValue={currentUser.shiftColors?.[st.id] ?? '#9ca3af'}
-                  onBlur={(e) => setShiftColor(st.id, e.target.value)}
-                />
-                {currentUser.shiftColors?.[st.id] && (
-                  <button className="btn ghost sm" onClick={() => resetShiftColor(st.id)}>Reset</button>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Scheduling limits */}

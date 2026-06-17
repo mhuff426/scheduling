@@ -109,9 +109,6 @@ app.put('/api/users/:id', (req, res) => {
   }
   if (req.body.color !== undefined && typeof req.body.color === 'string') user.color = req.body.color;
   if (req.body.theme !== undefined) user.theme = req.body.theme === 'dark' ? 'dark' : 'light';
-  if (req.body.othersColorMode !== undefined) user.othersColorMode = req.body.othersColorMode === 'shared' ? 'shared' : 'distinct';
-  if (req.body.othersSharedColor !== undefined && typeof req.body.othersSharedColor === 'string') user.othersSharedColor = req.body.othersSharedColor;
-  if (req.body.shiftColors !== undefined && req.body.shiftColors && typeof req.body.shiftColors === 'object') user.shiftColors = req.body.shiftColors;
   saveDb();
   res.json(user);
 });

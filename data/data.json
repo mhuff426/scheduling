@@ -11,14 +11,18 @@
       "roles": [
         "role-admin",
         "role-employee"
-      ]
+      ],
+      "theme": "dark",
+      "othersColorMode": "shared",
+      "othersSharedColor": "#f39b9b",
+      "shiftColors": {}
     },
     {
       "id": "u-mq8tle5q-wb2ly",
       "name": "Evee Lopez",
       "role": "employee",
       "vacationDays": 10,
-      "color": "#f97316",
+      "color": "#15c0f9",
       "desiredShifts": null,
       "maxConsecutiveNights": 3,
       "requiredShifts": 48,
@@ -26,7 +30,11 @@
       "roles": [
         "role-employee",
         "role-mqfthgru-kmpgr"
-      ]
+      ],
+      "theme": "dark",
+      "othersColorMode": "shared",
+      "othersSharedColor": "#dd9898",
+      "shiftColors": {}
     },
     {
       "id": "u-mq8tljk2-lumtw",
@@ -40,7 +48,11 @@
       "roles": [
         "role-employee",
         "role-mqfthgru-kmpgr"
-      ]
+      ],
+      "theme": "light",
+      "othersColorMode": "distinct",
+      "othersSharedColor": "#9ca3af",
+      "shiftColors": {}
     },
     {
       "id": "u-mq8tlpb8-x030k",
@@ -54,7 +66,11 @@
       "roles": [
         "role-employee",
         "role-mqfthgru-kmpgr"
-      ]
+      ],
+      "theme": "light",
+      "othersColorMode": "distinct",
+      "othersSharedColor": "#9ca3af",
+      "shiftColors": {}
     },
     {
       "id": "u-mq8tnifi-13va6",
@@ -68,7 +84,11 @@
       "roles": [
         "role-employee",
         "role-mqfthgru-kmpgr"
-      ]
+      ],
+      "theme": "light",
+      "othersColorMode": "distinct",
+      "othersSharedColor": "#9ca3af",
+      "shiftColors": {}
     },
     {
       "id": "u-mq8tqqj0-2lrq6",
@@ -82,7 +102,11 @@
       "roles": [
         "role-employee",
         "role-mqfthgru-kmpgr"
-      ]
+      ],
+      "theme": "light",
+      "othersColorMode": "distinct",
+      "othersSharedColor": "#9ca3af",
+      "shiftColors": {}
     },
     {
       "id": "u-mq8tqxv4-wgn5p",
@@ -98,7 +122,11 @@
         "role-admin",
         "role-employee",
         "role-mqfthgru-kmpgr"
-      ]
+      ],
+      "theme": "light",
+      "othersColorMode": "distinct",
+      "othersSharedColor": "#9ca3af",
+      "shiftColors": {}
     },
     {
       "id": "u-mq8tr54q-jwp4p",
@@ -112,7 +140,11 @@
       "roles": [
         "role-employee",
         "role-mqfthgru-kmpgr"
-      ]
+      ],
+      "theme": "light",
+      "othersColorMode": "distinct",
+      "othersSharedColor": "#9ca3af",
+      "shiftColors": {}
     },
     {
       "id": "u-mq8xwhzj-tvgh4",
@@ -126,7 +158,11 @@
       "roles": [
         "role-employee",
         "role-mqfthgru-kmpgr"
-      ]
+      ],
+      "theme": "light",
+      "othersColorMode": "distinct",
+      "othersSharedColor": "#9ca3af",
+      "shiftColors": {}
     },
     {
       "id": "u-mqaxr0so-h7xoy",
@@ -139,7 +175,11 @@
       "roles": [
         "role-employee",
         "role-mqfthgru-kmpgr"
-      ]
+      ],
+      "theme": "light",
+      "othersColorMode": "distinct",
+      "othersSharedColor": "#9ca3af",
+      "shiftColors": {}
     }
   ],
   "shiftTypes": [

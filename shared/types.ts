@@ -23,9 +23,6 @@ export interface User {
   maxConsecutiveNights?: number | null;
   startDate?: string | null;
   theme?: 'light' | 'dark';
-  othersColorMode?: 'distinct' | 'shared';
-  othersSharedColor?: string;
-  shiftColors?: Record<string, string>;
 }
 
 export interface ShiftType {
