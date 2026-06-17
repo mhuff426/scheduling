@@ -1,8 +1,8 @@
 {
   "users": [
-    { "id": "u-admin", "name": "Admin", "roles": ["role-admin", "role-employee"], "vacationDays": 15, "color": "#6366f1", "requiredShifts": null, "theme": "light", "othersColorMode": "distinct", "othersSharedColor": "#9ca3af", "shiftColors": {} },
-    { "id": "u-bea", "name": "Bea", "roles": ["role-employee"], "vacationDays": 15, "color": "#22c55e", "requiredShifts": null, "theme": "light", "othersColorMode": "distinct", "othersSharedColor": "#9ca3af", "shiftColors": {} },
-    { "id": "u-cy", "name": "Cy", "roles": ["role-employee"], "vacationDays": 15, "color": "#f97316", "requiredShifts": null, "theme": "light", "othersColorMode": "distinct", "othersSharedColor": "#9ca3af", "shiftColors": {} }
+    { "id": "u-admin", "name": "Admin", "roles": ["role-admin", "role-employee"], "vacationDays": 15, "color": "#6366f1", "requiredShifts": null, "theme": "light" },
+    { "id": "u-bea", "name": "Bea", "roles": ["role-employee"], "vacationDays": 15, "color": "#22c55e", "requiredShifts": null, "theme": "light" },
+    { "id": "u-cy", "name": "Cy", "roles": ["role-employee"], "vacationDays": 15, "color": "#f97316", "requiredShifts": null, "theme": "light" }
   ],
   "roles": [
     { "id": "role-admin", "name": "Admin", "system": true },

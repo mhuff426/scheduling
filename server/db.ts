@@ -58,9 +58,6 @@ export function loadDb(): Db {
     if ((u as any).role === 'admin' && !u.roles.includes('role-admin')) u.roles.push('role-admin');
     if (!u.roles.includes('role-employee')) u.roles.push('role-employee');
     u.theme ??= 'light';
-    u.othersColorMode ??= 'distinct';
-    u.othersSharedColor ??= '#9ca3af';
-    u.shiftColors ??= {};
   }
   for (const st of loaded.shiftTypes) st.allowedRoles ??= [];
   cache = loaded;
