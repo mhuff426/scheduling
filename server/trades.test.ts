@@ -35,6 +35,7 @@ function mkDb(users: User[], assignments: Assignment[], timeOff: TimeOff[] = [])
     trades: [],
     notifications: [],
     awayTime: [],
+    holidays: [],
     meta: { rotationCursor: 0 },
   };
 }

@@ -30,6 +30,7 @@
 :root[data-theme="dark"] .tab:hover { background: #232b3d; }
 :root[data-theme="dark"] .cal-cell { background: #161c2a; }
 :root[data-theme="dark"] .chip-full { background: #232b3d; }
+:root[data-theme="dark"] .chip-holiday { background: #831843; color: #fbcfe8; }
 :root[data-theme="dark"] .notif-list li.unread { background: #1e2740; }
 :root[data-theme="dark"] .legend-btn.active { background: #1e2740; }
 :root[data-theme="dark"] .ms-option:hover { background: #1e2740; }
@@ -160,6 +161,7 @@ select, input {
 .chip-pref { background: var(--pref); color: #1e40af; }
 .chip-full { background: #f3f4f6; color: var(--muted); font-weight: 500; }
 .chip-open { background: #fff; color: var(--danger); border: 1px dashed var(--danger); }
+.chip-holiday { background: #fce7f3; color: #9d174d; }
 .chip.editable { cursor: pointer; }
 .chip.editable:hover { filter: brightness(0.92); }
 .chip-edit { width: 100%; font-size: 11px; padding: 2px 4px; }

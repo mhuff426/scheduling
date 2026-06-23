@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { api } from '../api';
 import { DOW, MONTHS, monthGrid, todayYmd, prettyDate } from '../dates';
 import { vacationSummary } from '../shiftMath';
-import type { AppState, User } from '../../../shared/types.js';
+import { holidayDatesInRange } from '../../../shared/holidays.js';
+import type { AppState, User, Holiday } from '../../../shared/types.js';
 import type { Act } from '../App';
 
 interface Props { db: AppState; currentUser: User; act: Act; }
@@ -22,6 +23,12 @@ export default function Preferences({ db, currentUser, act }: Props) {
   const mine = db.timeOff.filter((t) => t.userId === currentUser.id);
   const myAway = (db.awayTime || []).filter((a) => a.userId === currentUser.id);
   const mineByDate = Object.fromEntries(mine.map((t) => [t.date, t]));
+  // Holidays recur, so resolve them to concrete dates across the visible month.
+  const visibleDates = weeks.flat().filter((d): d is string => !!d);
+  const holidaysByDate: Record<string, Holiday> = {};
+  if (visibleDates.length)
+    for (const o of holidayDatesInRange(db.holidays || [], visibleDates[0], visibleDates[visibleDates.length - 1]))
+      holidaysByDate[o.date] = o.holiday;
   // Vacation is settled from schedule outcomes: charged when must-off days
   // kept you under your required shifts, earned back via extra-day elections.
   const { used, earned, available } = vacationSummary(db, currentUser, year);
@@ -156,6 +163,11 @@ export default function Preferences({ db, currentUser, act }: Props) {
                 }
               >
                 <div className="cal-day">{Number(date.slice(8))}</div>
+                {holidaysByDate[date] && (
+                  <div className="chip chip-holiday" title={holidaysByDate[date].workable ? 'Workable holiday' : 'Holiday — closed'}>
+                    🎉 {holidaysByDate[date].name}{!holidaysByDate[date].workable ? ' (closed)' : ''}
+                  </div>
+                )}
                 {req && (
                   <div className={`chip ${req.type === 'vacation' ? 'chip-vac' : 'chip-pref'}`}>
                     {req.type === 'vacation' ? '🚫 Must off' : '🤞 Prefer off'}

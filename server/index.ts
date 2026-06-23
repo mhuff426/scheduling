@@ -15,6 +15,7 @@ import {
 } from './trades.js';
 import { buildIcs } from './ics.js';
 import { isValidCadence, blockRange, currentBlockIndex, todayYmd } from '../shared/blocks.js';
+import { isValidRecurrence } from '../shared/holidays.js';
 import type { Db, ShiftType, User } from '../shared/types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -241,6 +242,8 @@ app.put('/api/settings', (req, res) => {
   const { maxVacationPerDay } = req.body;
   if (maxVacationPerDay !== undefined)
     db.settings.maxVacationPerDay = Math.max(1, Number(maxVacationPerDay) || 1);
+  if (req.body.holidaysRequiredPerYear !== undefined)
+    db.settings.holidaysRequiredPerYear = Math.max(0, Number(req.body.holidaysRequiredPerYear) || 0);
   if (req.body.cadence !== undefined) {
     const c = req.body.cadence;
     if (!isValidCadence(c))
@@ -336,6 +339,44 @@ app.delete('/api/awaytime/:id', (req, res) => {
   const idx = db.awayTime.findIndex((a) => a.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Away time not found.' });
   db.awayTime.splice(idx, 1);
+  saveDb();
+  res.json({ ok: true });
+});
+
+// ---- holidays ----
+app.post('/api/holidays', (req, res) => {
+  const db = loadDb();
+  const { name, recurrence } = req.body;
+  if (!name || typeof name !== 'string') return res.status(400).json({ error: 'A holiday needs a name.' });
+  if (!isValidRecurrence(recurrence)) return res.status(400).json({ error: 'A holiday needs a valid recurrence.' });
+  const entry = { id: newId('hol'), name: name.trim(), workable: !!req.body.workable, recurrence };
+  db.holidays.push(entry);
+  saveDb();
+  res.json(entry);
+});
+
+app.put('/api/holidays/:id', (req, res) => {
+  const db = loadDb();
+  const entry = db.holidays.find((h) => h.id === req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Holiday not found.' });
+  if (req.body.name !== undefined) {
+    if (!req.body.name || typeof req.body.name !== 'string') return res.status(400).json({ error: 'A holiday needs a name.' });
+    entry.name = req.body.name.trim();
+  }
+  if (req.body.recurrence !== undefined) {
+    if (!isValidRecurrence(req.body.recurrence)) return res.status(400).json({ error: 'A holiday needs a valid recurrence.' });
+    entry.recurrence = req.body.recurrence;
+  }
+  if (req.body.workable !== undefined) entry.workable = !!req.body.workable;
+  saveDb();
+  res.json(entry);
+});
+
+app.delete('/api/holidays/:id', (req, res) => {
+  const db = loadDb();
+  const idx = db.holidays.findIndex((h) => h.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Holiday not found.' });
+  db.holidays.splice(idx, 1);
   saveDb();
   res.json({ ok: true });
 });

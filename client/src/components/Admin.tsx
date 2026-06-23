@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { api } from '../api';
-import { DOW, formatTime, todayYmd, prettyDate } from '../dates';
+import { DOW, MONTHS, formatTime, todayYmd, prettyDate } from '../dates';
 import { UNITS, upcomingBlocks, isValidCadence } from '../../../shared/blocks.js';
 import RoleMultiSelect from './RoleMultiSelect';
-import type { AppState, ShiftType, User } from '../../../shared/types.js';
+import type { AppState, ShiftType, User, HolidayRecurrence } from '../../../shared/types.js';
 import type { Act } from '../App';
 
 interface Props { db: AppState; act: Act; }
@@ -17,6 +17,7 @@ export default function Admin({ db, act }: Props) {
       <Settings db={db} act={act} />
       <GenerateSchedule db={db} act={act} />
       <AwayTimeManager db={db} act={act} />
+      <HolidaysManager db={db} act={act} />
     </div>
   );
 }
@@ -336,6 +337,18 @@ function Settings({ db, act }: Props) {
       <p className="muted small">
         Once this many people have claimed vacation on a date, further vacation requests for that date are rejected.
       </p>
+      <label className="row">
+        Holidays required per year
+        <input
+          className="inline-num"
+          type="number" min="0" defaultValue={db.settings.holidaysRequiredPerYear ?? 0}
+          onBlur={(e) => {
+            const v = Math.max(0, Number(e.target.value) || 0);
+            if (v !== (db.settings.holidaysRequiredPerYear ?? 0))
+              act(() => api.updateSettings({ holidaysRequiredPerYear: v }));
+          }}
+        />
+      </label>
       <h3 style={{ marginTop: '1rem', marginBottom: '0.5rem' }}>Schedule cadence</h3>
       {existingCadence && (
         <p className="muted small">
@@ -434,6 +447,143 @@ function AwayTimeManager({ db, act }: Props) {
         <label>From<input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></label>
         <label>To<input type="date" value={end} onChange={(e) => setEnd(e.target.value)} /></label>
         <button className="btn primary" onClick={add} disabled={!start || !end || end < start}>Add away time</button>
+      </div>
+    </section>
+  );
+}
+
+// Ordinals an "Nth weekday" holiday can pick (no explicit 5th; -1 = last).
+const ORDINALS: { value: number; label: string }[] = [
+  { value: 1, label: '1st' }, { value: 2, label: '2nd' }, { value: 3, label: '3rd' },
+  { value: 4, label: '4th' }, { value: -1, label: 'Last' },
+];
+
+// Human-readable recurrence summary, e.g. "Every Dec 25", "4th Thu of Nov",
+// "Last Mon of May", "One-off · Sat, Jul 4, 2026".
+function describeRecurrence(r: HolidayRecurrence): string {
+  if (r.type === 'one-off') return `One-off · ${prettyDate(r.date)}`;
+  if (r.type === 'yearly') return `Every ${MONTHS[r.month - 1].slice(0, 3)} ${r.day}`;
+  const ord = ORDINALS.find((o) => o.value === r.ordinal)?.label ?? String(r.ordinal);
+  return `${ord} ${DOW[r.weekday]} of ${MONTHS[r.month - 1].slice(0, 3)}`;
+}
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+// The recurrence editor: a type select plus the inputs that type needs. Emits a
+// complete HolidayRecurrence via onChange; reused by the add form and each row.
+function RecurrenceFields({ value, onChange }: { value: HolidayRecurrence; onChange: (r: HolidayRecurrence) => void }) {
+  const refYear = new Date().getFullYear();
+  const setType = (type: string) => {
+    const now = new Date();
+    if (type === 'yearly') onChange({ type: 'yearly', month: now.getMonth() + 1, day: now.getDate() });
+    else if (type === 'nth-weekday') onChange({ type: 'nth-weekday', month: now.getMonth() + 1, weekday: 1, ordinal: 1 });
+    else onChange({ type: 'one-off', date: todayYmd() });
+  };
+  return (
+    <div className="form-grid">
+      <label>Repeats
+        <select value={value.type} onChange={(e) => setType(e.target.value)}>
+          <option value="yearly">Every year · same date</option>
+          <option value="nth-weekday">Every year · weekday rule</option>
+          <option value="one-off">One-off (this year)</option>
+        </select>
+      </label>
+      {value.type === 'yearly' && (
+        <label>Date
+          <input type="date" value={`${refYear}-${pad2(value.month)}-${pad2(value.day)}`}
+            onChange={(e) => {
+              const [, m, d] = e.target.value.split('-').map(Number);
+              if (m && d) onChange({ type: 'yearly', month: m, day: d });
+            }} />
+        </label>
+      )}
+      {value.type === 'nth-weekday' && (
+        <>
+          <label>Which
+            <select value={value.ordinal} onChange={(e) => onChange({ ...value, ordinal: Number(e.target.value) })}>
+              {ORDINALS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </label>
+          <label>Weekday
+            <select value={value.weekday} onChange={(e) => onChange({ ...value, weekday: Number(e.target.value) })}>
+              {DOW.map((d, i) => <option key={i} value={i}>{d}</option>)}
+            </select>
+          </label>
+          <label>Month
+            <select value={value.month} onChange={(e) => onChange({ ...value, month: Number(e.target.value) })}>
+              {MONTHS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+            </select>
+          </label>
+        </>
+      )}
+      {value.type === 'one-off' && (
+        <label>Date
+          <input type="date" value={value.date}
+            onChange={(e) => { if (e.target.value) onChange({ type: 'one-off', date: e.target.value }); }} />
+        </label>
+      )}
+    </div>
+  );
+}
+
+function HolidaysManager({ db, act }: Props) {
+  const [name, setName] = useState('');
+  const [workable, setWorkable] = useState(false);
+  const [recurrence, setRecurrence] = useState<HolidayRecurrence>(() => {
+    const now = new Date();
+    return { type: 'yearly', month: now.getMonth() + 1, day: now.getDate() };
+  });
+  const holidays = db.holidays || [];
+
+  const add = async () => {
+    if (!name) return;
+    const ok = await act(() => api.addHoliday({ name, workable, recurrence }));
+    if (ok) { setName(''); setWorkable(false); }
+  };
+
+  return (
+    <section className="card">
+      <h2>🎉 Holidays</h2>
+      <p className="muted small">
+        Days the organization treats as holidays. A non-workable holiday means the business
+        is closed and no shifts are scheduled; a workable holiday is staffed and counts toward
+        each employee's required holidays per year. Holidays repeat every year by default.
+      </p>
+      {holidays.length > 0 ? (
+        <table className="table">
+          <thead><tr><th>Name</th><th>Repeats</th><th>Workable</th><th /></tr></thead>
+          <tbody>
+            {holidays.map((h) => (
+              <tr key={h.id}>
+                <td>
+                  <input className="inline-num" type="text" defaultValue={h.name}
+                    onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== h.name) act(() => api.updateHoliday(h.id, { name: v })); }} />
+                </td>
+                <td>
+                  <div className="muted small" style={{ marginBottom: 4 }}>{describeRecurrence(h.recurrence)}</div>
+                  <RecurrenceFields value={h.recurrence} onChange={(r) => act(() => api.updateHoliday(h.id, { recurrence: r }))} />
+                </td>
+                <td>
+                  <input type="checkbox" checked={h.workable}
+                    onChange={(e) => act(() => api.updateHoliday(h.id, { workable: e.target.checked }))} />
+                </td>
+                <td className="row-actions">
+                  <button className="btn danger ghost sm" title="Remove holiday" onClick={() => act(() => api.deleteHoliday(h.id))}>✕</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="muted small">No holidays set.</p>
+      )}
+      <div className="form-grid holiday-add">
+        <label>Name<input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Christmas" /></label>
+        <RecurrenceFields value={recurrence} onChange={setRecurrence} />
+        <label className="row" style={{ alignItems: 'center', gap: 6 }}>
+          <input type="checkbox" checked={workable} onChange={(e) => setWorkable(e.target.checked)} /> Workable
+        </label>
+        <button className="btn primary" onClick={add} disabled={!name}>Add holiday</button>
       </div>
     </section>
   );

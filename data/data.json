@@ -266,7 +266,8 @@
       "anchorDate": "2026-07-01",
       "lengthUnit": "months",
       "lengthValue": 3
-    }
+    },
+    "holidaysRequiredPerYear": 0
   },
   "timeOff": [
     {
@@ -5849,6 +5850,39 @@
     {
       "id": "role-mqfthgru-kmpgr",
       "name": "Physician"
+    }
+  ],
+  "holidays": [
+    {
+      "id": "hol-mqpytaed-o0ts6",
+      "name": "Christmas",
+      "workable": true,
+      "recurrence": {
+        "type": "yearly",
+        "month": 12,
+        "day": 25
+      }
+    },
+    {
+      "id": "hol-mqpyurtz-12vwm",
+      "name": "Independence Day",
+      "workable": true,
+      "recurrence": {
+        "type": "yearly",
+        "month": 7,
+        "day": 4
+      }
+    },
+    {
+      "id": "hol-mqq04jmx-a3r5j",
+      "name": "Thanksgiving",
+      "workable": true,
+      "recurrence": {
+        "type": "nth-weekday",
+        "month": 11,
+        "weekday": 4,
+        "ordinal": 3
+      }
     }
   ]
 }

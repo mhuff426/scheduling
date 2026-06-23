@@ -21,12 +21,13 @@ const DEFAULT_DATA: Db = {
   ],
   roles: SYSTEM_ROLES.map((r) => ({ ...r })),
   shiftTypes: [],
-  settings: { maxVacationPerDay: 2, cadence: null },
+  settings: { maxVacationPerDay: 2, cadence: null, holidaysRequiredPerYear: 0 },
   timeOff: [],
   schedules: [],
   trades: [],
   notifications: [],
   awayTime: [],
+  holidays: [],
   meta: { rotationCursor: 0 },
 };
 
@@ -46,6 +47,16 @@ export function loadDb(): Db {
   loaded.trades ??= [];
   loaded.notifications ??= [];
   loaded.awayTime ??= [];
+  loaded.holidays ??= [];
+  loaded.settings.holidaysRequiredPerYear ??= 0;
+  // Migrate legacy flat-date holidays to the recurrence shape (as one-offs, so
+  // their meaning is preserved exactly; new holidays default to yearly in the UI).
+  for (const h of loaded.holidays) {
+    if (!h.recurrence && (h as any).date) {
+      h.recurrence = { type: 'one-off', date: (h as any).date };
+      delete (h as any).date;
+    }
+  }
   // Roles: ensure the list exists and both system roles are always present.
   loaded.roles ??= [];
   for (const sys of SYSTEM_ROLES) {
