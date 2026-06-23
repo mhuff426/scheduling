@@ -9,7 +9,7 @@
     "build": "vite build",
     "start": "tsx server/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.server.json && tsc --noEmit -p tsconfig.client.json",
-    "test": "tsx server/scheduler.test.ts && tsx server/trades.test.ts && tsx server/blocks.test.ts",
+    "test": "tsx server/scheduler.test.ts && tsx server/trades.test.ts && tsx server/blocks.test.ts && tsx shared/holidays.test.ts",
     "test:e2e": "node --loader tsx/esm ./node_modules/@playwright/test/cli.js test --config=playwright.config.cjs"
   },
   "dependencies": {

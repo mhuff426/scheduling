@@ -16,7 +16,7 @@ const mkUser = (id: string, name: string, extra: Record<string, any> = {}): User
 const mkDb = (users: User[], shiftTypes: ShiftType[], timeOff: TimeOff[] = []): Db => ({
   users, roles: [], shiftTypes, timeOff,
   settings: { maxVacationPerDay: 2 },
-  schedules: [], trades: [], notifications: [], awayTime: [],
+  schedules: [], trades: [], notifications: [], awayTime: [], holidays: [],
   meta: { rotationCursor: 0 },
 });
 
@@ -921,6 +921,201 @@ const mgrShift: ShiftType = { id: 'mgr', name: 'Manager', startTime: '08:00', en
   const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-05' });
   assert.strictEqual(r.counts['e'] || 0, 0, 'ineligible E gets nothing even though it is under its minimum');
   assert.ok(r.warnings.some((w) => w.includes('E has')), `E is reported short (floor kept): ${JSON.stringify(r.warnings)}`);
+}
+
+// ===== holidays (new feature) =====
+
+// Holidays now carry a recurrence rule. These scheduler tests pin specific
+// calendar dates, so a one-off recurrence is the faithful fixture shape.
+const oneOff = (id: string, name: string, date: string, workable: boolean) =>
+  ({ id, name, workable, recurrence: { type: 'one-off' as const, date } });
+
+// ---- (1) a non-workable (closed) holiday produces NO slots at all
+{
+  // 5-day daily block; the 3rd is a closed holiday. That date should have
+  // neither an assignment nor an unfilled slot — the slot must not exist.
+  const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [day]);
+  db.holidays = [oneOff('h1', 'Closed Day', '2026-06-03', false)];
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-05' });
+  assert.ok(
+    !r.assignments.some((x) => x.date === '2026-06-03'),
+    'a closed holiday must have no assignments'
+  );
+  assert.ok(
+    !r.unfilled.some((x) => x.date === '2026-06-03'),
+    'a closed holiday must not even produce an (unfilled) slot'
+  );
+  // The 4 other days are all covered.
+  assert.strictEqual(r.assignments.length, 4, 'the other 4 days are staffed');
+  for (const d of ['2026-06-01', '2026-06-02', '2026-06-04', '2026-06-05']) {
+    assert.ok(r.assignments.some((x) => x.date === d), `non-holiday day ${d} is staffed`);
+  }
+}
+
+// ---- (2) a workable holiday IS staffed
+{
+  // Same setup as (1) but the holiday is workable -> the date is assigned.
+  const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [day]);
+  db.holidays = [oneOff('h1', 'Open Day', '2026-06-03', true)];
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-05' });
+  assert.ok(
+    r.assignments.some((x) => x.date === '2026-06-03'),
+    'a workable holiday must be staffed'
+  );
+  assert.strictEqual(r.assignments.length, 5, 'all 5 days (incl. the workable holiday) are staffed');
+}
+
+// ---- (3) holiday fairness within one run: two workable holidays go to two people
+{
+  // 2 employees, daily staffRequired 1, a long block with two workable holidays
+  // and plenty of ordinary days so totals don't force the split. The two holiday
+  // dates must be worked by two DIFFERENT employees.
+  const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [day]);
+  db.holidays = [
+    oneOff('h1', 'Holiday One', '2026-06-05', true),
+    oneOff('h2', 'Holiday Two', '2026-06-12', true),
+  ];
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-14' });
+  const h1 = r.assignments.find((x) => x.date === '2026-06-05');
+  const h2 = r.assignments.find((x) => x.date === '2026-06-12');
+  assert.ok(h1 && h2, 'both workable holidays are staffed');
+  assert.notStrictEqual(
+    h1!.userId, h2!.userId,
+    `two workable holidays should be shared between two people (got ${h1!.userId} and ${h2!.userId})`
+  );
+}
+
+// ---- (4) holiday fairness across runs: a seeded prior schedule steers the next
+{
+  // A prior schedule (same calendar year) has A working the only holiday in it.
+  // Generating a NEW block with one workable holiday should hand it to B.
+  const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [day]);
+  db.holidays = [
+    oneOff('h1', 'Past Holiday', '2026-05-04', true),
+    oneOff('h2', 'Next Holiday', '2026-06-04', true),
+  ];
+  // Prior schedule: A worked the 2026-05-04 holiday. (year = startDate.slice(0,4))
+  db.schedules = [{
+    id: 's-prior', createdAt: '2026-05-01T00:00:00Z',
+    startDate: '2026-05-01', endDate: '2026-05-07',
+    userIds: ['a', 'b'],
+    assignments: [{ date: '2026-05-04', shiftTypeId: 'day', userId: 'a' }],
+    unfilled: [], counts: { a: 1, b: 0 }, warnings: [],
+  }] as unknown as typeof db.schedules;
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-07' });
+  const hol = r.assignments.find((x) => x.date === '2026-06-04');
+  assert.ok(hol, 'the new workable holiday is staffed');
+  assert.strictEqual(
+    hol!.userId, 'b',
+    'the holiday should go to B, who has no prior holiday history this year'
+  );
+}
+
+// ---- (5) a must-have-off (vacation) beats holiday fairness
+{
+  // B is the fairness-preferred pick (A already worked a prior holiday), but B
+  // files a must-off on the new holiday -> A must work it instead.
+  const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [day], [
+    { id: 'm1', userId: 'b', date: '2026-06-04', type: 'vacation' },
+  ]);
+  db.holidays = [
+    oneOff('h1', 'Past Holiday', '2026-05-04', true),
+    oneOff('h2', 'Next Holiday', '2026-06-04', true),
+  ];
+  db.schedules = [{
+    id: 's-prior', createdAt: '2026-05-01T00:00:00Z',
+    startDate: '2026-05-01', endDate: '2026-05-07',
+    userIds: ['a', 'b'],
+    assignments: [{ date: '2026-05-04', shiftTypeId: 'day', userId: 'a' }],
+    unfilled: [], counts: { a: 1, b: 0 }, warnings: [],
+  }] as unknown as typeof db.schedules;
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-07' });
+  const hol = r.assignments.find((x) => x.date === '2026-06-04');
+  assert.ok(hol, 'the workable holiday is still staffed');
+  assert.strictEqual(
+    hol!.userId, 'a',
+    "B's must-have-off beats fairness; A covers the holiday despite prior history"
+  );
+}
+
+// ---- (6) gating: holiday history must not skew NON-holiday days
+{
+  // One workable holiday plus ordinary days. We compare two runs that differ
+  // ONLY in seeded holiday history (A worked a prior holiday in the second run).
+  // The fairness signal is gated to holiday dates, so per-user TOTALS on
+  // non-holiday days must be identical between the two runs — only the holiday
+  // date's owner may differ.
+  const mkRun = (withHistory: boolean) => {
+    const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [day]);
+    db.holidays = [
+      oneOff('hp', 'Past', '2026-05-04', true),
+      oneOff('hn', 'Next', '2026-06-04', true),
+    ];
+    if (withHistory) {
+      db.schedules = [{
+        id: 's-prior', createdAt: '2026-05-01T00:00:00Z',
+        startDate: '2026-05-01', endDate: '2026-05-07', userIds: ['a', 'b'],
+        assignments: [{ date: '2026-05-04', shiftTypeId: 'day', userId: 'a' }],
+        unfilled: [], counts: { a: 1, b: 0 }, warnings: [],
+      }] as unknown as typeof db.schedules;
+    }
+    return generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-07' });
+  };
+  const base = mkRun(false);
+  const hist = mkRun(true);
+  // Tally assignments per user on NON-holiday dates only.
+  const nonHolTotals = (r: ReturnType<typeof generateSchedule>) => {
+    const out: Record<string, number> = { a: 0, b: 0 };
+    for (const x of r.assignments) if (x.date !== '2026-06-04') out[x.userId]++;
+    return out;
+  };
+  assert.deepStrictEqual(
+    nonHolTotals(hist), nonHolTotals(base),
+    'introducing holiday history must not change non-holiday-day totals'
+  );
+  // And the gated signal *does* move the holiday's owner toward B.
+  const holOwner = hist.assignments.find((x) => x.date === '2026-06-04')!.userId;
+  assert.strictEqual(holOwner, 'b', 'with history, the holiday goes to the fairer pick (B)');
+}
+
+// ---- (7) below-required prioritization with reqN >= 2 levels up evenly
+{
+  // holidaysRequiredPerYear = 2, two employees, three workable holidays. Work
+  // should level up evenly: nobody reaches 2 holidays while the other is still
+  // at 0 (the "still below required" tier keeps both climbing together).
+  const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [day]);
+  db.settings.holidaysRequiredPerYear = 2;
+  db.holidays = [
+    oneOff('h1', 'H1', '2026-06-03', true),
+    oneOff('h2', 'H2', '2026-06-09', true),
+    oneOff('h3', 'H3', '2026-06-15', true),
+  ];
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-18' });
+  const holUsers = ['2026-06-03', '2026-06-09', '2026-06-15'].map(
+    (d) => r.assignments.find((x) => x.date === d)!.userId
+  );
+  const worked: Record<string, number> = { a: 0, b: 0 };
+  for (const u of holUsers) worked[u]++;
+  // With 3 holidays and 2 people, the only even split is 2/1 (or 1/2). The
+  // invariant: nobody hits the required 2 while the other is still at 0.
+  assert.ok(
+    !((worked.a >= 2 && worked.b === 0) || (worked.b >= 2 && worked.a === 0)),
+    `holidays should level up evenly, not stack on one person: ${JSON.stringify(worked)}`
+  );
+  // Concretely the first two distinct holidays must go to two different people.
+  assert.notStrictEqual(holUsers[0], holUsers[1], 'the first two holidays are shared before anyone repeats');
+}
+
+// ---- (8) a RECURRING holiday rule resolves into the generated range
+{
+  // A yearly holiday on June 3 (no explicit year) must be honored when a 2026
+  // block spans it: non-workable -> the date has no slot.
+  const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [day]);
+  db.holidays = [{ id: 'hy', name: 'Founders Day', workable: false, recurrence: { type: 'yearly', month: 6, day: 3 } }];
+  const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-05' });
+  assert.ok(!r.assignments.some((x) => x.date === '2026-06-03'), 'a recurring closed holiday suppresses that date');
+  assert.ok(!r.unfilled.some((x) => x.date === '2026-06-03'), 'a recurring closed holiday produces no slot');
+  assert.strictEqual(r.assignments.length, 4, 'the other 4 days are staffed');
 }
 
 console.log('All scheduler tests passed.');

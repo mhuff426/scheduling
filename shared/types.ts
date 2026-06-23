@@ -53,6 +53,21 @@ export interface AwayTime {
   end: string;   // "YYYY-MM-DD" inclusive
 }
 
+// How a holiday recurs. `yearly` = same month/day every year; `nth-weekday` =
+// e.g. the 4th Thursday of November (ordinal -1 means the LAST such weekday);
+// `one-off` = a single explicit date, that year only.
+export type HolidayRecurrence =
+  | { type: 'yearly'; month: number; day: number }                          // month 1-12, day 1-31
+  | { type: 'nth-weekday'; month: number; weekday: number; ordinal: number } // weekday 0=Sun..6=Sat; ordinal 1-4 or -1=last
+  | { type: 'one-off'; date: string };                                      // "YYYY-MM-DD"
+
+export interface Holiday {
+  id: string;
+  name: string;
+  workable: boolean; // true = staffed & counts for fairness; false = closed (no shifts)
+  recurrence: HolidayRecurrence;
+}
+
 export interface Cadence {
   anchorDate: string; // "YYYY-MM-DD"
   lengthUnit: LengthUnit;
@@ -62,6 +77,7 @@ export interface Cadence {
 export interface Settings {
   maxVacationPerDay: number;
   cadence?: Cadence | null;
+  holidaysRequiredPerYear?: number;
 }
 
 // A concrete shift occurrence (a slot, filled or not).
@@ -151,6 +167,7 @@ export interface Db {
   trades: Trade[];
   notifications: Notification[];
   awayTime: AwayTime[];
+  holidays: Holiday[];
   meta: Meta;
 }
 

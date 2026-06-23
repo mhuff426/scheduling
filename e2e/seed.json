@@ -12,11 +12,12 @@
     { "id": "s-day", "name": "Day", "startTime": "08:00", "endTime": "16:00", "frequency": "daily", "dayOfWeek": null, "staffRequired": 1, "allowedRoles": [] },
     { "id": "s-eve", "name": "Evening", "startTime": "16:00", "endTime": "22:00", "frequency": "daily", "dayOfWeek": null, "staffRequired": 1, "allowedRoles": [] }
   ],
-  "settings": { "maxVacationPerDay": 2, "cadence": null },
+  "settings": { "maxVacationPerDay": 2, "cadence": null, "holidaysRequiredPerYear": 0 },
   "timeOff": [],
   "schedules": [],
   "trades": [],
   "notifications": [],
   "awayTime": [],
+  "holidays": [],
   "meta": { "rotationCursor": 0 }
 }

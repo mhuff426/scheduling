@@ -20,6 +20,7 @@
 // assumed to run in (or be configured for) that location's timezone.
 
 import { vacationAvailable } from './db.js';
+import { holidayDatesInRange } from '../shared/holidays.js';
 import type {
   Assignment, Db, PreferenceStats, ScheduleDraft, ShiftType, Slot, TimeOff, User,
 } from '../shared/types.js';
@@ -483,7 +484,12 @@ export function summarizeSchedule(db: Db, schedule: ScheduleDraft) {
 export function generateSchedule(db: Db, { startDate, endDate, userIds }: { startDate: string; endDate: string; userIds?: string[] }) {
   const employees = includedUsers(db, { userIds });
   const shiftById = Object.fromEntries(db.shiftTypes.map((s) => [s.id, s]));
-  const slots = buildSlots(db.shiftTypes, startDate, endDate);
+  // Non-workable holidays mean the org is closed: no shifts that day. Holidays
+  // recur, so resolve each rule to concrete dates within the run's range.
+  const closedHolidays = new Set(
+    holidayDatesInRange((db.holidays || []).filter((h) => !h.workable), startDate, endDate).map((o) => o.date)
+  );
+  const slots = buildSlots(db.shiftTypes, startDate, endDate).filter((s) => !closedHolidays.has(s.date));
 
   // Slots are processed one day at a time; the order *within* each day is
   // decided per-day, by run urgency, just before that day is filled (see the
@@ -539,6 +545,26 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
   // Target = required shifts (already clamped to the ceiling above).
   const target = gmap<number>(employees.map((u) => [u.id, effMin.get(u.id)]));
 
+  // Holiday fairness (soft): only WORKABLE holidays are schedulable/counted.
+  // `holWorked` is a live counter — seeded from prior schedules in this calendar
+  // year, then kept current by give()/take() so the second holiday in a run goes
+  // to someone who hasn't worked one yet.
+  // Resolve workable holidays across the whole block year (so prior-schedule
+  // seeding sees them) plus any cross-year tail of this run.
+  const holYearEnd = endDate > `${blockYear}-12-31` ? endDate : `${blockYear}-12-31`;
+  const holidayDates = new Set(
+    holidayDatesInRange((db.holidays || []).filter((h) => h.workable), `${blockYear}-01-01`, holYearEnd).map((o) => o.date)
+  );
+  const reqHolidays = Math.max(0, Number(db.settings.holidaysRequiredPerYear) || 0);
+  const holWorked = gmap<number>(employees.map((u) => [u.id, 0]));
+  for (const s of db.schedules || []) {
+    if (!s.startDate?.startsWith(String(blockYear))) continue;
+    for (const a of s.assignments || []) {
+      if (holidayDates.has(a.date) && holWorked.has(a.userId))
+        holWorked.set(a.userId, holWorked.get(a.userId) + 1);
+    }
+  }
+
   const counts = gmap<number>(employees.map((u) => [u.id, 0]));
   const loads = gmap<number>(employees.map((u) => [u.id, 0])); // weighted
   const overnights = gmap<number>(employees.map((u) => [u.id, 0]));
@@ -581,6 +607,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
     const tc = typeCount.get(u.id);
     tc.set(a.shiftTypeId, (tc.get(a.shiftTypeId) || 0) + 1);
     workingDay.add(`${u.id}|${a.date}`);
+    if (holidayDates.has(a.date)) holWorked.set(u.id, holWorked.get(u.id) + 1);
   };
 
   const take = (a: Assignment) => {
@@ -595,6 +622,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
     const tc = typeCount.get(u);
     tc.set(a.shiftTypeId, (tc.get(a.shiftTypeId) || 0) - 1);
     workingDay.delete(`${u}|${a.date}`);
+    if (holidayDates.has(a.date)) holWorked.set(u, holWorked.get(u) - 1);
   };
 
   // Is there a preferred-off day for this user within the next `span` days
@@ -673,6 +701,16 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
       const claimA = claimOf(a.id, slot.date);
       const claimB = claimOf(b.id, slot.date);
       if (claimA !== claimB) return claimA - claimB;
+      // Holiday fairness (only on workable-holiday dates, so normal days are
+      // unaffected): those who still owe their required count first, then the
+      // fewest holidays worked this year.
+      if (holidayDates.has(slot.date)) {
+        const belowA = holWorked.get(a.id) < reqHolidays ? 0 : 1;
+        const belowB = holWorked.get(b.id) < reqHolidays ? 0 : 1;
+        if (belowA !== belowB) return belowA - belowB;
+        if (holWorked.get(a.id) !== holWorked.get(b.id))
+          return holWorked.get(a.id) - holWorked.get(b.id);
+      }
       if (A.sticky !== B.sticky) return A.sticky - B.sticky;
       const underMinA = counts.get(a.id) < effMin.get(a.id) ? 0 : 1;
       const underMinB = counts.get(b.id) < effMin.get(b.id) ? 0 : 1;

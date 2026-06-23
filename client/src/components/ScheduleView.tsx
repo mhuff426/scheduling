@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import { api } from '../api';
 import { DOW, MONTHS, monthGrid, prettyDate, formatTime, addDays, weekStart } from '../dates';
 import { settlementFor } from '../shiftMath';
-import type { AppState, Assignment, Schedule, Slot, User } from '../../../shared/types.js';
+import { holidayDatesInRange } from '../../../shared/holidays.js';
+import type { AppState, Assignment, Holiday, Schedule, Slot, User } from '../../../shared/types.js';
 import type { Act } from '../App';
 
 const HOUR_H = 28; // px per hour in the week view
@@ -89,6 +90,12 @@ export default function ScheduleView({ db, currentUser, act, isAdmin }: Props) {
 
   const [year, month] = monthCursor.split('-').map(Number);
   const weeks = monthGrid(year, month - 1);
+  // Holidays recur, so resolve them to concrete dates across the visible month.
+  const visibleDates = weeks.flat().filter((d): d is string => !!d);
+  const holidaysByDate: Record<string, Holiday> = {};
+  if (visibleDates.length)
+    for (const o of holidayDatesInRange(db.holidays || [], visibleDates[0], visibleDates[visibleDates.length - 1]))
+      holidaysByDate[o.date] = o.holiday;
   const shiftMonth = (delta: number) => {
     const d = new Date(year, month - 1 + delta, 1);
     setMonthCursor(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
@@ -197,6 +204,11 @@ export default function ScheduleView({ db, currentUser, act, isAdmin }: Props) {
               return (
                 <div key={i} className={`cal-cell ${!date ? 'blank' : ''} ${inRange ? '' : 'out'}`}>
                   {date && <div className="cal-day">{Number(date.slice(8))}</div>}
+                  {date && holidaysByDate[date] && (
+                    <div className="chip chip-holiday" title={holidaysByDate[date].workable ? 'Workable holiday' : 'Holiday — closed'}>
+                      🎉 {holidaysByDate[date].name}
+                    </div>
+                  )}
                   {date && (byDate[date] || []).map((a, j) => {
                     const u = userById[a.userId];
                     const st = shiftById[a.shiftTypeId];
