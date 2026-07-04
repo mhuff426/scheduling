@@ -2591,6 +2591,18 @@
       "userId": "u-mq8tkj7h-95721",
       "date": "2026-07-06",
       "type": "vacation"
+    },
+    {
+      "id": "t-mqq2ph5u-b18w6",
+      "userId": "u-mq8tkj7h-95721",
+      "date": "2026-06-24",
+      "type": "preferred"
+    },
+    {
+      "id": "t-mqq2phob-o899y",
+      "userId": "u-mq8tkj7h-95721",
+      "date": "2026-06-25",
+      "type": "preferred"
     }
   ],
   "schedules": [
@@ -5874,7 +5886,7 @@
       }
     },
     {
-      "id": "hol-mqq04jmx-a3r5j",
+      "id": "hol-mqq3p8ca-96toa",
       "name": "Thanksgiving",
       "workable": true,
       "recurrence": {

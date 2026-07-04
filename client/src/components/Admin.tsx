@@ -3,6 +3,7 @@ import { api } from '../api';
 import { DOW, MONTHS, formatTime, todayYmd, prettyDate } from '../dates';
 import { UNITS, upcomingBlocks, isValidCadence } from '../../../shared/blocks.js';
 import RoleMultiSelect from './RoleMultiSelect';
+import { safeBg } from '../contrast';
 import type { AppState, ShiftType, User, HolidayRecurrence } from '../../../shared/types.js';
 import type { Act } from '../App';
 
@@ -200,7 +201,7 @@ function Roster({ db, act }: Props) {
         <tbody>
           {db.users.map((u) => (
             <tr key={u.id}>
-              <td><span className="dot" style={{ background: u.color }} /> {u.name}</td>
+              <td><span className="dot" style={{ background: safeBg(u.color) }} /> {u.name}</td>
               <td>
                 <RoleMultiSelect
                   roles={db.roles}
@@ -710,7 +711,7 @@ function GenerateSchedule({ db, act }: Props) {
                   checked={included.has(u.id)}
                   onChange={() => toggle(u.id)}
                 />
-                <span className="dot" style={{ background: u.color }} /> {u.name}
+                <span className="dot" style={{ background: safeBg(u.color) }} /> {u.name}
               </label>
             ))}
           </div>

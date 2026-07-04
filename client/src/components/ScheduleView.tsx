@@ -2,9 +2,13 @@ import { useMemo, useState } from 'react';
 import { api } from '../api';
 import { DOW, MONTHS, monthGrid, prettyDate, formatTime, addDays, weekStart } from '../dates';
 import { settlementFor } from '../shiftMath';
+import { safeBg, CHIP_INK } from '../contrast';
 import { holidayDatesInRange } from '../../../shared/holidays.js';
 import type { AppState, Assignment, Holiday, Schedule, Slot, User } from '../../../shared/types.js';
 import type { Act } from '../App';
+
+// Neutral background for a shift with no current assignee (former/open).
+const NO_USER = '#cbd5e1';
 
 const HOUR_H = 28; // px per hour in the week view
 const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
@@ -181,7 +185,7 @@ export default function ScheduleView({ db, currentUser, act, isAdmin }: Props) {
             title={employeeFilter === u.id ? 'Click to show everyone' : `Show only ${u.name}'s shifts`}
             onClick={() => setEmployeeFilter(employeeFilter === u.id ? null : u.id)}
           >
-            <span className="dot" style={{ background: u.color }} /> {u.name}
+            <span className="dot" style={{ background: safeBg(u.color) }} /> {u.name}
           </button>
         ))}
         {employeeFilter && (
@@ -221,7 +225,7 @@ export default function ScheduleView({ db, currentUser, act, isAdmin }: Props) {
                       <div
                         key={j}
                         className={`chip ${a.userId === currentUser.id ? 'mine' : ''} ${isAdmin ? 'editable' : ''}`}
-                        style={{ background: u ? u.color : '#9ca3af' }}
+                        style={{ background: safeBg(u ? u.color : NO_USER), color: CHIP_INK }}
                         title={`${u ? u.name : 'Former employee'} — ${st.name} (${formatTime(st.startTime)}–${formatTime(st.endTime)})${isAdmin ? ' — click to reassign' : ''}`}
                         onClick={() => isAdmin && setEditKey(key)}
                       >
@@ -291,7 +295,7 @@ export default function ScheduleView({ db, currentUser, act, isAdmin }: Props) {
                     <tr key={i}>
                       <td>{prettyDate(a.date)}</td>
                       <td>
-                        <span className="dot" style={{ background: listUser.color }} /> {st?.name}
+                        <span className="dot" style={{ background: safeBg(listUser.color) }} /> {st?.name}
                       </td>
                       <td>{st ? `${formatTime(st.startTime)} – ${formatTime(st.endTime)}` : ''}</td>
                     </tr>
@@ -404,7 +408,7 @@ function AdminSettlementTable({ db, schedule, users }: { db: AppState; schedule:
             const s = settlementFor(db, schedule, u);
             return (
               <tr key={u.id}>
-                <td><span className="dot" style={{ background: u.color }} /> {u.name}</td>
+                <td><span className="dot" style={{ background: safeBg(u.color) }} /> {u.name}</td>
                 <td>{s.count}</td>
                 <td>{s.required}</td>
                 <td>{s.charged}</td>
@@ -530,7 +534,8 @@ function WeekView({ weekCursor, setWeekCursor, schedule, assignments, openSlots,
                         height: Math.max(((s.end - s.start) / 60) * HOUR_H - 2, 14),
                         left: `${(s.lane || 0) * width}%`,
                         width: `calc(${width}% - 3px)`,
-                        background: s.open ? undefined : (u ? u.color : '#9ca3af'),
+                        background: s.open ? undefined : safeBg(u ? u.color : NO_USER),
+                        color: s.open ? undefined : CHIP_INK,
                       }}
                       title={title}
                     >
