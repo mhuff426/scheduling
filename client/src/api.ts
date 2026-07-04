@@ -41,6 +41,9 @@ export const api = {
   claimTrade: (id: string, body: any) => request('POST', `/api/trades/${id}/claim`, body),
   cancelTrade: (id: string, body: any) => request('POST', `/api/trades/${id}/cancel`, body),
   markNotificationsRead: (userId: string) => request('PUT', '/api/notifications/read', { userId }),
+  dismissNotification: (id: string, userId: string) =>
+    request('PUT', `/api/notifications/${id}/dismiss`, { userId }),
+  dismissAllNotifications: (userId: string) => request('PUT', '/api/notifications/dismiss', { userId }),
   electExtra: (scheduleId: string, body: any) => request('PUT', `/api/schedules/${scheduleId}/extra-election`, body),
   tradeOptions: (scheduleId: string, userId: string) =>
     request('GET', `/api/schedules/${scheduleId}/trade-options?userId=${encodeURIComponent(userId)}`),

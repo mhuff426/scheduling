@@ -67,7 +67,7 @@ export default function Trades({ db, currentUser, act }: Props) {
 
   const trades = (db.trades || []).filter((t) => t.scheduleId === schedule.id);
   const myNotifications = (db.notifications || [])
-    .filter((n) => n.userId === me)
+    .filter((n) => n.userId === me && !n.dismissed)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .slice(0, 12);
 
@@ -227,15 +227,35 @@ export default function Trades({ db, currentUser, act }: Props) {
         </div>
 
         <section className="card">
-          <h2>🔔 Notifications</h2>
+          <div className="notif-head">
+            <h2>🔔 Notifications</h2>
+            {myNotifications.length > 0 && (
+              <button
+                className="btn ghost sm"
+                onClick={() => act(() => api.dismissAllNotifications(me))}
+              >
+                Clear all
+              </button>
+            )}
+          </div>
           {myNotifications.length === 0 ? (
             <p className="muted small">Nothing yet — trade activity shows up here.</p>
           ) : (
             <ul className="notif-list">
               {myNotifications.map((n) => (
                 <li key={n.id} className={n.read ? '' : 'unread'}>
-                  {n.message}
-                  <div className="muted small">{new Date(n.createdAt).toLocaleString()}</div>
+                  <div className="notif-body">
+                    {n.message}
+                    <div className="muted small">{new Date(n.createdAt).toLocaleString()}</div>
+                  </div>
+                  <button
+                    className="notif-dismiss"
+                    aria-label="Dismiss notification"
+                    title="Dismiss"
+                    onClick={() => act(() => api.dismissNotification(n.id, me))}
+                  >
+                    ×
+                  </button>
                 </li>
               ))}
             </ul>

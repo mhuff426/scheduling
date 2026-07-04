@@ -274,11 +274,20 @@ select, input {
   border-top: 1px dashed var(--line); padding-top: 8px;
   display: flex; flex-direction: column; gap: 6px;
 }
+.notif-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.notif-head h2 { margin: 0 0 6px; }
 .notif-list { list-style: none; margin: 0; padding: 0; }
 .notif-list li {
   padding: 8px 10px; border-bottom: 1px solid var(--line); font-size: 13px;
+  display: flex; align-items: flex-start; gap: 8px;
 }
 .notif-list li.unread { background: var(--accent-soft); border-left: 3px solid var(--accent); }
+.notif-list .notif-body { flex: 1; min-width: 0; }
+.notif-dismiss {
+  background: none; border: none; cursor: pointer; padding: 0 4px;
+  font-size: 16px; line-height: 1; color: var(--muted);
+}
+.notif-dismiss:hover { color: var(--ink); }
 
 /* admin & stats */
 .admin-grid { display: grid; grid-template-columns: 1fr; gap: 0; }

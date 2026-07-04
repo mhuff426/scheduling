@@ -150,6 +150,7 @@ export interface Notification {
   message: string;
   tradeId?: string;
   read: boolean;
+  dismissed?: boolean;
   createdAt: string;
 }
 
