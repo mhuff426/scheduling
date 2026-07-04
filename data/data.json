@@ -5180,7 +5180,8 @@
       "message": "Steven is giving up their Backup on 2026-08-15 — first to claim it takes it.",
       "tradeId": "tr-mqbot3pv-jaigy",
       "read": true,
-      "createdAt": "2026-06-13T01:39:07.411Z"
+      "createdAt": "2026-06-13T01:39:07.411Z",
+      "dismissed": true
     },
     {
       "id": "n-mqbot3pv-xdfjp",
@@ -5260,7 +5261,8 @@
       "message": "George is giving up their Chemo Service on 2026-11-12 — first to claim it takes it.",
       "tradeId": "tr-mqbotry1-6irzx",
       "read": true,
-      "createdAt": "2026-06-13T01:39:38.809Z"
+      "createdAt": "2026-06-13T01:39:38.809Z",
+      "dismissed": true
     },
     {
       "id": "n-mqbotry1-fsqwc",
@@ -5340,7 +5342,8 @@
       "message": "Sharan is giving up their Acc Night on 2026-08-15 — first to claim it takes it.",
       "tradeId": "tr-mqboxau0-74zu0",
       "read": true,
-      "createdAt": "2026-06-13T01:42:23.256Z"
+      "createdAt": "2026-06-13T01:42:23.256Z",
+      "dismissed": true
     },
     {
       "id": "n-mqboxau0-wgjzz",
@@ -5420,7 +5423,8 @@
       "message": "George is giving up their Backup on 2026-11-09 — first to claim it takes it.",
       "tradeId": "tr-mqboxg6c-letlz",
       "read": true,
-      "createdAt": "2026-06-13T01:42:30.180Z"
+      "createdAt": "2026-06-13T01:42:30.180Z",
+      "dismissed": true
     },
     {
       "id": "n-mqboxg6c-786p7",
@@ -5612,7 +5616,8 @@
       "message": "George wants to swap their Chemo Service on 2026-07-06 — offer one of your shifts in Trades.",
       "tradeId": "tr-mqccsq75-hegk4",
       "read": true,
-      "createdAt": "2026-06-13T12:50:40.673Z"
+      "createdAt": "2026-06-13T12:50:40.673Z",
+      "dismissed": true
     },
     {
       "id": "n-mqccsq75-8zszy",
@@ -5684,7 +5689,8 @@
       "message": "George is giving up their Chemo Service on 2026-07-06 — first to claim it takes it.",
       "tradeId": "tr-mqcctbv8-pbdt1",
       "read": true,
-      "createdAt": "2026-06-13T12:51:08.756Z"
+      "createdAt": "2026-06-13T12:51:08.756Z",
+      "dismissed": true
     },
     {
       "id": "n-mqcctbv8-a0f1e",

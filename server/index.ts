@@ -577,6 +577,31 @@ app.put('/api/notifications/read', (req, res) => {
   res.json({ ok: true });
 });
 
+// Dismissing hides a notification from the Trades inbox for good. The bulk
+// route clears the viewer's whole list; the per-id route clears one.
+app.put('/api/notifications/dismiss', (req, res) => {
+  const db = loadDb();
+  const { userId } = req.body;
+  for (const n of db.notifications) {
+    if (n.userId === userId) { n.read = true; n.dismissed = true; }
+  }
+  saveDb();
+  res.json({ ok: true });
+});
+
+app.put('/api/notifications/:id/dismiss', (req, res) => {
+  const db = loadDb();
+  const { userId } = req.body;
+  const n = db.notifications.find((x) => x.id === req.params.id);
+  if (!n) return res.status(404).json({ error: 'Notification not found.' });
+  if (n.userId !== userId)
+    return res.status(403).json({ error: 'You can only dismiss your own notifications.' });
+  n.read = true;
+  n.dismissed = true;
+  saveDb();
+  return res.json({ ok: true });
+});
+
 // ---- personal calendar export ----
 app.get('/api/schedules/:id/ics', (req, res) => {
   const db = loadDb();
