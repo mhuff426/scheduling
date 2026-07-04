@@ -4,6 +4,7 @@ import ScheduleView from './components/ScheduleView';
 import Preferences from './components/Preferences';
 import Admin from './components/Admin';
 import Trades from './components/Trades';
+import { safeBg } from './contrast';
 import type { AppState } from '../../shared/types.js';
 
 // A mutation wrapper: runs `fn`, refreshes state, surfaces server errors.
@@ -103,7 +104,7 @@ export default function App() {
               </option>
             ))}
           </select>
-          {currentUser && <span className="dot" style={{ background: currentUser.color }} />}
+          {currentUser && <span className="dot" style={{ background: safeBg(currentUser.color) }} />}
         </div>
       </header>
 

@@ -32,10 +32,12 @@ if (process.env.E2E_TESTING === '1') {
   });
 }
 
+// Pastel assignment colors. Each pairs with near-black chip text at >= 7:1
+// (WCAG AAA) — see client/src/contrast.ts (safeBg/CHIP_INK) and the chip styles.
 const PALETTE = [
-  '#ef4444', '#f97316', '#eab308', '#22c55e', '#14b8a6',
-  '#0ea5e9', '#6366f1', '#a855f7', '#ec4899', '#84cc16',
-  '#06b6d4', '#f43f5e', '#8b5cf6', '#10b981', '#d97706',
+  '#fca5a5', '#fdba74', '#fcd34d', '#bef264', '#86efac',
+  '#5eead4', '#67e8f9', '#7dd3fc', '#93c5fd', '#a5b4fc',
+  '#c4b5fd', '#d8b4fe', '#f0abfc', '#f9a8d4', '#fda4af',
 ];
 
 const isDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s || '');
