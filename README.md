@@ -8,12 +8,16 @@ export to their personal calendars.
 
 ```sh
 npm install
+npm run db:up      # start MySQL (Docker) on :3306 — needs Docker Desktop
+npm run db:import  # first time only: import data/data.json into ShiftlyDev0
 npm run dev        # API on :3001, web app on http://localhost:5173
 ```
 
-Optional demo data: `node server/seed.js` (overwrites `data/data.json`).
+Optional demo data: `tsx server/seed.ts` (overwrites the database contents).
 
 Production: `npm run build` then `npm start` (serves the built app and API on :3001).
+In production (`NODE_ENV=production`) the DB connection must be configured
+explicitly — see **Database** below.
 
 ## How it works
 
@@ -139,5 +143,121 @@ notification. Core logic lives in `server/trades.js`; tests in `server/trades.te
 ## Tech notes
 
 - Express API (`server/`), React + Vite frontend (`client/`), data persisted to
-  `data/data.json` — no database to set up.
-- Scheduler tests: `node server/scheduler.test.js`.
+  MySQL (see Database below).
+- Scheduler tests: `npm test` (plain-object fixtures — no database needed).
+
+## Database
+
+Data lives in MySQL — locally the dockerized **ShiftlyDev0** on port 3306.
+The schema is fully normalized (`server/schema.ts`), created idempotently at boot.
+
+### Running the database
+
+Prerequisite: [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+installed and running (on Windows, launch it after a reboot or enable
+*Settings → General → Start Docker Desktop when you sign in*).
+
+```sh
+npm run db:up      # start MySQL 8.4 in Docker and wait until it's healthy
+npm run db:import  # first time only: load data/data.json into ShiftlyDev0
+npm run dev        # run the app against it
+```
+
+Day-to-day commands:
+
+| Command | What it does |
+|---|---|
+| `npm run db:up` | Start (or reuse) the `shiftly-mysql` container on port 3306; blocks until the healthcheck passes |
+| `npm run db:down` | Stop and remove the container — **data survives** in the `shiftly-mysql-data` volume |
+| `npm run db:nuke` | Stop the container **and delete the volume** — wipes all databases; re-run `db:import` afterwards |
+| `npm run db:import` | Re-runnable: fully replaces ShiftlyDev0's contents with `data/data.json` (or pass another file: `npm run db:import -- path/to/file.json`) |
+| `tsx server/seed.ts` | Replace the database contents with small demo data |
+
+Useful checks:
+
+```sh
+docker ps                                                # is shiftly-mysql up + healthy?
+docker logs shiftly-mysql                                # server logs
+docker exec -it shiftly-mysql mysql -uroot -pshiftly ShiftlyDev0   # SQL shell
+```
+
+The container hosts two databases: **ShiftlyDev0** (dev) and **ShiftlyE2E0**
+(e2e tests only). Both are created automatically — by the init script on first
+volume creation, and by the app at boot if missing.
+
+### Connecting from MySQL Workbench
+
+Create a new connection (**Database → Manage Connections → New**, or the ➕ on
+the home screen) with the docker-compose credentials:
+
+| Field | Value |
+|---|---|
+| Connection Name | `Shiftly local` (anything you like) |
+| Connection Method | Standard (TCP/IP) |
+| Hostname | `127.0.0.1` |
+| Port | `3306` |
+| Username | `root` |
+| Password | `shiftly` (Store in Vault) |
+| Default Schema | `ShiftlyDev0` |
+
+Click **Test Connection** — MySQL must be running (`npm run db:up`). If
+Workbench warns about the connection being incompatible or asks to continue
+anyway, accept; MySQL 8.4 works fine with current Workbench versions. The
+schema browser then shows the `users`, `schedules`, `assignments`, `trades`,
+`notifications`, … tables; `ShiftlyE2E0` is also visible but only interesting
+mid-test-run.
+
+Hand-edits from Workbench are picked up by the running app on its next read
+(within ~30 s via polling, or immediately on the next tab switch/mutation) —
+the database is the source of truth and the server holds no cache. Prefer to
+avoid editing rows the app might be rewriting at the same instant; app writes
+replace whole collections, so a concurrent manual UPDATE to the same
+collection can be overwritten.
+
+**Runtime model — the database is the source of truth.** Every read
+(`readState`) loads a consistent snapshot; every mutation (`withMutation`)
+runs in one MySQL transaction that takes a global lock row
+(`app_lock` `SELECT … FOR UPDATE`), re-reads fresh state, runs the business
+logic, and writes back only the collections that changed
+(`server/db.ts` + `server/mysql.ts`). Writes therefore serialize across
+requests **and across app instances** — multiple servers can point at the
+same database. Stale actions fail loudly instead of clobbering: acting on a
+trade that was completed/cancelled meanwhile returns a clear 409, and caps or
+balances are always enforced against current data.
+
+**Optimistic versioning** — editable entities (users, shift types, holidays,
+away time, roles, settings) carry a `version` that bumps on every edit.
+Clients echo the version they last saw as `expectedVersion`; a mismatch means
+someone else changed the record and returns
+`409 { code: 'version_conflict' }` with a human-readable message. The UI then
+auto-refreshes so the conflicting item shows its current state next to the
+explanation. Requests without `expectedVersion` (curl, scripts) skip the
+check.
+
+**Client data flow** — each tab fetches only its own data
+(`GET /api/tabs/<schedule|preferences|trades|admin>`), refetched on every tab
+switch and polled every 30 s while visible. Cross-tab data has dedicated
+endpoints — `GET /api/users` and `GET /api/notifications?userId=…` — fetched
+alongside every tab (and designed to become SSE streams later). After any
+failed mutation the client refetches immediately, so a stale card disappears
+as its error banner explains why. `<body data-saving>` is set while writes
+are pending (used by tests; available for a saving indicator).
+
+**Connection config** — env vars (optionally via `.env`; see `.env.example`):
+`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_SSL`,
+`DB_SSL_CA`. Dev defaults match docker-compose, so zero config is needed
+locally. With `NODE_ENV=production` all connection vars are **required** (boot
+fails fast rather than defaulting to localhost).
+
+**Production (Aurora MySQL)** — planned target; configuration to be
+established later. `mysql2` is wire-compatible with Aurora MySQL: point the
+`DB_*` vars at the cluster endpoint, set `DB_SSL=true`, and give `DB_SSL_CA`
+the RDS CA bundle.
+
+**e2e isolation** — Playwright boots the server against a separate
+**ShiftlyE2E0** database (created automatically) and re-seeds it per test via
+`POST /api/test/reset`; dev data is never touched. MySQL must be running
+(`npm run db:up`) before `npm run test:e2e`.
+
+The legacy `data/data.json` remains in the repo as a frozen backup and as the
+source for `npm run db:import` (re-runnable; fully replaces the DB contents).

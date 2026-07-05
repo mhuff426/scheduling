@@ -12,15 +12,11 @@ if (!(process.env.NODE_OPTIONS || '').includes('tsx/esm')) {
 }
 
 const { defineConfig, devices } = require('@playwright/test');
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
 
-// e2e runs against an ISOLATED data file (never the real dev datastore). Write
-// the known seed to a temp file and point the API at it via DATA_FILE; the
-// gated /api/test/reset endpoint (E2E_TESTING=1) re-seeds it before each test.
-const E2E_DATA = path.join(os.tmpdir(), 'scheduling-e2e-data.json');
-fs.writeFileSync(E2E_DATA, JSON.stringify(require('./e2e/seed.json'), null, 2));
+// e2e runs against an ISOLATED MySQL database (ShiftlyE2E0 — never the real
+// dev database, ShiftlyDev0). The gated /api/test/reset endpoint
+// (E2E_TESTING=1) fully re-seeds it before each test. MySQL must be up:
+// `npm run db:up` (the server creates ShiftlyE2E0 if it's missing).
 
 // The dev script boots both the API (server/index.js) and Vite (port 5173).
 // NODE_EXTRA_CA_CERTS is forwarded so npm/node calls survive the Norton TLS
@@ -49,7 +45,11 @@ module.exports = defineConfig({
     env: {
       NODE_EXTRA_CA_CERTS: process.env.NODE_EXTRA_CA_CERTS
         || `${process.env.USERPROFILE || process.env.HOME}/.proxy-ca.pem`,
-      DATA_FILE: E2E_DATA,
+      DB_NAME: 'ShiftlyE2E0',
+      DB_HOST: process.env.DB_HOST || '127.0.0.1',
+      DB_PORT: process.env.DB_PORT || '3306',
+      DB_USER: process.env.DB_USER || 'root',
+      DB_PASSWORD: process.env.DB_PASSWORD || 'shiftly',
       E2E_TESTING: '1',
     },
   },

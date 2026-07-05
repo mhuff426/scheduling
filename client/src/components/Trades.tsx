@@ -17,6 +17,19 @@ export default function Trades({ db, currentUser, act }: Props) {
   const [scheduleId, setScheduleId] = useState<string | null>(schedules[0]?.id || null);
   const schedule = schedules.find((s) => s.id === scheduleId) || schedules[0];
 
+  // Double-click / double-submit protection: trade actions disable their
+  // buttons while one mutation is in flight (the server also dedupes).
+  const [busy, setBusy] = useState(false);
+  const run = async (fn: () => unknown) => {
+    if (busy) return false;
+    setBusy(true);
+    try {
+      return await act(fn);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // Server-computed eligibility for this viewer: which shifts can answer each
   // open swap, and which giveaways they can claim. Refetched whenever the
   // schedule, user, or underlying state changes.
@@ -115,10 +128,10 @@ export default function Trades({ db, currentUser, act }: Props) {
                     <strong>{slotLabel(t.requested!)}</strong>.
                   </div>
                   <div className="row">
-                    <button className="btn primary sm" onClick={() => act(() => api.acceptTrade(t.id, { userId: me }))}>
+                    <button className="btn primary sm" disabled={busy} onClick={() => run(() => api.acceptTrade(t.id, { userId: me }))}>
                       Accept swap
                     </button>
-                    <button className="btn danger ghost sm" onClick={() => act(() => api.rejectTrade(t.id, { userId: me }))}>
+                    <button className="btn danger ghost sm" disabled={busy} onClick={() => run(() => api.rejectTrade(t.id, { userId: me }))}>
                       Reject
                     </button>
                   </div>
@@ -141,7 +154,7 @@ export default function Trades({ db, currentUser, act }: Props) {
                     {mine ? (
                       <div className="row">
                         <span className="muted small">You offered: {slotLabel(mine)}</span>
-                        <button className="btn ghost sm" onClick={() => act(() => api.withdrawResponse(t.id, { userId: me }))}>
+                        <button className="btn ghost sm" disabled={busy} onClick={() => run(() => api.withdrawResponse(t.id, { userId: me }))}>
                           Withdraw
                         </button>
                       </div>
@@ -150,8 +163,9 @@ export default function Trades({ db, currentUser, act }: Props) {
                     ) : (
                       <OfferPicker
                         shifts={options.respond[t.id]} slotLabel={slotLabel} slotKey={slotKey}
+                        busy={busy}
                         onOffer={(key) =>
-                          act(() => api.respondTrade(t.id, { userId: me, ...slotFromKey(key) }))
+                          run(() => api.respondTrade(t.id, { userId: me, ...slotFromKey(key) }))
                         }
                       />
                     )}
@@ -173,7 +187,7 @@ export default function Trades({ db, currentUser, act }: Props) {
                   {options.claim[t.id] && !options.claim[t.id].ok ? (
                     <span className="muted small">{options.claim[t.id].reason}</span>
                   ) : (
-                    <button className="btn primary sm" onClick={() => act(() => api.claimTrade(t.id, { userId: me }))}>
+                    <button className="btn primary sm" disabled={busy} onClick={() => run(() => api.claimTrade(t.id, { userId: me }))}>
                       Take this shift
                     </button>
                   )}
@@ -206,7 +220,8 @@ export default function Trades({ db, currentUser, act }: Props) {
                           </span>
                           <button
                             className="btn primary sm"
-                            onClick={() => act(() => api.acceptTrade(t.id, { userId: me, responseUserId: r.userId }))}
+                            disabled={busy}
+                            onClick={() => run(() => api.acceptTrade(t.id, { userId: me, responseUserId: r.userId }))}
                           >
                             Accept
                           </button>
@@ -217,7 +232,7 @@ export default function Trades({ db, currentUser, act }: Props) {
                   {t.type === 'open' && t.responses.length === 0 && (
                     <span className="muted small">No offers yet.</span>
                   )}
-                  <button className="btn danger ghost sm" onClick={() => act(() => api.cancelTrade(t.id, { userId: me }))}>
+                  <button className="btn danger ghost sm" disabled={busy} onClick={() => run(() => api.cancelTrade(t.id, { userId: me }))}>
                     Cancel{t.type === 'giveaway' ? ' (refunds the vacation day)' : ''}
                   </button>
                 </div>
@@ -270,10 +285,11 @@ interface OfferPickerProps {
   shifts: Slot[];
   slotLabel: (s: Slot) => string;
   slotKey: (s: Slot) => string;
+  busy?: boolean;
   onOffer: (key: string) => void;
 }
 
-function OfferPicker({ shifts, slotLabel, slotKey, onOffer }: OfferPickerProps) {
+function OfferPicker({ shifts, slotLabel, slotKey, busy, onOffer }: OfferPickerProps) {
   const [key, setKey] = useState('');
   if (shifts.length === 0) return <span className="muted small">You have no future shifts to offer.</span>;
   return (
@@ -284,7 +300,7 @@ function OfferPicker({ shifts, slotLabel, slotKey, onOffer }: OfferPickerProps) 
           <option key={slotKey(s)} value={slotKey(s)}>{slotLabel(s)}</option>
         ))}
       </select>
-      <button className="btn sm" disabled={!key} onClick={() => key && onOffer(key)}>Offer</button>
+      <button className="btn sm" disabled={!key || busy} onClick={() => key && onOffer(key)}>Offer</button>
     </div>
   );
 }
@@ -303,6 +319,7 @@ interface StartTradeProps {
 function StartTrade({ db, act, me, schedule, futureShiftsOf, slotLabel, slotKey, slotFromKey }: StartTradeProps) {
   const [shiftKey, setShiftKey] = useState('');
   const [mode, setMode] = useState('open');
+  const [busy, setBusy] = useState(false);
   const [targetUserId, setTargetUserId] = useState('');
   const [targetShiftKey, setTargetShiftKey] = useState('');
   // Feasible direct-swap partners for the chosen offered shift, from the
@@ -341,7 +358,7 @@ function StartTrade({ db, act, me, schedule, futureShiftsOf, slotLabel, slotKey,
     : false;
 
   const submit = async () => {
-    if (!shiftKey) return;
+    if (!shiftKey || busy) return;
     const offered = slotFromKey(shiftKey);
     if (mode === 'giveaway') {
       const costLine = needsDay
@@ -360,8 +377,13 @@ function StartTrade({ db, act, me, schedule, futureShiftsOf, slotLabel, slotKey,
       offered,
       ...(mode === 'direct' ? { toUserId: targetUserId, requested: slotFromKey(targetShiftKey) } : {}),
     };
-    const done = await act(() => api.createTrade(body));
-    if (done) { setShiftKey(''); setTargetUserId(''); setTargetShiftKey(''); }
+    setBusy(true);
+    try {
+      const done = await act(() => api.createTrade(body));
+      if (done) { setShiftKey(''); setTargetUserId(''); setTargetShiftKey(''); }
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -426,7 +448,7 @@ function StartTrade({ db, act, me, schedule, futureShiftsOf, slotLabel, slotKey,
           )}
           <button
             className="btn primary"
-            disabled={!shiftKey || (mode === 'direct' && (!targetUserId || !targetShiftKey)) || (mode === 'giveaway' && needsDay && available <= 0)}
+            disabled={busy || !shiftKey || (mode === 'direct' && (!targetUserId || !targetShiftKey)) || (mode === 'giveaway' && needsDay && available <= 0)}
             onClick={submit}
           >
             {mode === 'open' ? 'Post open swap' : mode === 'direct' ? 'Send proposal' : 'Give up shift'}

@@ -23,6 +23,10 @@ const SEED = JSON.parse(readFileSync(new URL('./seed.json', import.meta.url), 'u
 const oneOff = (id: string, name: string, date: string, workable: boolean) =>
   ({ id, name, workable, recurrence: { type: 'one-off', date } });
 
+// Local YYYY-MM-DD (never toISOString — UTC skew moves the date near midnight).
+const pad = (n: number) => String(n).padStart(2, '0');
+const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
 test.beforeEach(async ({ request }) => {
   const res = await request.post('/api/test/reset', { data: SEED });
   expect(res.ok()).toBeTruthy();
@@ -129,8 +133,12 @@ test('an Nth-weekday recurrence resolves to the right day on the calendar', asyn
   await page.locator('.tab', { hasText: 'Preferences' }).click();
   await expect(page.getByRole('heading', { name: /Theme/ })).toBeVisible();
   const next = page.locator('.cal-nav button', { hasText: '›' });
-  // Preferences opens on the current month (June 2026); step to November.
-  for (let i = 0; i < 5; i++) await next.click();
+  // Preferences opens on the current month; step forward until November 2026
+  // (date-independent — a fixed click count rots as the current month moves).
+  for (let i = 0; i < 24; i++) {
+    if ((await page.locator('.cal-nav h2').innerText()).includes('November 2026')) break;
+    await next.click();
+  }
   await expect(page.locator('.cal-nav h2')).toContainText('November 2026');
   const badge = page.locator('.chip-holiday', { hasText: 'Thanksgiving' });
   await expect(badge).toBeVisible();
@@ -148,6 +156,9 @@ test('org-wide "Holidays required per year" persists across reload', async ({ pa
   await req.fill('2');
   await req.blur();
   await expect(page.locator('.banner.error')).toHaveCount(0);
+  // Saves are queued client-side; wait for them to land before navigating
+  // (<body data-saving> is set while any write is pending).
+  await expect(page.locator('body[data-saving]')).toHaveCount(0);
 
   await page.reload();
   await page.locator('.tab', { hasText: 'Admin' }).click();
@@ -159,9 +170,13 @@ test('org-wide "Holidays required per year" persists across reload', async ({ pa
 });
 
 test('preferences calendar shows the holiday badge; non-workable shows (closed)', async ({ request, page }) => {
-  // Seed a non-workable holiday in the current month (June 2026).
+  // Seed a non-workable holiday in the current month (the preferences
+  // calendar opens on the current month; visibility only, so mid-month works
+  // whether it's past or future).
+  const mid = new Date();
+  mid.setDate(15);
   await request.post('/api/test/reset', {
-    data: { ...SEED, holidays: [oneOff('h-closed', 'Founders Day', '2026-06-22', false)] },
+    data: { ...SEED, holidays: [oneOff('h-closed', 'Founders Day', ymd(mid), false)] },
   });
 
   await gotoPrefs(page);
@@ -197,12 +212,18 @@ test('schedule calendar shows the holiday badge on the holiday day', async ({ re
 });
 
 test('a workable holiday can still be marked must-have-off on the preferences calendar', async ({ request, page }) => {
-  // Seed a workable holiday on a FUTURE day this month so it is clickable.
+  // Seed a workable holiday on a FUTURE day (a week out) so it is clickable;
+  // if that lands in next month, step the calendar forward once.
+  const future = new Date();
+  future.setDate(future.getDate() + 7);
   await request.post('/api/test/reset', {
-    data: { ...SEED, holidays: [oneOff('h-open', 'Bank Holiday', '2026-06-29', true)] },
+    data: { ...SEED, holidays: [oneOff('h-open', 'Bank Holiday', ymd(future), true)] },
   });
 
   await gotoPrefs(page);
+  if (future.getMonth() !== new Date().getMonth()) {
+    await page.locator('.cal-nav button', { hasText: '›' }).click();
+  }
   const badge = page.locator('.chip-holiday', { hasText: 'Bank Holiday' });
   await expect(badge).toBeVisible();
   await expect(badge).not.toContainText('(closed)');

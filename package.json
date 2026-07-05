@@ -9,11 +9,17 @@
     "build": "vite build",
     "start": "tsx server/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.server.json && tsc --noEmit -p tsconfig.client.json",
+    "db:up": "docker compose up -d --wait",
+    "db:down": "docker compose down",
+    "db:nuke": "docker compose down -v",
+    "db:import": "tsx scripts/import-json-to-mysql.ts",
     "test": "tsx server/scheduler.test.ts && tsx server/trades.test.ts && tsx server/blocks.test.ts && tsx shared/holidays.test.ts",
     "test:e2e": "node --loader tsx/esm ./node_modules/@playwright/test/cli.js test --config=playwright.config.cjs"
   },
   "dependencies": {
+    "dotenv": "^17.4.2",
     "express": "^4.19.2",
+    "mysql2": "^3.22.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

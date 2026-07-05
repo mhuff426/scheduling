@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api } from '../api';
 import { DOW, MONTHS, monthGrid, todayYmd, prettyDate } from '../dates';
 import { vacationSummary } from '../shiftMath';
+import { versionOf } from '../versions';
 import { holidayDatesInRange } from '../../../shared/holidays.js';
 import type { AppState, User, Holiday } from '../../../shared/types.js';
 import type { Act } from '../App';
@@ -61,13 +62,13 @@ export default function Preferences({ db, currentUser, act }: Props) {
         <div className="seg">
           <button
             className={(!currentUser.theme || currentUser.theme === 'light') ? 'active' : ''}
-            onClick={() => act(() => api.updateUser(currentUser.id, { theme: 'light' }))}
+            onClick={() => act(() => api.updateUser(currentUser.id, { theme: 'light', expectedVersion: versionOf('users', currentUser.id) }))}
           >
             ☀️ Light
           </button>
           <button
             className={currentUser.theme === 'dark' ? 'active' : ''}
-            onClick={() => act(() => api.updateUser(currentUser.id, { theme: 'dark' }))}
+            onClick={() => act(() => api.updateUser(currentUser.id, { theme: 'dark', expectedVersion: versionOf('users', currentUser.id) }))}
           >
             🌙 Dark
           </button>
@@ -87,7 +88,7 @@ export default function Preferences({ db, currentUser, act }: Props) {
             onBlur={(e) => {
               const v = e.target.value === '' ? null : Number(e.target.value);
               if (v !== (currentUser.maxConsecutiveNights ?? null))
-                act(() => api.updateUser(currentUser.id, { maxConsecutiveNights: v }));
+                act(() => api.updateUser(currentUser.id, { maxConsecutiveNights: v, expectedVersion: versionOf('users', currentUser.id) }));
             }}
           />
           <span className="muted small">a hard cap — you'll never be scheduled more overnight shifts back-to-back than this</span>
