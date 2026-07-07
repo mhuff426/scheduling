@@ -1,11 +1,19 @@
 import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 
 // Exercises the renamed "Preferences" screen (was "My Requests") against the
-// dev data file; a later phase restores it. No auth: the top bar
+// isolated, seeded database (reset before each test). No auth: the top bar
 // `.user-switch select` chooses the current user; tabs are `.tab` buttons.
 // The Preferences screen has Theme, Scheduling limits, the requested days-off
 // calendar, and a read-only away card. Theme is applied as a `data-theme`
 // attribute on <html> and persists per user.
+
+const SEED = JSON.parse(readFileSync(new URL('./seed.json', import.meta.url), 'utf8'));
+
+test.beforeEach(async ({ request }) => {
+  const res = await request.post('/api/test/reset', { data: SEED });
+  expect(res.ok()).toBeTruthy();
+});
 
 const prefsCard = (page, name: RegExp) =>
   page.locator('.card', { has: page.getByRole('heading', { name }) });

@@ -1,11 +1,10 @@
-// Populates data/data.json with demo data. Run: tsx server/seed.ts
+// Seeds the database with demo data. Run: tsx server/seed.ts
 // Overwrites any existing data — delete or skip if you have real data.
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(__dirname, '..', 'data');
+// Targets the database from the usual DB_* env vars (dev default ShiftlyDev0).
+import type { Db } from '../shared/types.js';
+import { getDbConfig } from './config.js';
+import { normalizeDb } from './db.js';
+import { createDbPool, ensureDatabase, ensureSchema, replaceAllCollections, waitForDb } from './mysql.js';
 
 const data = {
   users: [
@@ -29,8 +28,25 @@ const data = {
     { id: 't-5', userId: 'u-dev', date: '2026-06-26', type: 'preferred' },
   ],
   schedules: [],
-};
+} as unknown as Db;
 
-fs.mkdirSync(DATA_DIR, { recursive: true });
-fs.writeFileSync(path.join(DATA_DIR, 'data.json'), JSON.stringify(data, null, 2));
-console.log('Seeded demo data into data/data.json');
+async function main() {
+  const cfg = getDbConfig();
+  await ensureDatabase(cfg);
+  const pool = createDbPool(cfg);
+  try {
+    await waitForDb(pool, 3);
+    await ensureSchema(pool);
+    // normalizeDb fills the missing collections and migrates the legacy
+    // `role` field into role tags.
+    await replaceAllCollections(pool, normalizeDb(data));
+    console.log(`Seeded demo data into ${cfg.host}:${cfg.port}/${cfg.database}`);
+  } finally {
+    await pool.end();
+  }
+}
+
+main().catch((err) => {
+  console.error('Seed failed:', err);
+  process.exit(1);
+});

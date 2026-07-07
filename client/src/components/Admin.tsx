@@ -4,6 +4,7 @@ import { DOW, MONTHS, formatTime, todayYmd, prettyDate } from '../dates';
 import { UNITS, upcomingBlocks, isValidCadence } from '../../../shared/blocks.js';
 import RoleMultiSelect from './RoleMultiSelect';
 import { safeBg } from '../contrast';
+import { versionOf, settingsVersion } from '../versions';
 import type { AppState, ShiftType, User, HolidayRecurrence } from '../../../shared/types.js';
 import type { Act } from '../App';
 
@@ -67,7 +68,9 @@ function ShiftTypes({ db, act }: Props) {
   const submit = async (e: any) => {
     e.preventDefault();
     const ok = await act(() =>
-      editingId ? api.updateShiftType(editingId, form) : api.addShiftType(form)
+      editingId
+        ? api.updateShiftType(editingId, { ...form, expectedVersion: versionOf('shiftTypes', editingId) })
+        : api.addShiftType(form)
     );
     if (ok) cancelEdit();
   };
@@ -207,7 +210,7 @@ function Roster({ db, act }: Props) {
                   roles={db.roles}
                   selected={u.roles || []}
                   lockedIds={['role-employee']}
-                  onChange={(next) => { act(() => api.updateUser(u.id, { roles: next })); }}
+                  onChange={(next) => { act(() => api.updateUser(u.id, { roles: next, expectedVersion: versionOf('users', u.id) })); }}
                 />
               </td>
               <td>
@@ -216,7 +219,7 @@ function Roster({ db, act }: Props) {
                   type="number" min="0" defaultValue={u.vacationDays}
                   onBlur={(e) => {
                     const v = Number(e.target.value);
-                    if (v !== u.vacationDays) act(() => api.updateUser(u.id, { vacationDays: v }));
+                    if (v !== u.vacationDays) act(() => api.updateUser(u.id, { vacationDays: v, expectedVersion: versionOf('users', u.id) }));
                   }}
                 />
               </td>
@@ -229,7 +232,7 @@ function Roster({ db, act }: Props) {
                   onBlur={(e) => {
                     const v = e.target.value === '' ? null : Number(e.target.value);
                     if (v !== (u.requiredShifts ?? null))
-                      act(() => api.updateUser(u.id, { requiredShifts: v }));
+                      act(() => api.updateUser(u.id, { requiredShifts: v, expectedVersion: versionOf('users', u.id) }));
                   }}
                 />
               </td>
@@ -241,7 +244,7 @@ function Roster({ db, act }: Props) {
                   onBlur={(e) => {
                     const v = e.target.value === '' ? null : Number(e.target.value);
                     if (v !== (u.maxShiftsOverride ?? null))
-                      act(() => api.updateUser(u.id, { maxShiftsOverride: v }));
+                      act(() => api.updateUser(u.id, { maxShiftsOverride: v, expectedVersion: versionOf('users', u.id) }));
                   }}
                 />
               </td>
@@ -255,7 +258,7 @@ function Roster({ db, act }: Props) {
                   defaultValue={u.startDate ?? ''}
                   onBlur={(e) => {
                     const v = e.target.value || null;
-                    if (v !== (u.startDate ?? null)) act(() => api.updateUser(u.id, { startDate: v }));
+                    if (v !== (u.startDate ?? null)) act(() => api.updateUser(u.id, { startDate: v, expectedVersion: versionOf('users', u.id) }));
                   }}
                 />
               </td>
@@ -311,7 +314,7 @@ function Settings({ db, act }: Props) {
       setCadenceError('The schedule start date cannot be in the past.');
       return;
     }
-    await act(() => api.updateSettings({ cadence: payload }));
+    await act(() => api.updateSettings({ cadence: payload, expectedVersion: settingsVersion() }));
   };
 
   const cadenceSaveDisabled =
@@ -331,7 +334,7 @@ function Settings({ db, act }: Props) {
           onBlur={(e) => {
             const v = Number(e.target.value);
             if (v !== db.settings.maxVacationPerDay)
-              act(() => api.updateSettings({ maxVacationPerDay: v }));
+              act(() => api.updateSettings({ maxVacationPerDay: v, expectedVersion: settingsVersion() }));
           }}
         />
       </label>
@@ -346,7 +349,7 @@ function Settings({ db, act }: Props) {
           onBlur={(e) => {
             const v = Math.max(0, Number(e.target.value) || 0);
             if (v !== (db.settings.holidaysRequiredPerYear ?? 0))
-              act(() => api.updateSettings({ holidaysRequiredPerYear: v }));
+              act(() => api.updateSettings({ holidaysRequiredPerYear: v, expectedVersion: settingsVersion() }));
           }}
         />
       </label>
@@ -428,11 +431,11 @@ function AwayTimeManager({ db, act }: Props) {
               <tr key={a.id}>
                 <td>
                   <input className="inline-num" type="date" defaultValue={a.start}
-                    onBlur={(e) => { if (e.target.value && e.target.value !== a.start) act(() => api.updateAwayTime(a.id, { start: e.target.value })); }} />
+                    onBlur={(e) => { const v = e.target.value; if (v && v !== a.start) act(() => api.updateAwayTime(a.id, { start: v, expectedVersion: versionOf('awayTime', a.id) })); }} />
                 </td>
                 <td>
                   <input className="inline-num" type="date" defaultValue={a.end}
-                    onBlur={(e) => { if (e.target.value && e.target.value !== a.end) act(() => api.updateAwayTime(a.id, { end: e.target.value })); }} />
+                    onBlur={(e) => { const v = e.target.value; if (v && v !== a.end) act(() => api.updateAwayTime(a.id, { end: v, expectedVersion: versionOf('awayTime', a.id) })); }} />
                 </td>
                 <td className="row-actions">
                   <button className="btn danger ghost sm" title="Remove away time" onClick={() => act(() => api.deleteAwayTime(a.id))}>✕</button>
@@ -558,15 +561,15 @@ function HolidaysManager({ db, act }: Props) {
               <tr key={h.id}>
                 <td>
                   <input className="inline-num" type="text" defaultValue={h.name}
-                    onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== h.name) act(() => api.updateHoliday(h.id, { name: v })); }} />
+                    onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== h.name) act(() => api.updateHoliday(h.id, { name: v, expectedVersion: versionOf('holidays', h.id) })); }} />
                 </td>
                 <td>
                   <div className="muted small" style={{ marginBottom: 4 }}>{describeRecurrence(h.recurrence)}</div>
-                  <RecurrenceFields value={h.recurrence} onChange={(r) => act(() => api.updateHoliday(h.id, { recurrence: r }))} />
+                  <RecurrenceFields value={h.recurrence} onChange={(r) => act(() => api.updateHoliday(h.id, { recurrence: r, expectedVersion: versionOf('holidays', h.id) }))} />
                 </td>
                 <td>
                   <input type="checkbox" checked={h.workable}
-                    onChange={(e) => act(() => api.updateHoliday(h.id, { workable: e.target.checked }))} />
+                    onChange={(e) => { const workable = e.target.checked; act(() => api.updateHoliday(h.id, { workable, expectedVersion: versionOf('holidays', h.id) })); }} />
                 </td>
                 <td className="row-actions">
                   <button className="btn danger ghost sm" title="Remove holiday" onClick={() => act(() => api.deleteHoliday(h.id))}>✕</button>
@@ -619,7 +622,7 @@ function RolesManager({ db, act }: Props) {
                     defaultValue={r.name}
                     onBlur={(e) => {
                       const v = e.target.value.trim();
-                      if (v && v !== r.name) act(() => api.updateRole(r.id, { name: v }));
+                      if (v && v !== r.name) act(() => api.updateRole(r.id, { name: v, expectedVersion: versionOf('roles', r.id) }));
                     }}
                   />
                 )}

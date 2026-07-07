@@ -458,4 +458,31 @@ const notesFor = (db: Db, uid: string) => db.notifications.filter((n) => n.userI
   assert.strictEqual(ok2, null, `unrestricted shift should be allowed: ${ok2}`);
 }
 
+// ---- duplicate open trade for the same offered shift is rejected ----
+{
+  const db = mkDb(
+    [mkUser('a', 'Ann'), mkUser('b', 'Ben')],
+    [A('a', '2099-01-05', 'day'), A('b', '2099-01-10', 'day')]
+  );
+  const first = createTrade(db, {
+    scheduleId: 'sch1', fromUserId: 'a', type: 'open',
+    offered: { date: '2099-01-05', shiftTypeId: 'day' },
+  });
+  assert.ok(first.trade, 'first open trade created');
+  const dup = createTrade(db, {
+    scheduleId: 'sch1', fromUserId: 'a', type: 'open',
+    offered: { date: '2099-01-05', shiftTypeId: 'day' },
+  });
+  assert.strictEqual(dup.code, 409, 'duplicate open trade rejected with 409');
+  assert.ok(dup.error!.includes('already have an open trade'), dup.error);
+  // A different type for the same shift is still allowed (open swap vs giveaway
+  // are distinct offers), and cancelling frees the slot for a new trade.
+  cancelTrade(db, first.trade!.id, { userId: 'a' });
+  const again = createTrade(db, {
+    scheduleId: 'sch1', fromUserId: 'a', type: 'open',
+    offered: { date: '2099-01-05', shiftTypeId: 'day' },
+  });
+  assert.ok(again.trade, 'cancelled trade no longer blocks a new one');
+}
+
 console.log('All trade tests passed.');

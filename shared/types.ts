@@ -3,7 +3,10 @@
 // Kept deliberately loose where the runtime is loose (optional fields that older
 // data files may omit) — this mirrors the defensive `??`/`|| 0` reads in the code.
 
-export interface RoleTag { id: string; name: string; system?: boolean; }
+// `version` fields support optimistic concurrency: clients echo the version
+// they read as `expectedVersion` on updates; the server rejects (409) when it
+// no longer matches, and bumps it on every successful edit.
+export interface RoleTag { id: string; name: string; system?: boolean; version?: number; }
 export type Frequency = 'daily' | 'weekly';
 export type TimeOffType = 'vacation' | 'preferred';
 export type LengthUnit = 'days' | 'weeks' | 'months' | 'quarters' | 'years';
@@ -23,6 +26,7 @@ export interface User {
   maxConsecutiveNights?: number | null;
   startDate?: string | null;
   theme?: 'light' | 'dark';
+  version?: number;
 }
 
 export interface ShiftType {
@@ -37,6 +41,7 @@ export interface ShiftType {
   maxRun?: number | null;
   weight?: number | null; // null/absent = automatic; 0 = uncounted standby
   allowedRoles?: string[]; // role ids; empty/absent = anyone
+  version?: number;
 }
 
 export interface TimeOff {
@@ -51,6 +56,7 @@ export interface AwayTime {
   userId: string;
   start: string; // "YYYY-MM-DD" inclusive
   end: string;   // "YYYY-MM-DD" inclusive
+  version?: number;
 }
 
 // How a holiday recurs. `yearly` = same month/day every year; `nth-weekday` =
@@ -66,6 +72,7 @@ export interface Holiday {
   name: string;
   workable: boolean; // true = staffed & counts for fairness; false = closed (no shifts)
   recurrence: HolidayRecurrence;
+  version?: number;
 }
 
 export interface Cadence {
@@ -78,6 +85,7 @@ export interface Settings {
   maxVacationPerDay: number;
   cadence?: Cadence | null;
   holidaysRequiredPerYear?: number;
+  version?: number;
 }
 
 // A concrete shift occurrence (a slot, filled or not).
