@@ -1,0 +1,23 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: shiftly-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: shiftly
+      MYSQL_DATABASE: ShiftlyDev0
+    volumes:
+      - shiftly-mysql-data:/var/lib/mysql
+      - ./docker/mysql-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # TCP ping (-h 127.0.0.1): the entrypoint's temporary init server is
+      # socket-only, so this can't report healthy before the real server is up.
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-pshiftly"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+volumes:
+  shiftly-mysql-data:

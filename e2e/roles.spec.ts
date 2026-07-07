@@ -1,11 +1,19 @@
 import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 
-// Exercises the custom-employee-roles feature against the dev data file
-// (data/data.json); a later phase restores it. No auth: the first roster user
+// Exercises the custom-employee-roles feature against the isolated, seeded
+// database (reset before each test). No auth: the first roster user
 // is an admin. The Admin tab renders a "🏷️ Roles" card, a "👥 Roster" card
 // (each employee row has a roles multi-select combobox, class .ms), and a
 // "⏰ Shift Types" card whose create form has a matching combobox for "Roles
 // that can fill this shift". Unique names (Date.now) keep reruns independent.
+
+const SEED = JSON.parse(readFileSync(new URL('./seed.json', import.meta.url), 'utf8'));
+
+test.beforeEach(async ({ request }) => {
+  const res = await request.post('/api/test/reset', { data: SEED });
+  expect(res.ok()).toBeTruthy();
+});
 
 const rolesCard = (page) =>
   page.locator('.card', { has: page.getByRole('heading', { name: /Roles/ }) });

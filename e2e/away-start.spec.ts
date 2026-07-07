@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 
 // These tests exercise the employee Start date and Away time features against
-// the dev data file (data/data.json). A later phase restores the data file.
+// the ISOLATED, seeded database (reset to e2e/seed.json before each test).
 //
 // App context (no auth): the first roster user is an admin (seed "Admin").
 // The top bar has a .user-switch select; tabs are .tab buttons; server errors
@@ -12,6 +13,13 @@ import { test, expect } from '@playwright/test';
 // + a ✕ delete button per row), and an add form (From/To + "Add away time").
 // The employee "My Requests" tab is the Time-Off screen, which shows a read-only
 // "✈️ Scheduled away (set by your manager)" card.
+
+const SEED = JSON.parse(readFileSync(new URL('./seed.json', import.meta.url), 'utf8'));
+
+test.beforeEach(async ({ request }) => {
+  const res = await request.post('/api/test/reset', { data: SEED });
+  expect(res.ok()).toBeTruthy();
+});
 
 // ----- locators -----
 const rosterCard = (page) =>

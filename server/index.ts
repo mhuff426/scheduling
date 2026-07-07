@@ -3,7 +3,8 @@ import type { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { loadDb, saveDb, newId, vacationCountForDate, installDbForTests } from './db.js';
+import { initDb, readState, withMutation, newId, vacationCountForDate, resetDbForTests, DEFAULT_DATA } from './db.js';
+import type { CollectionKey } from './mysql.js';
 import {
   generateSchedule, summarizeSchedule, preferenceStandings,
   effectiveMaximums, weightOf,
@@ -16,20 +17,66 @@ import {
 import { buildIcs } from './ics.js';
 import { isValidCadence, blockRange, currentBlockIndex, todayYmd } from '../shared/blocks.js';
 import { isValidRecurrence } from '../shared/holidays.js';
-import type { Db, ShiftType, User } from '../shared/types.js';
+import type { AppState, Db, ShiftType, User } from '../shared/types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(express.json());
 
+// Validation failures inside withMutation() THROW one of these (rolls the
+// transaction back — they always happen before any mutation). Business
+// outcomes that must persist even on failure (trades) use return values.
+class HttpError extends Error {
+  constructor(public status: number, message: string, public code?: string) {
+    super(message);
+  }
+}
+
+// Express 4 doesn't catch rejected async handlers — every route goes through
+// this wrapper.
+const handle = (fn: (req: Request, res: Response) => Promise<unknown>) =>
+  (req: Request, res: Response) => {
+    fn(req, res).catch((e) => {
+      if (e instanceof HttpError) {
+        return res.status(e.status).json({ error: e.message, ...(e.code ? { code: e.code } : {}) });
+      }
+      const code = (e as { code?: string })?.code;
+      if (code === 'ER_LOCK_WAIT_TIMEOUT') {
+        return res.status(503).json({ error: 'The server is busy — please try again in a moment.' });
+      }
+      if (code === 'ECONNREFUSED' || code === 'PROTOCOL_CONNECTION_LOST' || code === 'ETIMEDOUT') {
+        return res.status(503).json({ error: 'The database is unreachable — please try again in a moment.' });
+      }
+      console.error(e);
+      res.status(500).json({ error: 'Unexpected server error.' });
+    });
+  };
+
+// Optimistic-concurrency check: clients echo the `version` they read as
+// `expectedVersion`; a mismatch means someone else changed the record since.
+// Absent expectedVersion skips the check (curl / legacy callers).
+function checkVersion(entity: { version?: number }, expected: unknown, what: string): void {
+  if (expected === undefined) return;
+  if (Number(expected) !== (entity.version ?? 1)) {
+    throw new HttpError(
+      409,
+      `${what} was changed by someone else — the view has been refreshed with the latest data. Please retry.`,
+      'version_conflict'
+    );
+  }
+}
+const bumpVersion = (entity: { version?: number }) => {
+  entity.version = (entity.version ?? 1) + 1;
+};
+
 // Test-only reset hook: e2e seeds a known DB state before each test so cases
 // never depend on ambient dev data. Gated behind E2E_TESTING so it never
 // exists in normal runs.
 if (process.env.E2E_TESTING === '1') {
-  app.post('/api/test/reset', (req: Request, res: Response) => {
-    installDbForTests(req.body as Db);
+  app.post('/api/test/reset', handle(async (req, res) => {
+    await resetDbForTests(req.body as Db);
     res.json({ ok: true });
-  });
+  }));
 }
 
 // Pastel assignment colors. Each pairs with near-black chip text at >= 7:1
@@ -43,134 +90,182 @@ const PALETTE = [
 const isDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s || '');
 const isTime = (s: string) => /^\d{2}:\d{2}$/.test(s || '');
 
-// ---- whole app state (small dataset; one fetch keeps the client simple) ----
-app.get('/api/state', (req, res) => {
-  const db = loadDb();
+// ---- whole app state (kept for debugging/tooling; the client fetches per tab) ----
+app.get('/api/state', handle(async (req, res) => {
+  const db = await readState();
   // Derived, never persisted or editable — shown only in the admin roster UI.
   res.json({ ...db, preferenceStandings: preferenceStandings(db) });
-});
+}));
+
+// ---- per-tab reads ----
+// Each tab fetches only the collections it renders. Cross-tab data (users,
+// notifications) deliberately has its OWN endpoints below — fetched alongside
+// every tab and easy to upgrade to an SSE stream later.
+const TAB_KEYS: Record<string, CollectionKey[]> = {
+  schedule: ['schedules', 'shiftTypes', 'holidays', 'trades', 'settings'],
+  preferences: ['timeOff', 'awayTime', 'holidays', 'settings', 'schedules'],
+  trades: ['schedules', 'trades', 'shiftTypes'],
+  admin: ['roles', 'shiftTypes', 'settings', 'timeOff', 'schedules', 'awayTime', 'holidays'],
+};
+
+// Responses keep the full AppState shape (components index collections
+// without guards) — unrequested keys are empty/default.
+function emptyState(): AppState {
+  return {
+    users: [], roles: [], shiftTypes: [], timeOff: [], schedules: [],
+    trades: [], notifications: [], awayTime: [], holidays: [],
+    settings: structuredClone(DEFAULT_DATA.settings),
+    meta: { rotationCursor: 0 },
+  };
+}
+
+app.get('/api/tabs/:tab', handle(async (req, res) => {
+  const keys = TAB_KEYS[req.params.tab];
+  if (!keys) throw new HttpError(404, 'Unknown tab.');
+  const db = await readState();
+  const out = emptyState();
+  for (const k of keys) (out as any)[k] = db[k];
+  if (req.params.tab === 'admin') out.preferenceStandings = preferenceStandings(db);
+  res.json(out);
+}));
+
+app.get('/api/users', handle(async (req, res) => {
+  const db = await readState();
+  res.json({ users: db.users });
+}));
+
+app.get('/api/notifications', handle(async (req, res) => {
+  const userId = req.query.userId as string;
+  if (!userId) throw new HttpError(400, 'userId is required.');
+  const db = await readState();
+  res.json({ notifications: db.notifications.filter((n) => n.userId === userId) });
+}));
 
 // ---- roster ----
-app.post('/api/users', (req, res) => {
-  const db = loadDb();
-  const { name, roles, vacationDays, startDate } = req.body;
-  if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required.' });
-  const valid = new Set(db.roles.map((r) => r.id));
-  const reqRoles = (Array.isArray(roles) ? roles : []).filter((id: string) => valid.has(id));
-  if (!reqRoles.includes('role-employee')) reqRoles.push('role-employee');
-  const user: User = {
-    id: newId('u'),
-    name: name.trim(),
-    roles: reqRoles,
-    vacationDays: Math.max(0, Number(vacationDays) || 0),
-    color: PALETTE[db.users.length % PALETTE.length],
-    startDate: isDate(startDate) ? startDate : null,
-  };
-  db.users.push(user);
-  saveDb();
+app.post('/api/users', handle(async (req, res) => {
+  const user = await withMutation((db) => {
+    const { name, roles, vacationDays, startDate } = req.body;
+    if (!name || !name.trim()) throw new HttpError(400, 'Name is required.');
+    const valid = new Set(db.roles.map((r) => r.id));
+    const reqRoles = (Array.isArray(roles) ? roles : []).filter((id: string) => valid.has(id));
+    if (!reqRoles.includes('role-employee')) reqRoles.push('role-employee');
+    const u: User = {
+      id: newId('u'),
+      name: name.trim(),
+      roles: reqRoles,
+      vacationDays: Math.max(0, Number(vacationDays) || 0),
+      color: PALETTE[db.users.length % PALETTE.length],
+      startDate: isDate(startDate) ? startDate : null,
+    };
+    db.users.push(u);
+    return u;
+  });
   res.json(user);
-});
+}));
 
 const isAdminUser = (u: User) => (u.roles || []).includes('role-admin');
 const isLastAdmin = (db: Db, user: User) =>
   isAdminUser(user) && db.users.filter(isAdminUser).length === 1;
 
-app.put('/api/users/:id', (req, res) => {
-  const db = loadDb();
-  const user = db.users.find((u) => u.id === req.params.id);
-  if (!user) return res.status(404).json({ error: 'User not found.' });
-  const { name, roles, vacationDays } = req.body;
-  if (name !== undefined) user.name = String(name).trim() || user.name;
-  if (roles !== undefined) {
-    const valid = new Set(db.roles.map((r) => r.id));
-    const next = (Array.isArray(roles) ? roles : []).filter((id: string) => valid.has(id));
-    if (!next.includes('role-employee')) next.push('role-employee'); // Employee always implied
-    // Can't strip the Admin tag (admin access) from the only admin.
-    if (isAdminUser(user) && !next.includes('role-admin') && isLastAdmin(db, user)) {
-      return res.status(400).json({
-        error: `${user.name} is the only admin. Make someone else an admin first.`,
-      });
+app.put('/api/users/:id', handle(async (req, res) => {
+  const user = await withMutation((db) => {
+    const user = db.users.find((u) => u.id === req.params.id);
+    if (!user) throw new HttpError(404, 'User not found.');
+    checkVersion(user, req.body.expectedVersion, `${user.name}'s profile`);
+    const { name, roles, vacationDays } = req.body;
+    if (name !== undefined) user.name = String(name).trim() || user.name;
+    if (roles !== undefined) {
+      const valid = new Set(db.roles.map((r) => r.id));
+      const next = (Array.isArray(roles) ? roles : []).filter((id: string) => valid.has(id));
+      if (!next.includes('role-employee')) next.push('role-employee'); // Employee always implied
+      // Can't strip the Admin tag (admin access) from the only admin.
+      if (isAdminUser(user) && !next.includes('role-admin') && isLastAdmin(db, user)) {
+        throw new HttpError(400, `${user.name} is the only admin. Make someone else an admin first.`);
+      }
+      user.roles = next;
     }
-    user.roles = next;
-  }
-  if (vacationDays !== undefined) user.vacationDays = Math.max(0, Number(vacationDays) || 0);
-  if (req.body.requiredShifts !== undefined) {
-    const r = req.body.requiredShifts;
-    user.requiredShifts = r === null || r === '' ? null : Math.max(0, Number(r) || 0);
-  }
-  if (req.body.maxConsecutiveNights !== undefined) {
-    const n = req.body.maxConsecutiveNights;
-    user.maxConsecutiveNights = n === null || n === '' ? null : Math.max(1, Number(n) || 1);
-  }
-  if (req.body.maxShiftsOverride !== undefined) {
-    const n = req.body.maxShiftsOverride;
-    user.maxShiftsOverride = n === null || n === '' ? null : Math.max(1, Number(n) || 1);
-  }
-  if (req.body.startDate !== undefined) {
-    const d = req.body.startDate;
-    user.startDate = d === null || d === '' ? null : (isDate(d) ? d : user.startDate);
-  }
-  if (req.body.color !== undefined && typeof req.body.color === 'string') user.color = req.body.color;
-  if (req.body.theme !== undefined) user.theme = req.body.theme === 'dark' ? 'dark' : 'light';
-  saveDb();
+    if (vacationDays !== undefined) user.vacationDays = Math.max(0, Number(vacationDays) || 0);
+    if (req.body.requiredShifts !== undefined) {
+      const r = req.body.requiredShifts;
+      user.requiredShifts = r === null || r === '' ? null : Math.max(0, Number(r) || 0);
+    }
+    if (req.body.maxConsecutiveNights !== undefined) {
+      const n = req.body.maxConsecutiveNights;
+      user.maxConsecutiveNights = n === null || n === '' ? null : Math.max(1, Number(n) || 1);
+    }
+    if (req.body.maxShiftsOverride !== undefined) {
+      const n = req.body.maxShiftsOverride;
+      user.maxShiftsOverride = n === null || n === '' ? null : Math.max(1, Number(n) || 1);
+    }
+    if (req.body.startDate !== undefined) {
+      const d = req.body.startDate;
+      user.startDate = d === null || d === '' ? null : (isDate(d) ? d : user.startDate);
+    }
+    if (req.body.color !== undefined && typeof req.body.color === 'string') user.color = req.body.color;
+    if (req.body.theme !== undefined) user.theme = req.body.theme === 'dark' ? 'dark' : 'light';
+    bumpVersion(user);
+    return user;
+  });
   res.json(user);
-});
+}));
 
-app.delete('/api/users/:id', (req, res) => {
-  const db = loadDb();
-  const idx = db.users.findIndex((u) => u.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'User not found.' });
-  if (isLastAdmin(db, db.users[idx])) {
-    return res.status(400).json({
-      error: `${db.users[idx].name} is the only admin and can't be removed. Make someone else an admin first.`,
-    });
-  }
-  db.users.splice(idx, 1);
-  db.timeOff = db.timeOff.filter((t) => t.userId !== req.params.id);
-  db.awayTime = db.awayTime.filter((a) => a.userId !== req.params.id);
-  saveDb();
+app.delete('/api/users/:id', handle(async (req, res) => {
+  await withMutation((db) => {
+    const idx = db.users.findIndex((u) => u.id === req.params.id);
+    if (idx === -1) throw new HttpError(404, 'User not found.');
+    if (isLastAdmin(db, db.users[idx])) {
+      throw new HttpError(400, `${db.users[idx].name} is the only admin and can't be removed. Make someone else an admin first.`);
+    }
+    db.users.splice(idx, 1);
+    db.timeOff = db.timeOff.filter((t) => t.userId !== req.params.id);
+    db.awayTime = db.awayTime.filter((a) => a.userId !== req.params.id);
+  });
   res.json({ ok: true });
-});
+}));
 
 // ---- employee roles (capability tags; Admin/Employee are system roles) ----
-app.post('/api/roles', (req, res) => {
-  const db = loadDb();
-  const name = String(req.body.name || '').trim();
-  if (!name) return res.status(400).json({ error: 'Role name is required.' });
-  if (db.roles.some((r) => r.name.toLowerCase() === name.toLowerCase()))
-    return res.status(400).json({ error: 'A role with that name already exists.' });
-  const role = { id: newId('role'), name };
-  db.roles.push(role);
-  saveDb();
+app.post('/api/roles', handle(async (req, res) => {
+  const role = await withMutation((db) => {
+    const name = String(req.body.name || '').trim();
+    if (!name) throw new HttpError(400, 'Role name is required.');
+    if (db.roles.some((r) => r.name.toLowerCase() === name.toLowerCase()))
+      throw new HttpError(400, 'A role with that name already exists.');
+    const role = { id: newId('role'), name };
+    db.roles.push(role);
+    return role;
+  });
   res.json(role);
-});
+}));
 
-app.put('/api/roles/:id', (req, res) => {
-  const db = loadDb();
-  const role = db.roles.find((r) => r.id === req.params.id);
-  if (!role) return res.status(404).json({ error: 'Role not found.' });
-  if (role.system) return res.status(400).json({ error: 'System roles cannot be renamed.' });
-  const name = String(req.body.name || '').trim();
-  if (!name) return res.status(400).json({ error: 'Role name is required.' });
-  if (db.roles.some((r) => r.id !== role.id && r.name.toLowerCase() === name.toLowerCase()))
-    return res.status(400).json({ error: 'A role with that name already exists.' });
-  role.name = name;
-  saveDb();
+app.put('/api/roles/:id', handle(async (req, res) => {
+  const role = await withMutation((db) => {
+    const role = db.roles.find((r) => r.id === req.params.id);
+    if (!role) throw new HttpError(404, 'Role not found.');
+    if (role.system) throw new HttpError(400, 'System roles cannot be renamed.');
+    checkVersion(role, req.body.expectedVersion, `The role "${role.name}"`);
+    const name = String(req.body.name || '').trim();
+    if (!name) throw new HttpError(400, 'Role name is required.');
+    if (db.roles.some((r) => r.id !== role.id && r.name.toLowerCase() === name.toLowerCase()))
+      throw new HttpError(400, 'A role with that name already exists.');
+    role.name = name;
+    bumpVersion(role);
+    return role;
+  });
   res.json(role);
-});
+}));
 
-app.delete('/api/roles/:id', (req, res) => {
-  const db = loadDb();
-  const role = db.roles.find((r) => r.id === req.params.id);
-  if (!role) return res.status(404).json({ error: 'Role not found.' });
-  if (role.system) return res.status(400).json({ error: 'System roles cannot be deleted.' });
-  // Cascade: drop the role id from every user and every shift type.
-  for (const u of db.users) u.roles = (u.roles || []).filter((r) => r !== role.id);
-  for (const st of db.shiftTypes) st.allowedRoles = (st.allowedRoles || []).filter((r) => r !== role.id);
-  db.roles = db.roles.filter((r) => r.id !== role.id);
-  saveDb();
+app.delete('/api/roles/:id', handle(async (req, res) => {
+  await withMutation((db) => {
+    const role = db.roles.find((r) => r.id === req.params.id);
+    if (!role) throw new HttpError(404, 'Role not found.');
+    if (role.system) throw new HttpError(400, 'System roles cannot be deleted.');
+    // Cascade: drop the role id from every user and every shift type.
+    for (const u of db.users) u.roles = (u.roles || []).filter((r) => r !== role.id);
+    for (const st of db.shiftTypes) st.allowedRoles = (st.allowedRoles || []).filter((r) => r !== role.id);
+    db.roles = db.roles.filter((r) => r.id !== role.id);
+  });
   res.json({ ok: true });
-});
+}));
 
 // ---- shift types ----
 // Validate and normalize the shift-type fields shared by create and edit.
@@ -207,408 +302,417 @@ function parseShiftType(body: any): { error: string; fields?: undefined } | { er
   };
 }
 
-app.post('/api/shift-types', (req, res) => {
-  const db = loadDb();
-  const { error, fields } = parseShiftType(req.body);
-  if (error) return res.status(400).json({ error });
-  const st: ShiftType = { id: newId('s'), ...fields! };
-  db.shiftTypes.push(st);
-  saveDb();
+app.post('/api/shift-types', handle(async (req, res) => {
+  const st = await withMutation((db) => {
+    const { error, fields } = parseShiftType(req.body);
+    if (error) throw new HttpError(400, error);
+    const st: ShiftType = { id: newId('s'), ...fields! };
+    db.shiftTypes.push(st);
+    return st;
+  });
   res.json(st);
-});
+}));
 
-app.put('/api/shift-types/:id', (req, res) => {
-  const db = loadDb();
-  const st = db.shiftTypes.find((s) => s.id === req.params.id);
-  if (!st) return res.status(404).json({ error: 'Shift type not found.' });
-  const { error, fields } = parseShiftType(req.body);
-  if (error) return res.status(400).json({ error });
-  // Mutate in place so existing schedules keep referencing the same id.
-  Object.assign(st, fields!);
-  saveDb();
+app.put('/api/shift-types/:id', handle(async (req, res) => {
+  const st = await withMutation((db) => {
+    const st = db.shiftTypes.find((s) => s.id === req.params.id);
+    if (!st) throw new HttpError(404, 'Shift type not found.');
+    checkVersion(st, req.body.expectedVersion, `The shift type "${st.name}"`);
+    const { error, fields } = parseShiftType(req.body);
+    if (error) throw new HttpError(400, error);
+    // Mutate in place so existing schedules keep referencing the same id.
+    Object.assign(st, fields!);
+    bumpVersion(st);
+    return st;
+  });
   res.json(st);
-});
+}));
 
-app.delete('/api/shift-types/:id', (req, res) => {
-  const db = loadDb();
-  const idx = db.shiftTypes.findIndex((s) => s.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Shift type not found.' });
-  db.shiftTypes.splice(idx, 1);
-  saveDb();
+app.delete('/api/shift-types/:id', handle(async (req, res) => {
+  await withMutation((db) => {
+    const idx = db.shiftTypes.findIndex((s) => s.id === req.params.id);
+    if (idx === -1) throw new HttpError(404, 'Shift type not found.');
+    db.shiftTypes.splice(idx, 1);
+  });
   res.json({ ok: true });
-});
+}));
 
 // ---- settings ----
-app.put('/api/settings', (req, res) => {
-  const db = loadDb();
-  const { maxVacationPerDay } = req.body;
-  if (maxVacationPerDay !== undefined)
-    db.settings.maxVacationPerDay = Math.max(1, Number(maxVacationPerDay) || 1);
-  if (req.body.holidaysRequiredPerYear !== undefined)
-    db.settings.holidaysRequiredPerYear = Math.max(0, Number(req.body.holidaysRequiredPerYear) || 0);
-  if (req.body.cadence !== undefined) {
-    const c = req.body.cadence;
-    if (!isValidCadence(c))
-      return res.status(400).json({ error: 'Invalid cadence: need an anchor date, a positive whole number, and a unit.' });
-    const existing = db.settings.cadence;
-    const changed = !existing
-      || existing.anchorDate !== c.anchorDate
-      || existing.lengthUnit !== c.lengthUnit
-      || existing.lengthValue !== c.lengthValue;
-    // Changing an existing cadence requires a strictly-future anchor; the very
-    // first setup may start today or later.
-    if (changed && existing && c.anchorDate <= todayYmd())
-      return res.status(400).json({ error: 'A new schedule start date must be in the future.' });
-    if (changed && !existing && c.anchorDate < todayYmd())
-      return res.status(400).json({ error: 'The schedule start date cannot be in the past.' });
-    db.settings.cadence = { anchorDate: c.anchorDate, lengthUnit: c.lengthUnit, lengthValue: c.lengthValue };
-  }
-  saveDb();
-  res.json(db.settings);
-});
+app.put('/api/settings', handle(async (req, res) => {
+  const settings = await withMutation((db) => {
+    checkVersion(db.settings, req.body.expectedVersion, 'Settings');
+    const { maxVacationPerDay } = req.body;
+    if (maxVacationPerDay !== undefined)
+      db.settings.maxVacationPerDay = Math.max(1, Number(maxVacationPerDay) || 1);
+    if (req.body.holidaysRequiredPerYear !== undefined)
+      db.settings.holidaysRequiredPerYear = Math.max(0, Number(req.body.holidaysRequiredPerYear) || 0);
+    if (req.body.cadence !== undefined) {
+      const c = req.body.cadence;
+      if (!isValidCadence(c))
+        throw new HttpError(400, 'Invalid cadence: need an anchor date, a positive whole number, and a unit.');
+      const existing = db.settings.cadence;
+      const changed = !existing
+        || existing.anchorDate !== c.anchorDate
+        || existing.lengthUnit !== c.lengthUnit
+        || existing.lengthValue !== c.lengthValue;
+      // Changing an existing cadence requires a strictly-future anchor; the very
+      // first setup may start today or later.
+      if (changed && existing && c.anchorDate <= todayYmd())
+        throw new HttpError(400, 'A new schedule start date must be in the future.');
+      if (changed && !existing && c.anchorDate < todayYmd())
+        throw new HttpError(400, 'The schedule start date cannot be in the past.');
+      db.settings.cadence = { anchorDate: c.anchorDate, lengthUnit: c.lengthUnit, lengthValue: c.lengthValue };
+    }
+    bumpVersion(db.settings);
+    return db.settings;
+  });
+  res.json(settings);
+}));
 
 // ---- time off requests ----
-app.post('/api/timeoff', (req, res) => {
-  const db = loadDb();
-  const { userId, date, type } = req.body;
-  const user = db.users.find((u) => u.id === userId);
-  if (!user) return res.status(404).json({ error: 'User not found.' });
-  if (!isDate(date)) return res.status(400).json({ error: 'Invalid date.' });
-  if (type !== 'vacation' && type !== 'preferred')
-    return res.status(400).json({ error: 'Type must be vacation or preferred.' });
+app.post('/api/timeoff', handle(async (req, res) => {
+  const entry = await withMutation((db) => {
+    const { userId, date, type } = req.body;
+    const user = db.users.find((u) => u.id === userId);
+    if (!user) throw new HttpError(404, 'User not found.');
+    if (!isDate(date)) throw new HttpError(400, 'Invalid date.');
+    if (type !== 'vacation' && type !== 'preferred')
+      throw new HttpError(400, 'Type must be vacation or preferred.');
 
-  const existing = db.timeOff.find((t) => t.userId === userId && t.date === date);
-  if (existing)
-    return res.status(409).json({ error: 'You already have a request on that day. Remove it first.' });
+    const existing = db.timeOff.find((t) => t.userId === userId && t.date === date);
+    if (existing)
+      throw new HttpError(409, 'You already have a request on that day. Remove it first.');
 
-  // Must-have-off requests are free at request time — vacation is only
-  // charged after a schedule is generated, if the days kept the person under
-  // their required shifts. The per-day cap still protects coverage.
-  if (type === 'vacation') {
-    const dayCount = vacationCountForDate(db, date);
-    if (dayCount >= db.settings.maxVacationPerDay) {
-      return res.status(400).json({
-        error: `That day is full: ${dayCount} people already have it off (max ${db.settings.maxVacationPerDay}).`,
-      });
+    // Must-have-off requests are free at request time — vacation is only
+    // charged after a schedule is generated, if the days kept the person under
+    // their required shifts. The per-day cap still protects coverage. Both
+    // checks run against fresh state under the write lock, so concurrent
+    // requests can't slip past them.
+    if (type === 'vacation') {
+      const dayCount = vacationCountForDate(db, date);
+      if (dayCount >= db.settings.maxVacationPerDay) {
+        throw new HttpError(400, `That day is full: ${dayCount} people already have it off (max ${db.settings.maxVacationPerDay}).`);
+      }
     }
-  }
 
-  const entry = { id: newId('t'), userId, date, type };
-  db.timeOff.push(entry);
-  saveDb();
+    const e = { id: newId('t'), userId, date, type };
+    db.timeOff.push(e);
+    return e;
+  });
   res.json(entry);
-});
+}));
 
-app.delete('/api/timeoff/:id', (req, res) => {
-  const db = loadDb();
-  const idx = db.timeOff.findIndex((t) => t.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Request not found.' });
-  db.timeOff.splice(idx, 1);
-  saveDb();
+app.delete('/api/timeoff/:id', handle(async (req, res) => {
+  await withMutation((db) => {
+    const idx = db.timeOff.findIndex((t) => t.id === req.params.id);
+    if (idx === -1) throw new HttpError(404, 'Request not found.');
+    db.timeOff.splice(idx, 1);
+  });
   res.json({ ok: true });
-});
+}));
 
 // ---- away time (admin-managed; never counts against vacation) ----
-app.post('/api/awaytime', (req, res) => {
-  const db = loadDb();
-  const { userId, start, end } = req.body;
-  const user = db.users.find((u) => u.id === userId);
-  if (!user) return res.status(404).json({ error: 'User not found.' });
-  if (!isDate(start) || !isDate(end)) return res.status(400).json({ error: 'Away time needs a valid start and end date.' });
-  if (end < start) return res.status(400).json({ error: 'The away end date must be on or after the start date.' });
-  const entry = { id: newId('aw'), userId, start, end };
-  db.awayTime.push(entry);
-  saveDb();
+app.post('/api/awaytime', handle(async (req, res) => {
+  const entry = await withMutation((db) => {
+    const { userId, start, end } = req.body;
+    const user = db.users.find((u) => u.id === userId);
+    if (!user) throw new HttpError(404, 'User not found.');
+    if (!isDate(start) || !isDate(end)) throw new HttpError(400, 'Away time needs a valid start and end date.');
+    if (end < start) throw new HttpError(400, 'The away end date must be on or after the start date.');
+    const e = { id: newId('aw'), userId, start, end };
+    db.awayTime.push(e);
+    return e;
+  });
   res.json(entry);
-});
+}));
 
-app.put('/api/awaytime/:id', (req, res) => {
-  const db = loadDb();
-  const entry = db.awayTime.find((a) => a.id === req.params.id);
-  if (!entry) return res.status(404).json({ error: 'Away time not found.' });
-  const newStart = req.body.start !== undefined ? req.body.start : entry.start;
-  const newEnd = req.body.end !== undefined ? req.body.end : entry.end;
-  if (!isDate(newStart) || !isDate(newEnd)) return res.status(400).json({ error: 'Away time needs a valid start and end date.' });
-  if (newEnd < newStart) return res.status(400).json({ error: 'The away end date must be on or after the start date.' });
-  entry.start = newStart;
-  entry.end = newEnd;
-  saveDb();
+app.put('/api/awaytime/:id', handle(async (req, res) => {
+  const entry = await withMutation((db) => {
+    const entry = db.awayTime.find((a) => a.id === req.params.id);
+    if (!entry) throw new HttpError(404, 'Away time not found.');
+    checkVersion(entry, req.body.expectedVersion, 'This away-time range');
+    const newStart = req.body.start !== undefined ? req.body.start : entry.start;
+    const newEnd = req.body.end !== undefined ? req.body.end : entry.end;
+    if (!isDate(newStart) || !isDate(newEnd)) throw new HttpError(400, 'Away time needs a valid start and end date.');
+    if (newEnd < newStart) throw new HttpError(400, 'The away end date must be on or after the start date.');
+    entry.start = newStart;
+    entry.end = newEnd;
+    bumpVersion(entry);
+    return entry;
+  });
   res.json(entry);
-});
+}));
 
-app.delete('/api/awaytime/:id', (req, res) => {
-  const db = loadDb();
-  const idx = db.awayTime.findIndex((a) => a.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Away time not found.' });
-  db.awayTime.splice(idx, 1);
-  saveDb();
+app.delete('/api/awaytime/:id', handle(async (req, res) => {
+  await withMutation((db) => {
+    const idx = db.awayTime.findIndex((a) => a.id === req.params.id);
+    if (idx === -1) throw new HttpError(404, 'Away time not found.');
+    db.awayTime.splice(idx, 1);
+  });
   res.json({ ok: true });
-});
+}));
 
 // ---- holidays ----
-app.post('/api/holidays', (req, res) => {
-  const db = loadDb();
-  const { name, recurrence } = req.body;
-  if (!name || typeof name !== 'string') return res.status(400).json({ error: 'A holiday needs a name.' });
-  if (!isValidRecurrence(recurrence)) return res.status(400).json({ error: 'A holiday needs a valid recurrence.' });
-  const entry = { id: newId('hol'), name: name.trim(), workable: !!req.body.workable, recurrence };
-  db.holidays.push(entry);
-  saveDb();
+app.post('/api/holidays', handle(async (req, res) => {
+  const entry = await withMutation((db) => {
+    const { name, recurrence } = req.body;
+    if (!name || typeof name !== 'string') throw new HttpError(400, 'A holiday needs a name.');
+    if (!isValidRecurrence(recurrence)) throw new HttpError(400, 'A holiday needs a valid recurrence.');
+    const e = { id: newId('hol'), name: name.trim(), workable: !!req.body.workable, recurrence };
+    db.holidays.push(e);
+    return e;
+  });
   res.json(entry);
-});
+}));
 
-app.put('/api/holidays/:id', (req, res) => {
-  const db = loadDb();
-  const entry = db.holidays.find((h) => h.id === req.params.id);
-  if (!entry) return res.status(404).json({ error: 'Holiday not found.' });
-  if (req.body.name !== undefined) {
-    if (!req.body.name || typeof req.body.name !== 'string') return res.status(400).json({ error: 'A holiday needs a name.' });
-    entry.name = req.body.name.trim();
-  }
-  if (req.body.recurrence !== undefined) {
-    if (!isValidRecurrence(req.body.recurrence)) return res.status(400).json({ error: 'A holiday needs a valid recurrence.' });
-    entry.recurrence = req.body.recurrence;
-  }
-  if (req.body.workable !== undefined) entry.workable = !!req.body.workable;
-  saveDb();
+app.put('/api/holidays/:id', handle(async (req, res) => {
+  const entry = await withMutation((db) => {
+    const entry = db.holidays.find((h) => h.id === req.params.id);
+    if (!entry) throw new HttpError(404, 'Holiday not found.');
+    checkVersion(entry, req.body.expectedVersion, `The holiday "${entry.name}"`);
+    if (req.body.name !== undefined) {
+      if (!req.body.name || typeof req.body.name !== 'string') throw new HttpError(400, 'A holiday needs a name.');
+      entry.name = req.body.name.trim();
+    }
+    if (req.body.recurrence !== undefined) {
+      if (!isValidRecurrence(req.body.recurrence)) throw new HttpError(400, 'A holiday needs a valid recurrence.');
+      entry.recurrence = req.body.recurrence;
+    }
+    if (req.body.workable !== undefined) entry.workable = !!req.body.workable;
+    bumpVersion(entry);
+    return entry;
+  });
   res.json(entry);
-});
+}));
 
-app.delete('/api/holidays/:id', (req, res) => {
-  const db = loadDb();
-  const idx = db.holidays.findIndex((h) => h.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Holiday not found.' });
-  db.holidays.splice(idx, 1);
-  saveDb();
+app.delete('/api/holidays/:id', handle(async (req, res) => {
+  await withMutation((db) => {
+    const idx = db.holidays.findIndex((h) => h.id === req.params.id);
+    if (idx === -1) throw new HttpError(404, 'Holiday not found.');
+    db.holidays.splice(idx, 1);
+  });
   res.json({ ok: true });
-});
+}));
 
 // ---- schedules ----
-app.post('/api/schedules', (req, res) => {
-  const db = loadDb();
-  const cadence = db.settings.cadence;
-  if (!cadence) return res.status(400).json({ error: 'Configure a schedule cadence in Settings first.' });
-  if (db.shiftTypes.length === 0)
-    return res.status(400).json({ error: 'Configure at least one shift type first.' });
-  if (db.users.length === 0)
-    return res.status(400).json({ error: 'Add employees to the roster first.' });
-  const blockIndex = Number(req.body.blockIndex);
-  if (!Number.isInteger(blockIndex) || blockIndex < 0)
-    return res.status(400).json({ error: 'Pick a schedule block.' });
-  // Only the offered window (current block + next 4) may be generated.
-  const firstBlock = currentBlockIndex(cadence, todayYmd());
-  if (blockIndex < firstBlock || blockIndex > firstBlock + 4)
-    return res.status(400).json({ error: 'That block is outside the selectable window.' });
-  const { startDate, endDate } = blockRange(cadence, blockIndex);
-  if (db.schedules.some((s) => s.startDate === startDate))
-    return res.status(400).json({ error: 'A schedule for this block already exists — delete it first to regenerate.' });
+app.post('/api/schedules', handle(async (req, res) => {
+  const schedule = await withMutation((db) => {
+    const cadence = db.settings.cadence;
+    if (!cadence) throw new HttpError(400, 'Configure a schedule cadence in Settings first.');
+    if (db.shiftTypes.length === 0)
+      throw new HttpError(400, 'Configure at least one shift type first.');
+    if (db.users.length === 0)
+      throw new HttpError(400, 'Add employees to the roster first.');
+    const blockIndex = Number(req.body.blockIndex);
+    if (!Number.isInteger(blockIndex) || blockIndex < 0)
+      throw new HttpError(400, 'Pick a schedule block.');
+    // Only the offered window (current block + next 4) may be generated.
+    const firstBlock = currentBlockIndex(cadence, todayYmd());
+    if (blockIndex < firstBlock || blockIndex > firstBlock + 4)
+      throw new HttpError(400, 'That block is outside the selectable window.');
+    const { startDate, endDate } = blockRange(cadence, blockIndex);
+    // Fresh-state check under the lock (plus a UNIQUE(start_date) backstop in
+    // the schema) — two admins generating the same block can't both win.
+    if (db.schedules.some((s) => s.startDate === startDate))
+      throw new HttpError(400, 'A schedule for this block already exists — delete it first to regenerate.');
 
-  const requested = Array.isArray(req.body.userIds) ? req.body.userIds : null;
-  const userIds = (requested || db.users.map((u) => u.id)).filter((id: string) =>
-    db.users.some((u) => u.id === id)
-  );
-  if (userIds.length === 0)
-    return res.status(400).json({ error: 'Include at least one person in the block.' });
-  const { nextRotationCursor, ...result } = generateSchedule(db, {
-    startDate,
-    endDate,
-    userIds,
+    const requested = Array.isArray(req.body.userIds) ? req.body.userIds : null;
+    const userIds = (requested || db.users.map((u) => u.id)).filter((id: string) =>
+      db.users.some((u) => u.id === id)
+    );
+    if (userIds.length === 0)
+      throw new HttpError(400, 'Include at least one person in the block.');
+    const { nextRotationCursor, ...result } = generateSchedule(db, {
+      startDate,
+      endDate,
+      userIds,
+    });
+    const schedule = {
+      id: newId('sch'),
+      startDate,
+      endDate,
+      userIds,
+      createdAt: new Date().toISOString(),
+      extraElections: {},
+      ...result,
+    };
+    db.schedules.push(schedule);
+    db.meta.rotationCursor = nextRotationCursor;
+    return schedule;
   });
-  const schedule = {
-    id: newId('sch'),
-    startDate,
-    endDate,
-    userIds,
-    createdAt: new Date().toISOString(),
-    extraElections: {},
-    ...result,
-  };
-  db.schedules.push(schedule);
-  db.meta.rotationCursor = nextRotationCursor;
-  saveDb();
   res.json(schedule);
-});
+}));
 
 // Manual assignment editing: fill an open slot, hand a shift to someone else,
 // or unassign a shift back to open. Hard rules (vacation, one shift per day,
 // 8h rest) still apply to the receiving employee.
-app.post('/api/schedules/:id/reassign', (req, res) => {
-  const db = loadDb();
-  const schedule = db.schedules.find((s) => s.id === req.params.id);
-  if (!schedule) return res.status(404).json({ error: 'Schedule not found.' });
-  const { date, shiftTypeId, fromUserId, toUserId } = req.body;
-  const st = db.shiftTypes.find((s) => s.id === shiftTypeId);
-  if (!st) return res.status(400).json({ error: 'Shift type no longer exists.' });
+app.post('/api/schedules/:id/reassign', handle(async (req, res) => {
+  const schedule = await withMutation((db) => {
+    const schedule = db.schedules.find((s) => s.id === req.params.id);
+    if (!schedule) throw new HttpError(404, 'Schedule not found.');
+    const { date, shiftTypeId, fromUserId, toUserId } = req.body;
+    const st = db.shiftTypes.find((s) => s.id === shiftTypeId);
+    if (!st) throw new HttpError(400, 'Shift type no longer exists.');
 
-  if (toUserId) {
-    const to = db.users.find((u) => u.id === toUserId);
-    if (!to) return res.status(404).json({ error: 'Employee not found.' });
-    const moving = fromUserId
-      ? schedule.assignments.find(
-          (a) => a.date === date && a.shiftTypeId === shiftTypeId && a.userId === fromUserId
-        )
-      : null;
-    // Safety rules (vacation, one-shift-per-day, rest, night cap) are shared
-    // with shift trading; admin reassignment additionally enforces the cap.
-    const err = canTakeShift(db, schedule, { date, shiftTypeId }, to, moving ? [moving] : []);
-    if (err) return res.status(400).json({ error: err });
-    // Weight-0 (standby) shifts don't count toward the shift maximum.
-    const shiftById = Object.fromEntries(db.shiftTypes.map((s) => [s.id, s]));
-    const maxAllowed = effectiveMaximums(db).get(to.id) ?? Infinity;
-    const countingHeld = schedule.assignments.filter(
-      (a) =>
-        a.userId === toUserId && a !== moving && weightOf(shiftById[a.shiftTypeId]) > 0
-    ).length;
-    if (weightOf(st) > 0 && countingHeld + 1 > maxAllowed)
-      return res.status(400).json({
-        error: `${to.name} is already at their maximum of ${maxAllowed} shifts for this schedule.`,
-      });
-  }
-
-  if (!fromUserId) {
-    // Fill an open slot.
-    if (!toUserId) return res.status(400).json({ error: 'Pick an employee for the open shift.' });
-    const idx = schedule.unfilled.findIndex(
-      (s) => s.date === date && s.shiftTypeId === shiftTypeId
-    );
-    if (idx === -1) return res.status(404).json({ error: 'Open shift not found.' });
-    schedule.unfilled.splice(idx, 1);
-    schedule.assignments.push({ date, shiftTypeId, userId: toUserId });
-  } else {
-    const a = schedule.assignments.find(
-      (x) => x.date === date && x.shiftTypeId === shiftTypeId && x.userId === fromUserId
-    );
-    if (!a) return res.status(404).json({ error: 'Assignment not found.' });
     if (toUserId) {
-      a.userId = toUserId;
-    } else {
-      schedule.assignments.splice(schedule.assignments.indexOf(a), 1);
-      schedule.unfilled.push({ date, shiftTypeId });
+      const to = db.users.find((u) => u.id === toUserId);
+      if (!to) throw new HttpError(404, 'Employee not found.');
+      const moving = fromUserId
+        ? schedule.assignments.find(
+            (a) => a.date === date && a.shiftTypeId === shiftTypeId && a.userId === fromUserId
+          )
+        : null;
+      // Safety rules (vacation, one-shift-per-day, rest, night cap) are shared
+      // with shift trading; admin reassignment additionally enforces the cap.
+      const err = canTakeShift(db, schedule, { date, shiftTypeId }, to, moving ? [moving] : []);
+      if (err) throw new HttpError(400, err);
+      // Weight-0 (standby) shifts don't count toward the shift maximum.
+      const shiftById = Object.fromEntries(db.shiftTypes.map((s) => [s.id, s]));
+      const maxAllowed = effectiveMaximums(db).get(to.id) ?? Infinity;
+      const countingHeld = schedule.assignments.filter(
+        (a) =>
+          a.userId === toUserId && a !== moving && weightOf(shiftById[a.shiftTypeId]) > 0
+      ).length;
+      if (weightOf(st) > 0 && countingHeld + 1 > maxAllowed)
+        throw new HttpError(400, `${to.name} is already at their maximum of ${maxAllowed} shifts for this schedule.`);
     }
-  }
 
-  const { counts, warnings } = summarizeSchedule(db, schedule);
-  schedule.counts = counts;
-  schedule.warnings = warnings;
-  saveDb();
+    if (!fromUserId) {
+      // Fill an open slot.
+      if (!toUserId) throw new HttpError(400, 'Pick an employee for the open shift.');
+      const idx = schedule.unfilled.findIndex(
+        (s) => s.date === date && s.shiftTypeId === shiftTypeId
+      );
+      if (idx === -1) throw new HttpError(404, 'Open shift not found.');
+      schedule.unfilled.splice(idx, 1);
+      schedule.assignments.push({ date, shiftTypeId, userId: toUserId });
+    } else {
+      const a = schedule.assignments.find(
+        (x) => x.date === date && x.shiftTypeId === shiftTypeId && x.userId === fromUserId
+      );
+      if (!a) throw new HttpError(404, 'Assignment not found.');
+      if (toUserId) {
+        a.userId = toUserId;
+      } else {
+        schedule.assignments.splice(schedule.assignments.indexOf(a), 1);
+        schedule.unfilled.push({ date, shiftTypeId });
+      }
+    }
+
+    const { counts, warnings } = summarizeSchedule(db, schedule);
+    schedule.counts = counts;
+    schedule.warnings = warnings;
+    return schedule;
+  });
   res.json(schedule);
-});
+}));
 
-app.delete('/api/schedules/:id', (req, res) => {
-  const db = loadDb();
-  const idx = db.schedules.findIndex((s) => s.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Schedule not found.' });
-  db.schedules.splice(idx, 1);
-  saveDb();
+app.delete('/api/schedules/:id', handle(async (req, res) => {
+  await withMutation((db) => {
+    const idx = db.schedules.findIndex((s) => s.id === req.params.id);
+    if (idx === -1) throw new HttpError(404, 'Schedule not found.');
+    db.schedules.splice(idx, 1);
+  });
   res.json({ ok: true });
-});
+}));
 
 // ---- shift trading ----
-// Trade functions mutate the loadDb() cache; persist here regardless of
-// outcome (some failures, like expiry, legitimately change state).
-const tradeResult = (res: Response, r: any) => {
-  saveDb();
-  return r.error ? res.status(r.code || 400).json({ error: r.error }) : res.json(r.trade);
-};
+// Trade functions mutate the db and return { trade } or { error, code }.
+// withMutation persists whatever changed even when the outcome is an error —
+// some failures (like expiring a stale trade) legitimately change state.
+const sendTradeResult = (res: Response, r: any) =>
+  r.error
+    ? res.status(r.code || 400).json({ error: r.error, ...(r.code === 409 ? { code: 'conflict' } : {}) })
+    : res.json(r.trade);
 
-app.post('/api/trades', (req, res) => tradeResult(res, createTrade(loadDb(), req.body)));
+app.post('/api/trades', handle(async (req, res) =>
+  sendTradeResult(res, await withMutation((db) => createTrade(db, req.body)))));
 
-app.post('/api/trades/:id/respond', (req, res) =>
-  tradeResult(res, respondToOpenTrade(loadDb(), req.params.id, req.body))
-);
+app.post('/api/trades/:id/respond', handle(async (req, res) =>
+  sendTradeResult(res, await withMutation((db) => respondToOpenTrade(db, req.params.id, req.body)))));
 
-app.post('/api/trades/:id/withdraw', (req, res) =>
-  tradeResult(res, withdrawResponse(loadDb(), req.params.id, req.body))
-);
+app.post('/api/trades/:id/withdraw', handle(async (req, res) =>
+  sendTradeResult(res, await withMutation((db) => withdrawResponse(db, req.params.id, req.body)))));
 
-app.post('/api/trades/:id/accept', (req, res) => {
-  const db = loadDb();
-  const trade = db.trades.find((t) => t.id === req.params.id);
-  if (!trade) return res.status(404).json({ error: 'Trade not found.' });
-  const r =
-    trade.type === 'open'
+app.post('/api/trades/:id/accept', handle(async (req, res) =>
+  sendTradeResult(res, await withMutation((db) => {
+    const trade = db.trades.find((t) => t.id === req.params.id);
+    if (!trade) return { error: 'Trade not found.', code: 404 };
+    return trade.type === 'open'
       ? acceptOpenResponse(db, req.params.id, req.body)
       : acceptDirect(db, req.params.id, req.body);
-  return tradeResult(res, r);
-});
+  }))));
 
-app.post('/api/trades/:id/reject', (req, res) =>
-  tradeResult(res, rejectDirect(loadDb(), req.params.id, req.body))
-);
+app.post('/api/trades/:id/reject', handle(async (req, res) =>
+  sendTradeResult(res, await withMutation((db) => rejectDirect(db, req.params.id, req.body)))));
 
-app.post('/api/trades/:id/claim', (req, res) =>
-  tradeResult(res, claimGiveaway(loadDb(), req.params.id, req.body))
-);
+app.post('/api/trades/:id/claim', handle(async (req, res) =>
+  sendTradeResult(res, await withMutation((db) => claimGiveaway(db, req.params.id, req.body)))));
 
-app.post('/api/trades/:id/cancel', (req, res) =>
-  tradeResult(res, cancelTrade(loadDb(), req.params.id, req.body))
-);
+app.post('/api/trades/:id/cancel', handle(async (req, res) =>
+  sendTradeResult(res, await withMutation((db) => cancelTrade(db, req.params.id, req.body)))));
 
 // Read-only eligibility lookups so the UI only offers feasible trades.
-app.get('/api/schedules/:id/trade-options', (req, res) =>
-  res.json(tradeOptions(loadDb(), req.params.id, req.query.userId as string))
-);
+app.get('/api/schedules/:id/trade-options', handle(async (req, res) =>
+  res.json(tradeOptions(await readState(), req.params.id, req.query.userId as string))));
 
-app.get('/api/schedules/:id/swap-partners', (req, res) =>
+app.get('/api/schedules/:id/swap-partners', handle(async (req, res) =>
   res.json(
-    swapPartners(loadDb(), req.params.id, req.query.userId as string, {
+    swapPartners(await readState(), req.params.id, req.query.userId as string, {
       date: req.query.date as string,
       shiftTypeId: req.query.shiftTypeId as string,
     })
-  )
-);
+  )));
 
 // Split your extra days (worked beyond required) into extra vacation and
 // incentive pay. Repeatable — the new split replaces the old one.
-app.put('/api/schedules/:id/extra-election', (req, res) => {
-  const db = loadDb();
-  const r = setExtraElection(db, req.params.id, req.body);
-  saveDb();
-  return r.error ? res.status(r.code || 400).json({ error: r.error }) : res.json(r.election);
-});
+app.put('/api/schedules/:id/extra-election', handle(async (req, res) => {
+  const r = await withMutation((db) => setExtraElection(db, req.params.id, req.body));
+  return r.error ? res.status((r as any).code || 400).json({ error: r.error }) : res.json(r.election);
+}));
 
-app.put('/api/notifications/read', (req, res) => {
-  const db = loadDb();
-  const { userId } = req.body;
-  for (const n of db.notifications) {
-    if (n.userId === userId) n.read = true;
-  }
-  saveDb();
+app.put('/api/notifications/read', handle(async (req, res) => {
+  await withMutation((db) => {
+    const { userId } = req.body;
+    for (const n of db.notifications) {
+      if (n.userId === userId) n.read = true;
+    }
+  });
   res.json({ ok: true });
-});
+}));
 
 // Dismissing hides a notification from the Trades inbox for good. The bulk
 // route clears the viewer's whole list; the per-id route clears one.
-app.put('/api/notifications/dismiss', (req, res) => {
-  const db = loadDb();
-  const { userId } = req.body;
-  for (const n of db.notifications) {
-    if (n.userId === userId) { n.read = true; n.dismissed = true; }
-  }
-  saveDb();
+app.put('/api/notifications/dismiss', handle(async (req, res) => {
+  await withMutation((db) => {
+    const { userId } = req.body;
+    for (const n of db.notifications) {
+      if (n.userId === userId) { n.read = true; n.dismissed = true; }
+    }
+  });
   res.json({ ok: true });
-});
+}));
 
-app.put('/api/notifications/:id/dismiss', (req, res) => {
-  const db = loadDb();
-  const { userId } = req.body;
-  const n = db.notifications.find((x) => x.id === req.params.id);
-  if (!n) return res.status(404).json({ error: 'Notification not found.' });
-  if (n.userId !== userId)
-    return res.status(403).json({ error: 'You can only dismiss your own notifications.' });
-  n.read = true;
-  n.dismissed = true;
-  saveDb();
-  return res.json({ ok: true });
-});
+app.put('/api/notifications/:id/dismiss', handle(async (req, res) => {
+  await withMutation((db) => {
+    const { userId } = req.body;
+    const n = db.notifications.find((x) => x.id === req.params.id);
+    if (!n) throw new HttpError(404, 'Notification not found.');
+    if (n.userId !== userId)
+      throw new HttpError(403, 'You can only dismiss your own notifications.');
+    n.read = true;
+    n.dismissed = true;
+  });
+  res.json({ ok: true });
+}));
 
 // ---- personal calendar export ----
-app.get('/api/schedules/:id/ics', (req, res) => {
-  const db = loadDb();
+app.get('/api/schedules/:id/ics', handle(async (req, res) => {
+  const db = await readState();
   const schedule = db.schedules.find((s) => s.id === req.params.id);
-  if (!schedule) return res.status(404).json({ error: 'Schedule not found.' });
+  if (!schedule) throw new HttpError(404, 'Schedule not found.');
   const user = db.users.find((u) => u.id === req.query.userId);
-  if (!user) return res.status(404).json({ error: 'User not found.' });
+  if (!user) throw new HttpError(404, 'User not found.');
   const mine = schedule.assignments.filter((a) => a.userId === user.id);
   const ics = buildIcs({
     user,
@@ -622,7 +726,7 @@ app.get('/api/schedules/:id/ics', (req, res) => {
     `attachment; filename="shifts-${user.name.replace(/[^a-z0-9]/gi, '-').toLowerCase()}.ics"`
   );
   res.send(ics);
-});
+}));
 
 // ---- static hosting of the built frontend (after `npm run build`) ----
 const dist = path.join(__dirname, '..', 'dist');
@@ -634,4 +738,14 @@ if (fs.existsSync(path.join(dist, 'index.html'))) {
 // API_PORT, not PORT — dev tools (e.g. preview panels) inject PORT for the
 // frontend server, and the API must not steal it.
 const PORT = process.env.API_PORT || 3001;
-app.listen(PORT, () => console.log(`API listening on http://localhost:${PORT}`));
+initDb()
+  .then(() => app.listen(PORT, () => console.log(`API listening on http://localhost:${PORT}`)))
+  .catch((err) => {
+    console.error('Failed to initialize database:', err);
+    process.exit(1);
+  });
+
+// Every committed transaction is durable — nothing to flush on shutdown.
+for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(sig, () => process.exit(0));
+}

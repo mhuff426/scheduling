@@ -193,6 +193,19 @@ export function createTrade(db: Db, { scheduleId, fromUserId, type, offered, toU
     return { error: 'You can only trade a shift that is currently yours.', code: 400 };
   if (!isFuture(offered.date))
     return { error: 'Only future shifts can be traded.', code: 400 };
+  // Duplicate-submission backstop (double-click, two devices): one open trade
+  // of a given type per person per offered shift.
+  if (
+    db.trades.some(
+      (t) =>
+        t.status === 'open' &&
+        t.fromUserId === fromUserId &&
+        t.type === type &&
+        t.offered.date === offered.date &&
+        t.offered.shiftTypeId === offered.shiftTypeId
+    )
+  )
+    return { error: 'You already have an open trade for that shift.', code: 409 };
 
   const trade: Trade = {
     id: newId('tr'),

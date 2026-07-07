@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 
 // These tests exercise the per-employee Required & Max shifts feature against
-// the dev data file (data/data.json). A later phase restores the data file.
+// the ISOLATED, seeded database (reset to e2e/seed.json before each test).
 //
 // App context (no auth): the first roster user is an admin (seed "Admin").
 // The top bar has a .user-switch select; tabs are .tab buttons; server errors
@@ -10,6 +11,13 @@ import { test, expect } from '@playwright/test';
 // .inline-num inputs, an "⚙️ Settings" card with the cadence form, and an
 // "✨ Generate Schedule" card. The employee "My Requests" tab is the Time-Off
 // screen.
+
+const SEED = JSON.parse(readFileSync(new URL('./seed.json', import.meta.url), 'utf8'));
+
+test.beforeEach(async ({ request }) => {
+  const res = await request.post('/api/test/reset', { data: SEED });
+  expect(res.ok()).toBeTruthy();
+});
 
 // ----- date helpers (local YYYY-MM-DD, mirrors shared/blocks.js) -----
 const pad = (n) => String(n).padStart(2, '0');
@@ -67,6 +75,9 @@ test('admin sets Required and Max for an employee; values persist after reload',
   await max.blur();
   // No server error on save.
   await expect(page.locator('.banner.error')).toHaveCount(0);
+  // Saves are queued client-side; wait for them to land before navigating
+  // (<body data-saving> is set while any write is pending).
+  await expect(page.locator('body[data-saving]')).toHaveCount(0);
 
   // Reload and confirm the inputs come back populated from persisted data.
   await page.reload();
@@ -82,12 +93,25 @@ test('blank Required clears back to no floor (placeholder dash) after reload', a
   const row = firstRosterRow(page);
   const req = requiredInput(row);
 
-  // Set then clear: blank should persist as "no floor".
+  // Set a floor and let it persist (reload rather than clearing immediately:
+  // the input's onBlur skips the save when the value "didn't change", and an
+  // immediate clear races the state refresh from the first save).
   await req.fill('2');
   await req.blur();
-  await req.fill('');
-  await req.blur();
   await expect(page.locator('.banner.error')).toHaveCount(0);
+  // Saves are queued client-side; wait for them to land before navigating.
+  await expect(page.locator('body[data-saving]')).toHaveCount(0);
+  await page.reload();
+  await page.locator('.tab', { hasText: 'Admin' }).click();
+  await expect(page.getByRole('heading', { name: /Roster/ })).toBeVisible();
+  const req2 = requiredInput(firstRosterRow(page));
+  await expect(req2).toHaveValue('2');
+
+  // Clear it: blank should persist as "no floor".
+  await req2.fill('');
+  await req2.blur();
+  await expect(page.locator('.banner.error')).toHaveCount(0);
+  await expect(page.locator('body[data-saving]')).toHaveCount(0);
 
   await page.reload();
   await page.locator('.tab', { hasText: 'Admin' }).click();
