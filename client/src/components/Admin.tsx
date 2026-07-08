@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { api } from '../api';
 import { DOW, MONTHS, formatTime, todayYmd, prettyDate } from '../dates';
 import { UNITS, upcomingBlocks, isValidCadence } from '../../../shared/blocks.js';
@@ -181,14 +181,43 @@ function standingClass(s: number | null | undefined) {
 }
 
 function Roster({ db, act }: Props) {
-  const [form, setForm] = useState<any>({ name: '', vacationDays: 10, startDate: '' });
+  const [form, setForm] = useState<any>({ firstName: '', lastName: '', email: '', employeeId: '', vacationDays: 10, startDate: '' });
   const set = (k: string) => (e: any) => setForm({ ...form, [k]: e.target.value });
+  // When email delivery isn't configured (dev default), the server returns
+  // the invite link so the admin can hand it over manually.
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const inviteInputRef = useRef<HTMLInputElement>(null);
+
+  const copyInvite = () => {
+    if (!inviteLink) return;
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(inviteLink).catch(() => inviteInputRef.current?.select());
+    } else {
+      inviteInputRef.current?.select();
+    }
+  };
 
   const submit = async (e: any) => {
     e.preventDefault();
-    const ok = await act(() => api.addUser(form));
-    if (ok) setForm({ ...form, name: '' });
+    setInviteLink(null);
+    const ok = await act(async () => {
+      const r = await api.addUser(form);
+      if (r.inviteLink) setInviteLink(r.inviteLink);
+      return r;
+    });
+    if (ok) setForm({ ...form, firstName: '', lastName: '', email: '', employeeId: '' });
   };
+
+  const resend = (u: User) => {
+    setInviteLink(null);
+    act(async () => {
+      const r = await api.resendInvite(u.id);
+      if (r.inviteLink) setInviteLink(r.inviteLink);
+      return r;
+    });
+  };
+
+  const addDisabled = !form.firstName.trim() || !form.lastName.trim() || !form.email.trim();
 
   const yearNow = new Date().getFullYear();
   const usedFor = (u: User) =>
@@ -204,7 +233,18 @@ function Roster({ db, act }: Props) {
         <tbody>
           {db.users.map((u) => (
             <tr key={u.id}>
-              <td><span className="dot" style={{ background: safeBg(u.color) }} /> {u.name}</td>
+              <td>
+                <span className="dot" style={{ background: safeBg(u.color) }} /> {u.name}
+                {u.registered === false && (
+                  <span className="badge-pending" title="Has not set a password yet">Pending</span>
+                )}
+                {u.email && <div className="muted small">{u.email}</div>}
+                {u.registered === false && (
+                  <button className="btn ghost sm" type="button" onClick={() => resend(u)}>
+                    Resend invite
+                  </button>
+                )}
+              </td>
               <td>
                 <RoleMultiSelect
                   roles={db.roles}
@@ -276,11 +316,28 @@ function Roster({ db, act }: Props) {
         </tbody>
       </table>
       <form onSubmit={submit} className="form-grid">
-        <label>Name<input required value={form.name} onChange={set('name')} placeholder="Jane Smith" /></label>
+        <label>First name<input required value={form.firstName} onChange={set('firstName')} placeholder="Jane" /></label>
+        <label>Last name<input required value={form.lastName} onChange={set('lastName')} placeholder="Smith" /></label>
+        <label>Email<input type="email" required value={form.email} onChange={set('email')} placeholder="jane@example.com" /></label>
+        <label>Employee ID (optional)<input value={form.employeeId} onChange={set('employeeId')} placeholder="—" /></label>
         <label>Vacation days / year<input type="number" min="0" value={form.vacationDays} onChange={set('vacationDays')} /></label>
         <label>Start date<input type="date" value={form.startDate} onChange={set('startDate')} /></label>
-        <button className="btn primary" type="submit">Add to roster</button>
+        <button className="btn primary" type="submit" disabled={addDisabled}>Add to roster</button>
       </form>
+      {inviteLink && (
+        <div className="muted small" style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span>Invite link (email not configured — share it manually):</span>
+          <input
+            ref={inviteInputRef}
+            readOnly
+            value={inviteLink}
+            style={{ flex: 1, minWidth: 220 }}
+            onFocus={(e) => e.target.select()}
+          />
+          <button className="btn ghost sm" type="button" onClick={copyInvite}>Copy</button>
+          <button className="btn ghost sm" type="button" title="Dismiss" onClick={() => setInviteLink(null)}>✕</button>
+        </div>
+      )}
     </section>
   );
 }

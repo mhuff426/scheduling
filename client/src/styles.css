@@ -344,3 +344,18 @@ select, input {
 
 /* preferences screen */
 .color-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* auth: login modal + logged-out state */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(0, 0, 0, 0.4);
+  overflow-y: auto;
+}
+.modal { box-shadow: 0 12px 40px rgba(0,0,0,0.25); }
+.logged-out-msg { text-align: center; margin-top: 18vh; }
+.badge-pending {
+  display: inline-block; margin-left: 6px; padding: 1px 7px;
+  border-radius: 999px; font-size: 11px; font-weight: 600;
+  background: var(--accent-soft); color: var(--accent-fg);
+  vertical-align: middle;
+}

@@ -4,17 +4,26 @@ import ScheduleView from './components/ScheduleView';
 import Preferences from './components/Preferences';
 import Admin from './components/Admin';
 import Trades from './components/Trades';
+import LoginModal from './components/Login';
+import Register from './components/Register';
 import { safeBg } from './contrast';
 import { setLatestState } from './versions';
-import type { AppState } from '../../shared/types.js';
+import type { AppState, User } from '../../shared/types.js';
 
 // A mutation wrapper: runs `fn`, refreshes state, surfaces server errors.
 export type Act = (fn: () => unknown) => Promise<boolean>;
 
 const POLL_MS = 30_000;
 
+// The invite-link landing page renders INSTEAD of the app, regardless of auth.
+const isRegisterRoute = () =>
+  new URLSearchParams(location.search).has('token') || location.pathname === '/register';
+
 export default function App() {
   const [db, setDb] = useState<AppState | null>(null);
+  // 'loading' until the boot api.me() resolves; null = logged out.
+  const [authUser, setAuthUser] = useState<User | null | 'loading'>('loading');
+  const [showLogin, setShowLogin] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [tab, setTab] = useState('schedule');
   const [error, setError] = useState('');
@@ -22,6 +31,7 @@ export default function App() {
   // called from intervals and event listeners).
   const tabRef = useRef(tab);
   const userRef = useRef<string | null>(null);
+  const loggedInRef = useRef(false);
   // Mutations run one-at-a-time: each waits for the previous save's RESPONSE
   // (not its refresh), so version lookups (see versions.ts) resolve against
   // what the previous edit reported — rapid successive edits never
@@ -40,39 +50,71 @@ export default function App() {
   // newer one.
   const refreshSeq = useRef(0);
 
+  const becomeLoggedOut = useCallback(() => {
+    loggedInRef.current = false;
+    userRef.current = null;
+    setAuthUser(null);
+    setCurrentUserId(null);
+    setDb(null);
+    tabRef.current = 'schedule';
+    setTab('schedule');
+  }, []);
+
   // Fetch the active tab's data plus the two cross-tab resources (users,
   // notifications — separate endpoints so they can become SSE streams later)
   // and merge them into one AppState. Data is fetched per tab, never the
   // whole database.
   const refresh = useCallback(async () => {
+    if (!loggedInRef.current) return null;
     const seq = ++refreshSeq.current;
     const [tabState, { users }] = await Promise.all([api.getTab(tabRef.current), api.getUsers()]);
-    // The selected user may have been deleted by another admin meanwhile —
-    // fall back to the first user.
-    let uid = userRef.current;
+    // If the authed user disappeared from the roster, the session user was
+    // deleted — treat it as logged out rather than silently switching identity.
+    const uid = userRef.current;
     if (!uid || !users.some((u: AppState['users'][number]) => u.id === uid)) {
-      uid = users[0]?.id ?? null;
-      userRef.current = uid;
-      setCurrentUserId(uid);
+      becomeLoggedOut();
+      return null;
     }
-    const { notifications } = uid
-      ? await api.getNotifications(uid)
-      : { notifications: [] };
+    const { notifications } = await api.getNotifications();
     const merged: AppState = { ...tabState, users, notifications };
     // A newer refresh started while this one was in flight — drop this result.
     if (seq !== refreshSeq.current) return merged;
     setLatestState(merged);
     setDb(merged);
     return merged;
-  }, []);
+  }, [becomeLoggedOut]);
 
-  useEffect(() => {
+  // Called when login/registration succeeds (or boot me() finds a session).
+  const becomeLoggedIn = useCallback((user: User) => {
+    loggedInRef.current = true;
+    userRef.current = user.id;
+    setAuthUser(user);
+    setCurrentUserId(user.id);
+    setShowLogin(false);
     refresh().catch((e) => setError((e as Error).message));
   }, [refresh]);
 
+  // Boot: resolve the session. No tab fetching until we know who's asking.
+  useEffect(() => {
+    if (isRegisterRoute()) return; // Register page handles itself.
+    api.me().then((r: { user: User } | null) => {
+      if (r?.user) becomeLoggedIn(r.user);
+      else setAuthUser(null);
+    });
+  }, [becomeLoggedIn]);
+
+  // Session expired mid-use (any API call got a 401) — flip to logged out.
+  useEffect(() => {
+    const onAuthRequired = () => becomeLoggedOut();
+    window.addEventListener('auth:required', onAuthRequired);
+    return () => window.removeEventListener('auth:required', onAuthRequired);
+  }, [becomeLoggedOut]);
+
   // Freshness while sitting on a tab: poll every 30s (skipped while the
   // window is hidden) and refetch immediately when it becomes visible again.
+  // Only active while logged in.
   useEffect(() => {
+    if (!authUser || authUser === 'loading') return;
     const timer = setInterval(() => {
       if (!document.hidden) refresh().catch(() => {});
     }, POLL_MS);
@@ -84,7 +126,7 @@ export default function App() {
       clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [refresh]);
+  }, [refresh, authUser]);
 
   // Apply per-user theme; runs on first load, user switch, and after a theme save.
   // Computed here (before the early return) so the hook is never called conditionally.
@@ -105,6 +147,34 @@ export default function App() {
       setTab('schedule');
     }
   }, [db, currentUserId, tab]);
+
+  // Invite-link landing page: full takeover, regardless of auth state.
+  if (isRegisterRoute()) return <Register />;
+
+  if (authUser === 'loading') return <div className="loading">Loading…</div>;
+
+  // Logged out: brand + Login button; no data, no polling.
+  if (!authUser) {
+    return (
+      <div className="app">
+        <header className="topbar">
+          <div className="brand">
+            <span className="brand-icon">🗓️</span> Shift Scheduler
+          </div>
+          <nav className="tabs" />
+          <div className="user-switch">
+            <button className="btn primary" onClick={() => setShowLogin(true)}>Log in</button>
+          </div>
+        </header>
+        <main className="content">
+          <p className="muted logged-out-msg">Log in to see the schedule.</p>
+        </main>
+        {showLogin && (
+          <LoginModal onClose={() => setShowLogin(false)} onSuccess={becomeLoggedIn} />
+        )}
+      </div>
+    );
+  }
 
   if (!db) return <div className="loading">Loading…</div>;
 
@@ -153,19 +223,38 @@ export default function App() {
     setError('');
     if (id === 'trades' && unread > 0) {
       // Opening the inbox marks everything read.
-      api.markNotificationsRead(currentUser.id).then(refresh).catch(() => {});
+      api.markNotificationsRead().then(refresh).catch(() => {});
     } else {
       refresh().catch(() => {});
     }
   };
 
-  const switchUser = (id: string) => {
-    userRef.current = id;
-    setCurrentUserId(id);
+  const logout = async () => {
+    try { await api.logout(); } catch { /* clear locally regardless */ }
+    becomeLoggedOut();
+  };
+
+  // Dev/e2e tooling: truly switch identity server-side via the impersonation
+  // endpoint, then re-resolve the session. Rendered only under import.meta.env.DEV,
+  // so Vite tree-shakes it out of prod builds.
+  const switchUser = async (id: string) => {
+    setError('');
+    // Snap to Schedule synchronously — a tab clicked AFTER the switch must not
+    // be yanked away when the impersonation round-trip completes.
     tabRef.current = 'schedule';
     setTab('schedule');
-    setError('');
-    refresh().catch(() => {});
+    try {
+      await api.impersonate(id);
+      const r = await api.me();
+      if (!r?.user) { becomeLoggedOut(); return; }
+      loggedInRef.current = true;
+      userRef.current = r.user.id;
+      setAuthUser(r.user);
+      setCurrentUserId(r.user.id);
+      await refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    }
   };
 
   return (
@@ -188,17 +277,22 @@ export default function App() {
         </nav>
         <div className="user-switch">
           <span className="muted">Signed in as</span>
-          <select
-            value={currentUser?.id || ''}
-            onChange={(e) => switchUser(e.target.value)}
-          >
-            {db.users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name} {(u.roles || []).includes('role-admin') ? '(admin)' : ''}
-              </option>
-            ))}
-          </select>
+          {import.meta.env.DEV ? (
+            <select
+              value={currentUser?.id || ''}
+              onChange={(e) => switchUser(e.target.value)}
+            >
+              {db.users.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name} {(u.roles || []).includes('role-admin') ? '(admin)' : ''}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <strong>{authUser.name}</strong>
+          )}
           {currentUser && <span className="dot" style={{ background: safeBg(currentUser.color) }} />}
+          <button className="btn ghost sm" onClick={logout}>Logout</button>
         </div>
       </header>
 

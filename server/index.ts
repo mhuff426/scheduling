@@ -3,7 +3,7 @@ import type { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { initDb, readState, withMutation, newId, vacationCountForDate, resetDbForTests, DEFAULT_DATA } from './db.js';
+import { initDb, readState, withMutation, newId, vacationCountForDate, resetDbForTests, DEFAULT_DATA, getPool } from './db.js';
 import type { CollectionKey } from './mysql.js';
 import {
   generateSchedule, summarizeSchedule, preferenceStandings,
@@ -18,10 +18,22 @@ import { buildIcs } from './ics.js';
 import { isValidCadence, blockRange, currentBlockIndex, todayYmd } from '../shared/blocks.js';
 import { isValidRecurrence } from '../shared/holidays.js';
 import type { AppState, Db, ShiftType, User } from '../shared/types.js';
+import {
+  passwordProblem, verifyPassword, ensureCredentialRows, getCredential,
+  setPassword, createInvite, findUserIdByInviteToken, registeredMap,
+} from './auth.js';
+import { attachSession, createSession, destroySession, sessionCookie, clearedSessionCookie, parseCookies } from './sessions.js';
+import { sendInviteEmail, inviteLink } from './email.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(express.json());
+
+// Attach the session middleware. We defer pool resolution to per-request so
+// the app can import this module before initDb() completes.
+app.use((req: Request, res: Response, next) => {
+  attachSession(getPool())(req, res, next);
+});
 
 // Validation failures inside withMutation() THROW one of these (rolls the
 // transaction back — they always happen before any mutation). Business
@@ -68,6 +80,155 @@ function checkVersion(entity: { version?: number }, expected: unknown, what: str
 const bumpVersion = (entity: { version?: number }) => {
   entity.version = (entity.version ?? 1) + 1;
 };
+
+// ---------------------------------------------------------------------------
+// Auth helpers
+// ---------------------------------------------------------------------------
+
+/** Returns the authed User, or throws 401. */
+function authedUser(db: Db, req: Request): User {
+  const uid = (req as any).authUserId as string | null | undefined;
+  if (!uid) throw new HttpError(401, 'Please log in.', 'unauthenticated');
+  const u = db.users.find((x) => x.id === uid);
+  if (!u) throw new HttpError(401, 'Please log in.', 'unauthenticated');
+  return u;
+}
+
+/** Returns the authed User if they are an admin, else throws 403. */
+function requireAdmin(db: Db, req: Request): User {
+  const u = authedUser(db, req);
+  if (!(u.roles || []).includes('role-admin')) throw new HttpError(403, 'Admin access required.');
+  return u;
+}
+
+/** User fields safe to send to the client (no credentials). Merges optional `registered`. */
+function redactUser(u: User, registered?: boolean): object {
+  const base = { ...u };
+  if (registered !== undefined) return { ...base, registered };
+  return base;
+}
+
+// Single-instance in-memory login throttle. Acceptable: single-instance only.
+const loginAttempts = new Map<string, { fails: number; lockedUntil: number }>();
+
+function checkLoginThrottle(ip: string): void {
+  const entry = loginAttempts.get(ip);
+  if (entry && entry.lockedUntil > Date.now()) {
+    throw new HttpError(429, 'Too many attempts — try again shortly.');
+  }
+}
+
+function recordLoginFailure(ip: string): void {
+  const entry = loginAttempts.get(ip) ?? { fails: 0, lockedUntil: 0 };
+  entry.fails += 1;
+  if (entry.fails >= 5) entry.lockedUntil = Date.now() + 30_000;
+  loginAttempts.set(ip, entry);
+}
+
+function recordLoginSuccess(ip: string): void {
+  loginAttempts.delete(ip);
+}
+
+// ---------------------------------------------------------------------------
+// Auth routes
+// ---------------------------------------------------------------------------
+
+app.post('/api/auth/login', handle(async (req, res) => {
+  const ip = req.ip || 'unknown';
+  checkLoginThrottle(ip);
+  const email = String(req.body.email || '').toLowerCase().trim();
+  const password = String(req.body.password || '');
+  const db = await readState();
+  const user = db.users.find((u) => u.email?.toLowerCase() === email);
+  if (!user) {
+    recordLoginFailure(ip);
+    throw new HttpError(401, 'Invalid email or password.');
+  }
+  const cred = await getCredential(getPool(), user.id);
+  if (!cred || !cred.registered) {
+    // User exists but has not set a password.
+    return res.json({ needsRegistration: true });
+  }
+  const ok = await verifyPassword(password, cred.password_hash || '');
+  if (!ok) {
+    recordLoginFailure(ip);
+    throw new HttpError(401, 'Invalid email or password.');
+  }
+  recordLoginSuccess(ip);
+  const { id, expiresAt } = await createSession(getPool(), user.id);
+  res.setHeader('Set-Cookie', sessionCookie(id));
+  return res.json({ user: redactUser(user, true) });
+}));
+
+app.post('/api/auth/register', handle(async (req, res) => {
+  const { token, email, password } = req.body;
+  const prob = passwordProblem(password);
+  if (prob) throw new HttpError(400, prob);
+
+  const pool = getPool();
+  let userId: string;
+
+  if (token) {
+    const uid = await findUserIdByInviteToken(pool, String(token));
+    if (!uid) throw new HttpError(400, 'This invite link is invalid or has expired.');
+    userId = uid;
+  } else if (email) {
+    const emailNorm = String(email).toLowerCase().trim();
+    const db = await readState();
+    const user = db.users.find((u) => u.email?.toLowerCase() === emailNorm);
+    if (!user) throw new HttpError(404, 'No account found with that email.');
+    const cred = await getCredential(pool, user.id);
+    if (cred?.registered) throw new HttpError(400, 'This account is already set up — log in instead.');
+    userId = user.id;
+  } else {
+    throw new HttpError(400, 'token or email is required.');
+  }
+
+  await setPassword(pool, userId, String(password));
+  const db = await readState();
+  const user = db.users.find((u) => u.id === userId);
+  if (!user) throw new HttpError(404, 'User not found.');
+  const { id } = await createSession(pool, userId);
+  res.setHeader('Set-Cookie', sessionCookie(id));
+  return res.json({ user: redactUser(user, true) });
+}));
+
+app.post('/api/auth/logout', handle(async (req, res) => {
+  const cookies = parseCookies(req.headers.cookie);
+  const sid = cookies['sid'];
+  if (sid && sid !== 'logged-out') {
+    await destroySession(getPool(), sid).catch(() => {});
+  }
+  res.setHeader('Set-Cookie', clearedSessionCookie());
+  return res.json({ ok: true });
+}));
+
+app.get('/api/auth/me', handle(async (req, res) => {
+  const uid = (req as any).authUserId as string | null | undefined;
+  if (!uid) return res.status(401).json({ error: 'Not logged in.' });
+  const db = await readState();
+  const user = db.users.find((u) => u.id === uid);
+  if (!user) return res.status(401).json({ error: 'Not logged in.' });
+  const map = await registeredMap(getPool());
+  return res.json({ user: redactUser(user, !!map[user.id]) });
+}));
+
+// Dev/test-only impersonation (never in production).
+if (process.env.NODE_ENV !== 'production') {
+  app.post('/api/dev/impersonate', handle(async (req, res) => {
+    const { userId } = req.body;
+    const db = await readState();
+    const user = db.users.find((u) => u.id === userId);
+    if (!user) throw new HttpError(404, 'User not found.');
+    const { id } = await createSession(getPool(), user.id);
+    res.setHeader('Set-Cookie', sessionCookie(id));
+    return res.json({ user: redactUser(user) });
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Test-only reset hook
+// ---------------------------------------------------------------------------
 
 // Test-only reset hook: e2e seeds a known DB state before each test so cases
 // never depend on ambient dev data. Gated behind E2E_TESTING so it never
@@ -131,27 +292,39 @@ app.get('/api/tabs/:tab', handle(async (req, res) => {
 
 app.get('/api/users', handle(async (req, res) => {
   const db = await readState();
-  res.json({ users: db.users });
+  const map = await registeredMap(getPool());
+  res.json({ users: db.users.map((u) => ({ ...u, registered: !!map[u.id] })) });
 }));
 
 app.get('/api/notifications', handle(async (req, res) => {
-  const userId = req.query.userId as string;
-  if (!userId) throw new HttpError(400, 'userId is required.');
   const db = await readState();
-  res.json({ notifications: db.notifications.filter((n) => n.userId === userId) });
+  const user = authedUser(db, req);
+  res.json({ notifications: db.notifications.filter((n) => n.userId === user.id) });
 }));
 
 // ---- roster ----
 app.post('/api/users', handle(async (req, res) => {
   const user = await withMutation((db) => {
-    const { name, roles, vacationDays, startDate } = req.body;
-    if (!name || !name.trim()) throw new HttpError(400, 'Name is required.');
+    requireAdmin(db, req);
+    const { firstName, lastName, email, employeeId, roles, vacationDays, startDate } = req.body;
+    const firstTrim = String(firstName || '').trim();
+    const lastTrim = String(lastName || '').trim();
+    if (!firstTrim || !lastTrim) throw new HttpError(400, 'First and last name are required.');
+    const emailTrim = String(email || '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) throw new HttpError(400, 'A valid email is required.');
+    if (db.users.some((u) => u.email?.toLowerCase() === emailTrim))
+      throw new HttpError(409, 'A user with that email already exists.');
     const valid = new Set(db.roles.map((r) => r.id));
     const reqRoles = (Array.isArray(roles) ? roles : []).filter((id: string) => valid.has(id));
     if (!reqRoles.includes('role-employee')) reqRoles.push('role-employee');
+    const empId = employeeId ? String(employeeId).trim() || null : null;
     const u: User = {
       id: newId('u'),
-      name: name.trim(),
+      firstName: firstTrim,
+      lastName: lastTrim,
+      name: `${firstTrim} ${lastTrim}`.trim(),
+      email: emailTrim,
+      employeeId: empId,
       roles: reqRoles,
       vacationDays: Math.max(0, Number(vacationDays) || 0),
       color: PALETTE[db.users.length % PALETTE.length],
@@ -160,7 +333,13 @@ app.post('/api/users', handle(async (req, res) => {
     db.users.push(u);
     return u;
   });
-  res.json(user);
+  // After the mutation commits, create credential row + invite.
+  const pool = getPool();
+  await ensureCredentialRows(pool, [user.id]);
+  const rawToken = await createInvite(pool, user.id);
+  const link = inviteLink(rawToken);
+  const { delivered } = await sendInviteEmail({ to: user.email!, name: user.name, link });
+  res.json({ ...redactUser(user, false), ...(delivered ? {} : { inviteLink: link }) });
 }));
 
 const isAdminUser = (u: User) => (u.roles || []).includes('role-admin');
@@ -169,11 +348,36 @@ const isLastAdmin = (db: Db, user: User) =>
 
 app.put('/api/users/:id', handle(async (req, res) => {
   const user = await withMutation((db) => {
+    requireAdmin(db, req);
     const user = db.users.find((u) => u.id === req.params.id);
     if (!user) throw new HttpError(404, 'User not found.');
     checkVersion(user, req.body.expectedVersion, `${user.name}'s profile`);
     const { name, roles, vacationDays } = req.body;
-    if (name !== undefined) user.name = String(name).trim() || user.name;
+    // Handle firstName/lastName edits.
+    let nameChanged = false;
+    if (req.body.firstName !== undefined) {
+      const f = String(req.body.firstName).trim();
+      if (!f) throw new HttpError(400, 'First name cannot be empty.');
+      user.firstName = f;
+      nameChanged = true;
+    }
+    if (req.body.lastName !== undefined) {
+      user.lastName = String(req.body.lastName).trim();
+      nameChanged = true;
+    }
+    if (nameChanged) user.name = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || user.name;
+    if (req.body.email !== undefined) {
+      const emailTrim = String(req.body.email).trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) throw new HttpError(400, 'A valid email is required.');
+      if (db.users.some((u) => u.id !== user.id && u.email?.toLowerCase() === emailTrim))
+        throw new HttpError(409, 'A user with that email already exists.');
+      user.email = emailTrim;
+    }
+    if (req.body.employeeId !== undefined) {
+      const empId = req.body.employeeId === null || req.body.employeeId === '' ? null : String(req.body.employeeId).trim() || null;
+      user.employeeId = empId;
+    }
+    if (name !== undefined && !req.body.firstName && !req.body.lastName) user.name = String(name).trim() || user.name;
     if (roles !== undefined) {
       const valid = new Set(db.roles.map((r) => r.id));
       const next = (Array.isArray(roles) ? roles : []).filter((id: string) => valid.has(id));
@@ -211,6 +415,7 @@ app.put('/api/users/:id', handle(async (req, res) => {
 
 app.delete('/api/users/:id', handle(async (req, res) => {
   await withMutation((db) => {
+    requireAdmin(db, req);
     const idx = db.users.findIndex((u) => u.id === req.params.id);
     if (idx === -1) throw new HttpError(404, 'User not found.');
     if (isLastAdmin(db, db.users[idx])) {
@@ -220,12 +425,33 @@ app.delete('/api/users/:id', handle(async (req, res) => {
     db.timeOff = db.timeOff.filter((t) => t.userId !== req.params.id);
     db.awayTime = db.awayTime.filter((a) => a.userId !== req.params.id);
   });
+  // Explicit cleanup of auth tables (no FK cascade — see schema comments).
+  const pool = getPool();
+  await pool.query('DELETE FROM `user_credentials` WHERE `user_id` = ?', [req.params.id]);
+  await pool.query('DELETE FROM `sessions` WHERE `user_id` = ?', [req.params.id]);
   res.json({ ok: true });
+}));
+
+// ---- resend invite ----
+app.post('/api/users/:id/resend-invite', handle(async (req, res) => {
+  const db = await readState();
+  requireAdmin(db, req);
+  const user = db.users.find((u) => u.id === req.params.id);
+  if (!user) throw new HttpError(404, 'User not found.');
+  const pool = getPool();
+  const cred = await getCredential(pool, user.id);
+  if (cred?.registered) throw new HttpError(400, 'This user has already registered.');
+  await ensureCredentialRows(pool, [user.id]);
+  const rawToken = await createInvite(pool, user.id);
+  const link = inviteLink(rawToken);
+  const { delivered } = await sendInviteEmail({ to: user.email || '', name: user.name, link });
+  return res.json({ ok: true, ...(delivered ? {} : { inviteLink: link }) });
 }));
 
 // ---- employee roles (capability tags; Admin/Employee are system roles) ----
 app.post('/api/roles', handle(async (req, res) => {
   const role = await withMutation((db) => {
+    requireAdmin(db, req);
     const name = String(req.body.name || '').trim();
     if (!name) throw new HttpError(400, 'Role name is required.');
     if (db.roles.some((r) => r.name.toLowerCase() === name.toLowerCase()))
@@ -239,6 +465,7 @@ app.post('/api/roles', handle(async (req, res) => {
 
 app.put('/api/roles/:id', handle(async (req, res) => {
   const role = await withMutation((db) => {
+    requireAdmin(db, req);
     const role = db.roles.find((r) => r.id === req.params.id);
     if (!role) throw new HttpError(404, 'Role not found.');
     if (role.system) throw new HttpError(400, 'System roles cannot be renamed.');
@@ -256,6 +483,7 @@ app.put('/api/roles/:id', handle(async (req, res) => {
 
 app.delete('/api/roles/:id', handle(async (req, res) => {
   await withMutation((db) => {
+    requireAdmin(db, req);
     const role = db.roles.find((r) => r.id === req.params.id);
     if (!role) throw new HttpError(404, 'Role not found.');
     if (role.system) throw new HttpError(400, 'System roles cannot be deleted.');
@@ -304,6 +532,7 @@ function parseShiftType(body: any): { error: string; fields?: undefined } | { er
 
 app.post('/api/shift-types', handle(async (req, res) => {
   const st = await withMutation((db) => {
+    requireAdmin(db, req);
     const { error, fields } = parseShiftType(req.body);
     if (error) throw new HttpError(400, error);
     const st: ShiftType = { id: newId('s'), ...fields! };
@@ -315,6 +544,7 @@ app.post('/api/shift-types', handle(async (req, res) => {
 
 app.put('/api/shift-types/:id', handle(async (req, res) => {
   const st = await withMutation((db) => {
+    requireAdmin(db, req);
     const st = db.shiftTypes.find((s) => s.id === req.params.id);
     if (!st) throw new HttpError(404, 'Shift type not found.');
     checkVersion(st, req.body.expectedVersion, `The shift type "${st.name}"`);
@@ -330,6 +560,7 @@ app.put('/api/shift-types/:id', handle(async (req, res) => {
 
 app.delete('/api/shift-types/:id', handle(async (req, res) => {
   await withMutation((db) => {
+    requireAdmin(db, req);
     const idx = db.shiftTypes.findIndex((s) => s.id === req.params.id);
     if (idx === -1) throw new HttpError(404, 'Shift type not found.');
     db.shiftTypes.splice(idx, 1);
@@ -340,6 +571,7 @@ app.delete('/api/shift-types/:id', handle(async (req, res) => {
 // ---- settings ----
 app.put('/api/settings', handle(async (req, res) => {
   const settings = await withMutation((db) => {
+    requireAdmin(db, req);
     checkVersion(db.settings, req.body.expectedVersion, 'Settings');
     const { maxVacationPerDay } = req.body;
     if (maxVacationPerDay !== undefined)
@@ -372,9 +604,10 @@ app.put('/api/settings', handle(async (req, res) => {
 // ---- time off requests ----
 app.post('/api/timeoff', handle(async (req, res) => {
   const entry = await withMutation((db) => {
-    const { userId, date, type } = req.body;
-    const user = db.users.find((u) => u.id === userId);
-    if (!user) throw new HttpError(404, 'User not found.');
+    const authed = authedUser(db, req);
+    const userId = authed.id; // ignore client-sent userId; use session identity
+    const { date, type } = req.body;
+    const user = authed;
     if (!isDate(date)) throw new HttpError(400, 'Invalid date.');
     if (type !== 'vacation' && type !== 'preferred')
       throw new HttpError(400, 'Type must be vacation or preferred.');
@@ -404,8 +637,13 @@ app.post('/api/timeoff', handle(async (req, res) => {
 
 app.delete('/api/timeoff/:id', handle(async (req, res) => {
   await withMutation((db) => {
+    const authed = authedUser(db, req);
     const idx = db.timeOff.findIndex((t) => t.id === req.params.id);
     if (idx === -1) throw new HttpError(404, 'Request not found.');
+    const entry = db.timeOff[idx];
+    const isAdmin = (authed.roles || []).includes('role-admin');
+    if (entry.userId !== authed.id && !isAdmin)
+      throw new HttpError(403, 'You can only delete your own time-off requests.');
     db.timeOff.splice(idx, 1);
   });
   res.json({ ok: true });
@@ -414,6 +652,7 @@ app.delete('/api/timeoff/:id', handle(async (req, res) => {
 // ---- away time (admin-managed; never counts against vacation) ----
 app.post('/api/awaytime', handle(async (req, res) => {
   const entry = await withMutation((db) => {
+    requireAdmin(db, req);
     const { userId, start, end } = req.body;
     const user = db.users.find((u) => u.id === userId);
     if (!user) throw new HttpError(404, 'User not found.');
@@ -428,6 +667,7 @@ app.post('/api/awaytime', handle(async (req, res) => {
 
 app.put('/api/awaytime/:id', handle(async (req, res) => {
   const entry = await withMutation((db) => {
+    requireAdmin(db, req);
     const entry = db.awayTime.find((a) => a.id === req.params.id);
     if (!entry) throw new HttpError(404, 'Away time not found.');
     checkVersion(entry, req.body.expectedVersion, 'This away-time range');
@@ -445,6 +685,7 @@ app.put('/api/awaytime/:id', handle(async (req, res) => {
 
 app.delete('/api/awaytime/:id', handle(async (req, res) => {
   await withMutation((db) => {
+    requireAdmin(db, req);
     const idx = db.awayTime.findIndex((a) => a.id === req.params.id);
     if (idx === -1) throw new HttpError(404, 'Away time not found.');
     db.awayTime.splice(idx, 1);
@@ -455,6 +696,7 @@ app.delete('/api/awaytime/:id', handle(async (req, res) => {
 // ---- holidays ----
 app.post('/api/holidays', handle(async (req, res) => {
   const entry = await withMutation((db) => {
+    requireAdmin(db, req);
     const { name, recurrence } = req.body;
     if (!name || typeof name !== 'string') throw new HttpError(400, 'A holiday needs a name.');
     if (!isValidRecurrence(recurrence)) throw new HttpError(400, 'A holiday needs a valid recurrence.');
@@ -467,6 +709,7 @@ app.post('/api/holidays', handle(async (req, res) => {
 
 app.put('/api/holidays/:id', handle(async (req, res) => {
   const entry = await withMutation((db) => {
+    requireAdmin(db, req);
     const entry = db.holidays.find((h) => h.id === req.params.id);
     if (!entry) throw new HttpError(404, 'Holiday not found.');
     checkVersion(entry, req.body.expectedVersion, `The holiday "${entry.name}"`);
@@ -487,6 +730,7 @@ app.put('/api/holidays/:id', handle(async (req, res) => {
 
 app.delete('/api/holidays/:id', handle(async (req, res) => {
   await withMutation((db) => {
+    requireAdmin(db, req);
     const idx = db.holidays.findIndex((h) => h.id === req.params.id);
     if (idx === -1) throw new HttpError(404, 'Holiday not found.');
     db.holidays.splice(idx, 1);
@@ -497,6 +741,7 @@ app.delete('/api/holidays/:id', handle(async (req, res) => {
 // ---- schedules ----
 app.post('/api/schedules', handle(async (req, res) => {
   const schedule = await withMutation((db) => {
+    requireAdmin(db, req);
     const cadence = db.settings.cadence;
     if (!cadence) throw new HttpError(400, 'Configure a schedule cadence in Settings first.');
     if (db.shiftTypes.length === 0)
@@ -548,6 +793,7 @@ app.post('/api/schedules', handle(async (req, res) => {
 // 8h rest) still apply to the receiving employee.
 app.post('/api/schedules/:id/reassign', handle(async (req, res) => {
   const schedule = await withMutation((db) => {
+    requireAdmin(db, req);
     const schedule = db.schedules.find((s) => s.id === req.params.id);
     if (!schedule) throw new HttpError(404, 'Schedule not found.');
     const { date, shiftTypeId, fromUserId, toUserId } = req.body;
@@ -609,6 +855,7 @@ app.post('/api/schedules/:id/reassign', handle(async (req, res) => {
 
 app.delete('/api/schedules/:id', handle(async (req, res) => {
   await withMutation((db) => {
+    requireAdmin(db, req);
     const idx = db.schedules.findIndex((s) => s.id === req.params.id);
     if (idx === -1) throw new HttpError(404, 'Schedule not found.');
     db.schedules.splice(idx, 1);
@@ -626,56 +873,85 @@ const sendTradeResult = (res: Response, r: any) =>
     : res.json(r.trade);
 
 app.post('/api/trades', handle(async (req, res) =>
-  sendTradeResult(res, await withMutation((db) => createTrade(db, req.body)))));
+  sendTradeResult(res, await withMutation((db) => {
+    const authed = authedUser(db, req);
+    return createTrade(db, { ...req.body, fromUserId: authed.id });
+  }))));
 
 app.post('/api/trades/:id/respond', handle(async (req, res) =>
-  sendTradeResult(res, await withMutation((db) => respondToOpenTrade(db, req.params.id, req.body)))));
+  sendTradeResult(res, await withMutation((db) => {
+    const authed = authedUser(db, req);
+    return respondToOpenTrade(db, req.params.id, { ...req.body, userId: authed.id });
+  }))));
 
 app.post('/api/trades/:id/withdraw', handle(async (req, res) =>
-  sendTradeResult(res, await withMutation((db) => withdrawResponse(db, req.params.id, req.body)))));
+  sendTradeResult(res, await withMutation((db) => {
+    const authed = authedUser(db, req);
+    return withdrawResponse(db, req.params.id, { ...req.body, userId: authed.id });
+  }))));
 
 app.post('/api/trades/:id/accept', handle(async (req, res) =>
   sendTradeResult(res, await withMutation((db) => {
+    const authed = authedUser(db, req);
     const trade = db.trades.find((t) => t.id === req.params.id);
     if (!trade) return { error: 'Trade not found.', code: 404 };
+    const body = { ...req.body, userId: authed.id };
     return trade.type === 'open'
-      ? acceptOpenResponse(db, req.params.id, req.body)
-      : acceptDirect(db, req.params.id, req.body);
+      ? acceptOpenResponse(db, req.params.id, body)
+      : acceptDirect(db, req.params.id, body);
   }))));
 
 app.post('/api/trades/:id/reject', handle(async (req, res) =>
-  sendTradeResult(res, await withMutation((db) => rejectDirect(db, req.params.id, req.body)))));
+  sendTradeResult(res, await withMutation((db) => {
+    const authed = authedUser(db, req);
+    return rejectDirect(db, req.params.id, { ...req.body, userId: authed.id });
+  }))));
 
 app.post('/api/trades/:id/claim', handle(async (req, res) =>
-  sendTradeResult(res, await withMutation((db) => claimGiveaway(db, req.params.id, req.body)))));
+  sendTradeResult(res, await withMutation((db) => {
+    const authed = authedUser(db, req);
+    return claimGiveaway(db, req.params.id, { ...req.body, userId: authed.id });
+  }))));
 
 app.post('/api/trades/:id/cancel', handle(async (req, res) =>
-  sendTradeResult(res, await withMutation((db) => cancelTrade(db, req.params.id, req.body)))));
+  sendTradeResult(res, await withMutation((db) => {
+    const authed = authedUser(db, req);
+    return cancelTrade(db, req.params.id, { ...req.body, userId: authed.id });
+  }))));
 
 // Read-only eligibility lookups so the UI only offers feasible trades.
-app.get('/api/schedules/:id/trade-options', handle(async (req, res) =>
-  res.json(tradeOptions(await readState(), req.params.id, req.query.userId as string))));
+app.get('/api/schedules/:id/trade-options', handle(async (req, res) => {
+  const db = await readState();
+  const authed = authedUser(db, req);
+  return res.json(tradeOptions(db, req.params.id, authed.id));
+}));
 
-app.get('/api/schedules/:id/swap-partners', handle(async (req, res) =>
-  res.json(
-    swapPartners(await readState(), req.params.id, req.query.userId as string, {
+app.get('/api/schedules/:id/swap-partners', handle(async (req, res) => {
+  const db = await readState();
+  const authed = authedUser(db, req);
+  return res.json(
+    swapPartners(db, req.params.id, authed.id, {
       date: req.query.date as string,
       shiftTypeId: req.query.shiftTypeId as string,
     })
-  )));
+  );
+}));
 
 // Split your extra days (worked beyond required) into extra vacation and
 // incentive pay. Repeatable — the new split replaces the old one.
 app.put('/api/schedules/:id/extra-election', handle(async (req, res) => {
-  const r = await withMutation((db) => setExtraElection(db, req.params.id, req.body));
+  const r = await withMutation((db) => {
+    const authed = authedUser(db, req);
+    return setExtraElection(db, req.params.id, { ...req.body, userId: authed.id });
+  });
   return r.error ? res.status((r as any).code || 400).json({ error: r.error }) : res.json(r.election);
 }));
 
 app.put('/api/notifications/read', handle(async (req, res) => {
   await withMutation((db) => {
-    const { userId } = req.body;
+    const authed = authedUser(db, req);
     for (const n of db.notifications) {
-      if (n.userId === userId) n.read = true;
+      if (n.userId === authed.id) n.read = true;
     }
   });
   res.json({ ok: true });
@@ -685,9 +961,9 @@ app.put('/api/notifications/read', handle(async (req, res) => {
 // route clears the viewer's whole list; the per-id route clears one.
 app.put('/api/notifications/dismiss', handle(async (req, res) => {
   await withMutation((db) => {
-    const { userId } = req.body;
+    const authed = authedUser(db, req);
     for (const n of db.notifications) {
-      if (n.userId === userId) { n.read = true; n.dismissed = true; }
+      if (n.userId === authed.id) { n.read = true; n.dismissed = true; }
     }
   });
   res.json({ ok: true });
@@ -695,10 +971,10 @@ app.put('/api/notifications/dismiss', handle(async (req, res) => {
 
 app.put('/api/notifications/:id/dismiss', handle(async (req, res) => {
   await withMutation((db) => {
-    const { userId } = req.body;
+    const authed = authedUser(db, req);
     const n = db.notifications.find((x) => x.id === req.params.id);
     if (!n) throw new HttpError(404, 'Notification not found.');
-    if (n.userId !== userId)
+    if (n.userId !== authed.id)
       throw new HttpError(403, 'You can only dismiss your own notifications.');
     n.read = true;
     n.dismissed = true;
@@ -711,7 +987,11 @@ app.get('/api/schedules/:id/ics', handle(async (req, res) => {
   const db = await readState();
   const schedule = db.schedules.find((s) => s.id === req.params.id);
   if (!schedule) throw new HttpError(404, 'Schedule not found.');
-  const user = db.users.find((u) => u.id === req.query.userId);
+  const authed = authedUser(db, req);
+  const isAdmin = (authed.roles || []).includes('role-admin');
+  // Non-admins always get their own ICS; admins may pass ?userId for someone else.
+  const targetId = isAdmin && req.query.userId ? req.query.userId as string : authed.id;
+  const user = db.users.find((u) => u.id === targetId);
   if (!user) throw new HttpError(404, 'User not found.');
   const mine = schedule.assignments.filter((a) => a.userId === user.id);
   const ics = buildIcs({
@@ -739,7 +1019,23 @@ if (fs.existsSync(path.join(dist, 'index.html'))) {
 // frontend server, and the API must not steal it.
 const PORT = process.env.API_PORT || 3001;
 initDb()
-  .then(() => app.listen(PORT, () => console.log(`API listening on http://localhost:${PORT}`)))
+  .then(async () => {
+    const pool = getPool();
+    const db = await readState();
+    // Ensure every user has a credential row (idempotent).
+    await ensureCredentialRows(pool, db.users.map((u) => u.id));
+    // Bootstrap: if no admin has registered, print a one-time setup link.
+    const map = await registeredMap(pool);
+    const admins = db.users.filter((u) => (u.roles || []).includes('role-admin'));
+    const anyAdminRegistered = admins.some((u) => map[u.id]);
+    if (!anyAdminRegistered && admins.length > 0) {
+      const firstAdmin = admins[0];
+      const rawToken = await createInvite(pool, firstAdmin.id);
+      const link = inviteLink(rawToken);
+      console.log(`\n[bootstrap] No admin has a password yet. One-time setup link:\n  ${link}\n`);
+    }
+    app.listen(PORT, () => console.log(`API listening on http://localhost:${PORT}`));
+  })
   .catch((err) => {
     console.error('Failed to initialize database:', err);
     process.exit(1);

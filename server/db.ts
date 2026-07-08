@@ -29,7 +29,7 @@ const SYSTEM_ROLES: RoleTag[] = [
 
 export const DEFAULT_DATA: Db = {
   users: [
-    { id: 'u-admin', name: 'Admin', roles: ['role-admin', 'role-employee'], vacationDays: 15, color: '#6366f1', requiredShifts: null },
+    { id: 'u-admin', name: 'Admin', firstName: 'Admin', lastName: '', email: 'admin@shiftly.local', roles: ['role-admin', 'role-employee'], vacationDays: 15, color: '#6366f1', requiredShifts: null },
   ],
   roles: SYSTEM_ROLES.map((r) => ({ ...r })),
   shiftTypes: [],
@@ -44,6 +44,11 @@ export const DEFAULT_DATA: Db = {
 };
 
 let pool: Pool | null = null;
+
+export function getPool(): Pool {
+  if (!pool) throw new Error('Database not initialized — initDb() must complete first.');
+  return pool;
+}
 
 // Defaults and legacy migrations for data predating newer fields. Pure and
 // idempotent — shared by every load, the JSON import script, and test resets.
@@ -71,6 +76,7 @@ export function normalizeDb(loaded: Db): Db {
     if (!loaded.roles.some((r) => r.id === sys.id)) loaded.roles.push({ ...sys });
   }
   for (const r of loaded.roles) r.version ??= 1;
+  const emailsSeen = new Set<string>();
   for (const u of loaded.users) {
     u.requiredShifts ??= null;
     // Migrate the legacy single `role` field into role tags (then it's dead).
@@ -78,6 +84,26 @@ export function normalizeDb(loaded: Db): Db {
     if ((u as any).role === 'admin' && !u.roles.includes('role-admin')) u.roles.push('role-admin');
     if (!u.roles.includes('role-employee')) u.roles.push('role-employee');
     u.theme ??= 'light';
+    // Derive firstName/lastName from name if missing (idempotent).
+    if (!u.firstName) {
+      const spaceIdx = u.name.indexOf(' ');
+      u.firstName = spaceIdx === -1 ? u.name : u.name.slice(0, spaceIdx);
+      u.lastName = spaceIdx === -1 ? '' : u.name.slice(spaceIdx + 1);
+    }
+    // Re-derive display name from firstName/lastName.
+    u.name = `${u.firstName} ${u.lastName ?? ''}`.trim();
+    // Synthesize email if missing (idempotent).
+    if (!u.email) {
+      const local = u.name.toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.+|\.+$/g, '') || 'user';
+      let candidate = `${local}@shiftly.local`;
+      let suffix = 2;
+      while (emailsSeen.has(candidate)) {
+        candidate = `${local}.${suffix}@shiftly.local`;
+        suffix++;
+      }
+      u.email = candidate;
+    }
+    emailsSeen.add(u.email);
     u.version ??= 1;
   }
   for (const st of loaded.shiftTypes) {
@@ -168,7 +194,15 @@ export async function withMutation<T>(fn: (db: Db) => T | Promise<T>): Promise<T
 // the same lock, so it queues behind any in-flight mutation — no torn resets.
 export async function resetDbForTests(seed: Db): Promise<void> {
   await withAppLock(async (conn) => {
-    await writeCollections(conn, normalizeDb(structuredClone(seed)), COLLECTION_KEYS);
+    const normalized = normalizeDb(structuredClone(seed));
+    await writeCollections(conn, normalized, COLLECTION_KEYS);
+    // Clear auth state and re-seed credential rows (unregistered) for deterministic e2e resets.
+    await conn.query('DELETE FROM `sessions`');
+    await conn.query('DELETE FROM `user_credentials`');
+    if (normalized.users.length) {
+      const rows = normalized.users.map((u) => [u.id, 0]);
+      await conn.query('INSERT IGNORE INTO `user_credentials` (`user_id`, `registered`) VALUES ?', [rows]);
+    }
   });
 }
 

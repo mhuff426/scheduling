@@ -4,11 +4,19 @@ import { noteVersion } from './versions';
 async function request(method: string, url: string, body?: any): Promise<any> {
   const res = await fetch(url, {
     method,
+    credentials: 'same-origin',
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  if (!res.ok) {
+    // On 401 (except for the me endpoint which handles it itself), signal the
+    // app to flip to the logged-out state.
+    if (res.status === 401 && !url.includes('/api/auth/me')) {
+      window.dispatchEvent(new CustomEvent('auth:required'));
+    }
+    throw new Error(data.error || `Request failed (${res.status})`);
+  }
   return data;
 }
 
@@ -47,16 +55,23 @@ export const api = {
   rejectTrade: (id: string, body: any) => request('POST', `/api/trades/${id}/reject`, body),
   claimTrade: (id: string, body: any) => request('POST', `/api/trades/${id}/claim`, body),
   cancelTrade: (id: string, body: any) => request('POST', `/api/trades/${id}/cancel`, body),
+  // Auth
+  me: () => request('GET', '/api/auth/me').catch(() => null),
+  login: (email: string, password: string) => request('POST', '/api/auth/login', { email, password }),
+  registerAccount: (body: { token?: string; email?: string; password: string }) =>
+    request('POST', '/api/auth/register', body),
+  logout: () => request('POST', '/api/auth/logout'),
+  resendInvite: (id: string) => request('POST', `/api/users/${id}/resend-invite`),
+  impersonate: (userId: string) => request('POST', '/api/dev/impersonate', { userId }),
   // Per-tab reads plus the two cross-tab resources (their own endpoints so
   // they can become SSE streams later without touching the tab payloads).
   getTab: (tab: string) => request('GET', `/api/tabs/${encodeURIComponent(tab)}`),
   getUsers: () => request('GET', '/api/users'),
-  getNotifications: (userId: string) =>
-    request('GET', `/api/notifications?userId=${encodeURIComponent(userId)}`),
-  markNotificationsRead: (userId: string) => request('PUT', '/api/notifications/read', { userId }),
-  dismissNotification: (id: string, userId: string) =>
-    request('PUT', `/api/notifications/${id}/dismiss`, { userId }),
-  dismissAllNotifications: (userId: string) => request('PUT', '/api/notifications/dismiss', { userId }),
+  getNotifications: () => request('GET', '/api/notifications'),
+  markNotificationsRead: () => request('PUT', '/api/notifications/read', {}),
+  dismissNotification: (id: string) =>
+    request('PUT', `/api/notifications/${id}/dismiss`, {}),
+  dismissAllNotifications: () => request('PUT', '/api/notifications/dismiss', {}),
   electExtra: (scheduleId: string, body: any) => request('PUT', `/api/schedules/${scheduleId}/extra-election`, body),
   tradeOptions: (scheduleId: string, userId: string) =>
     request('GET', `/api/schedules/${scheduleId}/trade-options?userId=${encodeURIComponent(userId)}`),
