@@ -132,3 +132,44 @@ test('employee sees their away time read-only on My Requests', async ({ page }) 
   await expect(away.locator('input')).toHaveCount(0);
   await expect(away.locator('button')).toHaveCount(0);
 });
+
+test('away label shows on the employee calendar; memo stays admin-only', async ({ page }) => {
+  await gotoAdmin(page);
+  const card = awayCard(page);
+  const employee = card.locator('label', { hasText: 'Employee' }).locator('select');
+
+  // Target the second roster user (an employee).
+  const targetValue = await employee.locator('option').nth(1).getAttribute('value');
+  await employee.selectOption(targetValue);
+
+  // Mid-month dates in the CURRENT month, so the away chip is on the
+  // preferences calendar the employee lands on (date-independent).
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const now = new Date();
+  const ym = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
+
+  await card.locator('label', { hasText: 'From' }).locator('input[type=date]').fill(`${ym}-10`);
+  await card.locator('label', { hasText: 'To' }).locator('input[type=date]').fill(`${ym}-12`);
+  await card.locator('label', { hasText: 'Label' }).locator('input[type=text]').fill('Conference');
+  await card.locator('label', { hasText: 'Memo' }).locator('input[type=text]').fill('Annual vet conf');
+  await card.getByRole('button', { name: 'Add away time' }).click();
+  await expect(page.locator('.banner.error')).toHaveCount(0);
+
+  // The new row shows both text fields (first row for this employee).
+  const row = card.locator('tbody tr').last();
+  await expect(row.locator('input[type=text]').nth(0)).toHaveValue('Conference');
+  await expect(row.locator('input[type=text]').nth(1)).toHaveValue('Annual vet conf');
+  // Saves are queued client-side; let them land before navigating.
+  await expect(page.locator('body[data-saving]')).toHaveCount(0);
+
+  // Switch to the employee: the calendar chip carries the label…
+  await page.locator('.user-switch select').selectOption(targetValue);
+  await page.locator('.tab', { hasText: 'Preferences' }).click();
+  await expect(page.locator('.chip', { hasText: 'Conference' }).first()).toBeVisible();
+  // …the read-only away card lists it…
+  const away = myRequestsAwayCard(page);
+  await expect(away).toContainText('— Conference');
+  await expect(away.locator('input')).toHaveCount(0);
+  // …and the memo is nowhere on the employee's page.
+  await expect(page.getByText('Annual vet conf')).toHaveCount(0);
+});

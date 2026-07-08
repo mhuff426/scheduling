@@ -149,7 +149,7 @@ export default function Preferences({ db, currentUser, act }: Props) {
             const req = mineByDate[date];
             const past = date < today;
             const full = (vacationPerDay[date] || 0) >= db.settings.maxVacationPerDay && !req;
-            const awayDay = myAway.some((a) => a.start <= date && date <= a.end);
+            const awayDay = myAway.find((a) => a.start <= date && date <= a.end);
             return (
               <div
                 key={i}
@@ -175,7 +175,7 @@ export default function Preferences({ db, currentUser, act }: Props) {
                   </div>
                 )}
                 {!req && full && <div className="chip chip-full">Day full</div>}
-                {awayDay && <div className="chip chip-full">✈️ Away</div>}
+                {awayDay && <div className="chip chip-full">✈️ {awayDay.label || 'Away'}</div>}
               </div>
             );
           })}
@@ -187,7 +187,11 @@ export default function Preferences({ db, currentUser, act }: Props) {
         <div className="card">
           <h3 style={{ margin: '0 0 0.5rem' }}>✈️ Scheduled away (set by your manager)</h3>
           <ul className="muted small" style={{ margin: 0 }}>
-            {myAway.map((a) => <li key={a.id}>{prettyDate(a.start)} → {prettyDate(a.end)}</li>)}
+            {myAway.map((a) => (
+              <li key={a.id}>
+                {prettyDate(a.start)} → {prettyDate(a.end)}{a.label ? ` — ${a.label}` : ''}
+              </li>
+            ))}
           </ul>
         </div>
       )}
