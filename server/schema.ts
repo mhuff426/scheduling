@@ -36,7 +36,11 @@ export const SCHEMA_STATEMENTS: string[] = [
     \`start_date\` CHAR(10) NULL,
     \`theme\` VARCHAR(8) NULL,
     \`version\` INT NOT NULL DEFAULT 1,
-    \`position\` INT NOT NULL
+    \`position\` INT NOT NULL,
+    \`first_name\` VARCHAR(100) NULL,
+    \`last_name\` VARCHAR(100) NULL,
+    \`email\` VARCHAR(255) NULL,
+    \`employee_id\` VARCHAR(64) NULL
   ) ${TABLE_SUFFIX}`,
   `CREATE TABLE IF NOT EXISTS \`user_roles\` (
     \`user_id\` VARCHAR(64) NOT NULL,
@@ -227,6 +231,25 @@ export const SCHEMA_STATEMENTS: string[] = [
     \`position\` INT NOT NULL,
     INDEX \`idx_notifications_user\` (\`user_id\`)
   ) ${TABLE_SUFFIX}`,
+  // IMPORTANT: user_credentials and sessions are deliberately OUTSIDE the Db
+  // collection-replace machinery and have NO FK to users. The users collection
+  // is rewritten (DELETE+re-INSERT, same ids) on every roster edit, and a
+  // cascade would wipe credentials. Rows are keyed by the stable user id;
+  // cleanup is explicit in the delete-user route.
+  `CREATE TABLE IF NOT EXISTS \`user_credentials\` (
+    \`user_id\` VARCHAR(64) NOT NULL PRIMARY KEY,
+    \`password_hash\` VARCHAR(255) NULL,
+    \`invite_token_hash\` CHAR(64) NULL,
+    \`invite_token_expiry\` VARCHAR(32) NULL,
+    \`registered\` BOOLEAN NOT NULL DEFAULT FALSE
+  ) ${TABLE_SUFFIX}`,
+  `CREATE TABLE IF NOT EXISTS \`sessions\` (
+    \`id\` CHAR(64) NOT NULL PRIMARY KEY,
+    \`user_id\` VARCHAR(64) NOT NULL,
+    \`created_at\` VARCHAR(32) NOT NULL,
+    \`expires_at\` VARCHAR(32) NOT NULL,
+    INDEX \`idx_sessions_user\` (\`user_id\`)
+  ) ${TABLE_SUFFIX}`,
 ];
 
 // CREATE TABLE IF NOT EXISTS skips existing tables, so columns/indexes added
@@ -266,4 +289,11 @@ export async function ensureSchema(pool: Pool): Promise<void> {
   await ensureIndex(pool, 'time_off', 'uq_time_off_user_date', 'UNIQUE KEY `uq_time_off_user_date` (`user_id`, `date`)');
   await ensureIndex(pool, 'schedules', 'uq_schedules_start', 'UNIQUE KEY `uq_schedules_start` (`start_date`)');
   await ensureIndex(pool, 'roles', 'uq_roles_name', 'UNIQUE KEY `uq_roles_name` (`name`)');
+  // Auth columns added after initial schema.
+  await ensureColumn(pool, 'users', 'first_name', '`first_name` VARCHAR(100) NULL');
+  await ensureColumn(pool, 'users', 'last_name', '`last_name` VARCHAR(100) NULL');
+  await ensureColumn(pool, 'users', 'email', '`email` VARCHAR(255) NULL');
+  await ensureColumn(pool, 'users', 'employee_id', '`employee_id` VARCHAR(64) NULL');
+  // MySQL UNIQUE allows multiple NULLs, so this is safe while email is still optional.
+  await ensureIndex(pool, 'users', 'uq_users_email', 'UNIQUE KEY `uq_users_email` (`email`)');
 }

@@ -27,6 +27,15 @@ export interface User {
   startDate?: string | null;
   theme?: 'light' | 'dark';
   version?: number;
+  // Identity fields (stored in users table, synced to/from name).
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  employeeId?: string | null;
+  // `registered` is derived — the server merges it into API responses; it is
+  // NOT persisted on the users table (it lives in user_credentials.registered).
+  // Credentials (password hash, tokens) never ride on this type.
+  registered?: boolean;
 }
 
 export interface ShiftType {

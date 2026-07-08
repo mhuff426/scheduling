@@ -100,11 +100,12 @@ function rowsFor(key: CollectionKey, db: Db): TableRows[] {
           u.requiredShifts ?? null, u.maxShiftsOverride ?? null,
           u.maxConsecutiveNights ?? null, u.startDate ?? null, u.theme ?? null,
           u.version ?? 1, i,
+          u.firstName ?? null, u.lastName ?? null, u.email ?? null, u.employeeId ?? null,
         ]);
         (u.roles || []).forEach((rid, j) => userRoles.push([u.id, rid, j]));
       });
       return [
-        { table: 'users', columns: ['id', 'name', 'vacation_days', 'color', 'required_shifts', 'max_shifts_override', 'max_consecutive_nights', 'start_date', 'theme', 'version', 'position'], rows: users },
+        { table: 'users', columns: ['id', 'name', 'vacation_days', 'color', 'required_shifts', 'max_shifts_override', 'max_consecutive_nights', 'start_date', 'theme', 'version', 'position', 'first_name', 'last_name', 'email', 'employee_id'], rows: users },
         { table: 'user_roles', columns: ['user_id', 'role_id', 'position'], rows: userRoles },
       ];
     }
@@ -350,6 +351,10 @@ export async function loadAllFromMysql(conn: Queryable): Promise<Db | null> {
     ...(r.start_date == null ? {} : { startDate: r.start_date }),
     ...(r.theme == null ? {} : { theme: r.theme }),
     version: r.version ?? 1,
+    ...(r.first_name == null ? {} : { firstName: r.first_name }),
+    ...(r.last_name == null ? {} : { lastName: r.last_name }),
+    ...(r.email == null ? {} : { email: r.email }),
+    ...(r.employee_id == null ? {} : { employeeId: r.employee_id }),
   }));
 
   // Omit `system` on custom roles (the JSON shape only carries it when true).

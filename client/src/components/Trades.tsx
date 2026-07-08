@@ -247,7 +247,7 @@ export default function Trades({ db, currentUser, act }: Props) {
             {myNotifications.length > 0 && (
               <button
                 className="btn ghost sm"
-                onClick={() => act(() => api.dismissAllNotifications(me))}
+                onClick={() => act(() => api.dismissAllNotifications())}
               >
                 Clear all
               </button>
@@ -267,7 +267,7 @@ export default function Trades({ db, currentUser, act }: Props) {
                     className="notif-dismiss"
                     aria-label="Dismiss notification"
                     title="Dismiss"
-                    onClick={() => act(() => api.dismissNotification(n.id, me))}
+                    onClick={() => act(() => api.dismissNotification(n.id))}
                   >
                     ×
                   </button>

@@ -38,38 +38,63 @@ test.beforeEach(async ({ request }) => {
 
 const post = (request, url: string, data: unknown) => request.post(url, { data });
 
-test('a giveaway can only be claimed once — the loser gets a clear 409', async ({ request }) => {
+// The server now derives the acting user from the session (httpOnly `sid`
+// cookie), overriding any client-sent userId/fromUserId. The default `request`
+// fixture carries no cookie, so under E2E_TESTING it is auto-authenticated as
+// the first admin (u-admin) — fine for reset/admin/system-level calls. To act
+// as a different user we mint a real session via /api/dev/impersonate on a
+// fresh APIRequestContext (its own cookie jar). Contexts must be created INSIDE
+// each test, after the beforeEach reset wipes the sessions table.
+const impersonate = async (playwright, userId: string) => {
+  const ctx = await playwright.request.newContext({ baseURL: 'http://localhost:5173' });
+  const r = await ctx.post('/api/dev/impersonate', { data: { userId } });
+  expect(r.ok()).toBeTruthy();
+  return ctx;
+};
+
+test('a giveaway can only be claimed once — the loser gets a clear 409', async ({ request, playwright }) => {
+  // Giveaway created by the admin (default context).
   const created = await post(request, '/api/trades', {
-    scheduleId: 'sch-2099', fromUserId: 'u-admin', type: 'giveaway',
+    scheduleId: 'sch-2099', type: 'giveaway',
     offered: { date: '2099-01-05', shiftTypeId: 's-day' },
   });
   expect(created.ok()).toBeTruthy();
   const trade = await created.json();
 
-  const first = await post(request, `/api/trades/${trade.id}/claim`, { userId: 'u-bea' });
+  const bea = await impersonate(playwright, 'u-bea');
+  const cy = await impersonate(playwright, 'u-cy');
+
+  const first = await bea.post(`/api/trades/${trade.id}/claim`, { data: {} });
   expect(first.ok()).toBeTruthy();
 
   // User C acts on a stale view — the giveaway is already gone.
-  const second = await post(request, `/api/trades/${trade.id}/claim`, { userId: 'u-cy' });
+  const second = await cy.post(`/api/trades/${trade.id}/claim`, { data: {} });
   expect(second.status()).toBe(409);
   const body = await second.json();
   expect(body.error).toContain('already been claimed');
+
+  await bea.dispose();
+  await cy.dispose();
 });
 
-test('accepting a trade that was cancelled meanwhile returns a clear 409', async ({ request }) => {
+test('accepting a trade that was cancelled meanwhile returns a clear 409', async ({ request, playwright }) => {
+  // Created and cancelled by the owner (admin, default context).
   const created = await post(request, '/api/trades', {
-    scheduleId: 'sch-2099', fromUserId: 'u-admin', type: 'direct',
+    scheduleId: 'sch-2099', type: 'direct',
     offered: { date: '2099-01-05', shiftTypeId: 's-day' },
     toUserId: 'u-bea', requested: { date: '2099-01-10', shiftTypeId: 's-day' },
   });
   expect(created.ok()).toBeTruthy();
   const trade = await created.json();
 
-  expect((await post(request, `/api/trades/${trade.id}/cancel`, { userId: 'u-admin' })).ok()).toBeTruthy();
+  expect((await post(request, `/api/trades/${trade.id}/cancel`, {})).ok()).toBeTruthy();
 
-  const accept = await post(request, `/api/trades/${trade.id}/accept`, { userId: 'u-bea' });
+  // The recipient (u-bea) accepts a proposal that's already gone.
+  const bea = await impersonate(playwright, 'u-bea');
+  const accept = await bea.post(`/api/trades/${trade.id}/accept`, { data: {} });
   expect(accept.status()).toBe(409);
   expect((await accept.json()).error).toContain('no longer open');
+  await bea.dispose();
 });
 
 test('duplicate open trade for the same shift is rejected', async ({ request }) => {
@@ -102,27 +127,38 @@ test('entity edits are version-checked: stale writes get 409 version_conflict', 
   expect(users.find((u) => u.id === 'u-bea').vacationDays).toBe(12);
 });
 
-test('the per-day vacation cap holds under sequential and stale submissions', async ({ request }) => {
-  // Seed cap is 2 per day.
-  expect((await post(request, '/api/timeoff', { userId: 'u-admin', date: '2099-02-01', type: 'vacation' })).ok()).toBeTruthy();
-  expect((await post(request, '/api/timeoff', { userId: 'u-bea', date: '2099-02-01', type: 'vacation' })).ok()).toBeTruthy();
-  const third = await post(request, '/api/timeoff', { userId: 'u-cy', date: '2099-02-01', type: 'vacation' });
+test('the per-day vacation cap holds under sequential and stale submissions', async ({ request, playwright }) => {
+  // Seed cap is 2 per day. Each request is a DIFFERENT user (server derives the
+  // owner from the session), so the cap — not the one-request-per-day guard —
+  // is what rejects the third. `userId` in the body is ignored; only date/type.
+  const bea = await impersonate(playwright, 'u-bea');
+  const cy = await impersonate(playwright, 'u-cy');
+
+  expect((await post(request, '/api/timeoff', { date: '2099-02-01', type: 'vacation' })).ok()).toBeTruthy();
+  expect((await bea.post('/api/timeoff', { data: { date: '2099-02-01', type: 'vacation' } })).ok()).toBeTruthy();
+  const third = await cy.post('/api/timeoff', { data: { date: '2099-02-01', type: 'vacation' } });
   expect(third.status()).toBe(400);
   expect((await third.json()).error).toContain('full');
+
+  await bea.dispose();
+  await cy.dispose();
 });
 
-test('parallel writes are serialized — no lost updates', async ({ request }) => {
+test('parallel writes are serialized — no lost updates', async ({ request, playwright }) => {
   // 10 simultaneous inserts; each mutation rewrites the timeOff collection,
-  // so any lost update would show as a missing row.
+  // so any lost update would show as a missing row. All are u-cy (one session).
+  const cy = await impersonate(playwright, 'u-cy');
   const dates = Array.from({ length: 10 }, (_, i) => `2099-03-${String(i + 1).padStart(2, '0')}`);
   const results = await Promise.all(
-    dates.map((date) => post(request, '/api/timeoff', { userId: 'u-cy', date, type: 'preferred' }))
+    dates.map((date) => cy.post('/api/timeoff', { data: { date, type: 'preferred' } }))
   );
   for (const r of results) expect(r.ok()).toBeTruthy();
 
   const state = await (await request.get('/api/state')).json();
   const mine = state.timeOff.filter((t) => t.userId === 'u-cy');
   expect(mine.length).toBe(10);
+
+  await cy.dispose();
 });
 
 test('tab payloads carry only their collections; users/notifications have their own endpoints', async ({ request }) => {
