@@ -106,6 +106,8 @@ export const SCHEMA_STATEMENTS: string[] = [
     \`user_id\` VARCHAR(64) NOT NULL,
     \`start_date\` CHAR(10) NOT NULL,
     \`end_date\` CHAR(10) NOT NULL,
+    \`label\` VARCHAR(255) NULL,
+    \`memo\` TEXT NULL,
     \`version\` INT NOT NULL DEFAULT 1,
     \`position\` INT NOT NULL
   ) ${TABLE_SUFFIX}`,
@@ -286,6 +288,8 @@ export async function ensureSchema(pool: Pool): Promise<void> {
   for (const t of VERSIONED_TABLES) {
     await ensureColumn(pool, t, 'version', '`version` INT NOT NULL DEFAULT 1');
   }
+  await ensureColumn(pool, 'away_time', 'label', '`label` VARCHAR(255) NULL');
+  await ensureColumn(pool, 'away_time', 'memo', '`memo` TEXT NULL');
   await ensureIndex(pool, 'time_off', 'uq_time_off_user_date', 'UNIQUE KEY `uq_time_off_user_date` (`user_id`, `date`)');
   await ensureIndex(pool, 'schedules', 'uq_schedules_start', 'UNIQUE KEY `uq_schedules_start` (`start_date`)');
   await ensureIndex(pool, 'roles', 'uq_roles_name', 'UNIQUE KEY `uq_roles_name` (`name`)');

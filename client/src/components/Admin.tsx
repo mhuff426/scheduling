@@ -461,12 +461,14 @@ function AwayTimeManager({ db, act }: Props) {
   const [userId, setUserId] = useState(db.users[0]?.id || '');
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
+  const [label, setLabel] = useState('');
+  const [memo, setMemo] = useState('');
   const ranges = (db.awayTime || []).filter((a) => a.userId === userId);
 
   const add = async () => {
     if (!start || !end) return;
-    const ok = await act(() => api.addAwayTime({ userId, start, end }));
-    if (ok) { setStart(''); setEnd(''); }
+    const ok = await act(() => api.addAwayTime({ userId, start, end, label, memo }));
+    if (ok) { setStart(''); setEnd(''); setLabel(''); setMemo(''); }
   };
 
   return (
@@ -482,7 +484,7 @@ function AwayTimeManager({ db, act }: Props) {
       </label>
       {ranges.length > 0 ? (
         <table className="table">
-          <thead><tr><th>From</th><th>To</th><th /></tr></thead>
+          <thead><tr><th>From</th><th>To</th><th title="Shown to the employee on their calendar">Label</th><th title="Admin-only note — the employee never sees it">Memo</th><th /></tr></thead>
           <tbody>
             {ranges.map((a) => (
               <tr key={a.id}>
@@ -493,6 +495,14 @@ function AwayTimeManager({ db, act }: Props) {
                 <td>
                   <input className="inline-num" type="date" defaultValue={a.end}
                     onBlur={(e) => { const v = e.target.value; if (v && v !== a.end) act(() => api.updateAwayTime(a.id, { end: v, expectedVersion: versionOf('awayTime', a.id) })); }} />
+                </td>
+                <td>
+                  <input className="inline-num" type="text" placeholder="—" defaultValue={a.label ?? ''}
+                    onBlur={(e) => { const v = e.target.value.trim(); if (v !== (a.label ?? '')) act(() => api.updateAwayTime(a.id, { label: v, expectedVersion: versionOf('awayTime', a.id) })); }} />
+                </td>
+                <td>
+                  <input className="inline-num" type="text" placeholder="—" defaultValue={a.memo ?? ''}
+                    onBlur={(e) => { const v = e.target.value.trim(); if (v !== (a.memo ?? '')) act(() => api.updateAwayTime(a.id, { memo: v, expectedVersion: versionOf('awayTime', a.id) })); }} />
                 </td>
                 <td className="row-actions">
                   <button className="btn danger ghost sm" title="Remove away time" onClick={() => act(() => api.deleteAwayTime(a.id))}>✕</button>
@@ -507,6 +517,12 @@ function AwayTimeManager({ db, act }: Props) {
       <div className="form-grid">
         <label>From<input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></label>
         <label>To<input type="date" value={end} onChange={(e) => setEnd(e.target.value)} /></label>
+        <label>Label
+          <input type="text" placeholder="shown to the employee" value={label} onChange={(e) => setLabel(e.target.value)} />
+        </label>
+        <label>Memo
+          <input type="text" placeholder="admin-only note" value={memo} onChange={(e) => setMemo(e.target.value)} />
+        </label>
         <button className="btn primary" onClick={add} disabled={!start || !end || end < start}>Add away time</button>
       </div>
     </section>

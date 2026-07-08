@@ -65,6 +65,8 @@ export interface AwayTime {
   userId: string;
   start: string; // "YYYY-MM-DD" inclusive
   end: string;   // "YYYY-MM-DD" inclusive
+  label?: string; // shown to the employee (calendar chip, away card)
+  memo?: string;  // admin-only note explaining the away time
   version?: number;
 }
 

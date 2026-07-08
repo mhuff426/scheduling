@@ -650,6 +650,13 @@ app.delete('/api/timeoff/:id', handle(async (req, res) => {
 }));
 
 // ---- away time (admin-managed; never counts against vacation) ----
+// Optional free-text fields: `label` is shown to the employee (calendar chip,
+// away card); `memo` is an admin-only note. Blank collapses to absent.
+const awayText = (v: unknown, max: number): string | undefined => {
+  const s = String(v ?? '').trim().slice(0, max);
+  return s || undefined;
+};
+
 app.post('/api/awaytime', handle(async (req, res) => {
   const entry = await withMutation((db) => {
     requireAdmin(db, req);
@@ -658,7 +665,11 @@ app.post('/api/awaytime', handle(async (req, res) => {
     if (!user) throw new HttpError(404, 'User not found.');
     if (!isDate(start) || !isDate(end)) throw new HttpError(400, 'Away time needs a valid start and end date.');
     if (end < start) throw new HttpError(400, 'The away end date must be on or after the start date.');
-    const e = { id: newId('aw'), userId, start, end };
+    const e = {
+      id: newId('aw'), userId, start, end,
+      ...(awayText(req.body.label, 255) ? { label: awayText(req.body.label, 255) } : {}),
+      ...(awayText(req.body.memo, 10000) ? { memo: awayText(req.body.memo, 10000) } : {}),
+    };
     db.awayTime.push(e);
     return e;
   });
@@ -677,6 +688,8 @@ app.put('/api/awaytime/:id', handle(async (req, res) => {
     if (newEnd < newStart) throw new HttpError(400, 'The away end date must be on or after the start date.');
     entry.start = newStart;
     entry.end = newEnd;
+    if (req.body.label !== undefined) entry.label = awayText(req.body.label, 255);
+    if (req.body.memo !== undefined) entry.memo = awayText(req.body.memo, 10000);
     bumpVersion(entry);
     return entry;
   });

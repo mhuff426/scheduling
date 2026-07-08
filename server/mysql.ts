@@ -150,8 +150,8 @@ function rowsFor(key: CollectionKey, db: Db): TableRows[] {
       }];
     case 'awayTime':
       return [{
-        table: 'away_time', columns: ['id', 'user_id', 'start_date', 'end_date', 'version', 'position'],
-        rows: db.awayTime.map((a, i) => [a.id, a.userId, a.start, a.end, a.version ?? 1, i]),
+        table: 'away_time', columns: ['id', 'user_id', 'start_date', 'end_date', 'label', 'memo', 'version', 'position'],
+        rows: db.awayTime.map((a, i) => [a.id, a.userId, a.start, a.end, a.label ?? null, a.memo ?? null, a.version ?? 1, i]),
       }];
     case 'holidays':
       return [{
@@ -383,7 +383,10 @@ export async function loadAllFromMysql(conn: Queryable): Promise<Db | null> {
   }));
 
   const awayTime: AwayTime[] = awayRows.map((r) => ({
-    id: r.id, userId: r.user_id, start: r.start_date, end: r.end_date, version: r.version ?? 1,
+    id: r.id, userId: r.user_id, start: r.start_date, end: r.end_date,
+    ...(r.label == null ? {} : { label: r.label }),
+    ...(r.memo == null ? {} : { memo: r.memo }),
+    version: r.version ?? 1,
   }));
 
   const holidays: Holiday[] = holidayRows.map((r) => {
