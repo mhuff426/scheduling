@@ -4,6 +4,7 @@ import { DOW, MONTHS, formatTime, todayYmd, prettyDate } from '../dates';
 import { UNITS, upcomingBlocks, isValidCadence } from '../../../shared/blocks.js';
 import RoleMultiSelect from './RoleMultiSelect';
 import { safeBg } from '../contrast';
+import { vacationSummary } from '../shiftMath';
 import { versionOf, settingsVersion } from '../versions';
 import type { AppState, ShiftType, User, HolidayRecurrence } from '../../../shared/types.js';
 import type { Act } from '../App';
@@ -220,16 +221,17 @@ function Roster({ db, act }: Props) {
   const addDisabled = !form.firstName.trim() || !form.lastName.trim() || !form.email.trim();
 
   const yearNow = new Date().getFullYear();
-  const usedFor = (u: User) =>
-    db.timeOff.filter(
-      (t) => t.userId === u.id && t.type === 'vacation' && t.date.startsWith(String(yearNow))
-    ).length;
+  // Settled charges only — must-off REQUESTS are free until a schedule
+  // outcome charges them, so this derives from schedules' vacationCharged
+  // ledgers (same source as the Preferences stats and the server), and
+  // automatically recalculates when schedules change or are deleted.
+  const usedFor = (u: User) => vacationSummary(db, u, yearNow).used;
 
   return (
     <section className="card">
       <h2>👥 Roster</h2>
       <table className="table">
-        <thead><tr><th>Employee</th><th>Roles</th><th>Vacation days / yr</th><th>Used ({yearNow})</th><th>Required / block</th><th title="Hard cap on this person's shifts per schedule block. Blank = unlimited (no cap).">Max / block</th><th title="Preference standing: 1.00 is neutral. Drops when someone consistently asks for more preferred days off than the roster norm; recovers after a few normal blocks. Read-only.">Pref standing</th><th>Start date</th><th /></tr></thead>
+        <thead><tr><th>Employee</th><th>Roles</th><th>Vacation days / yr</th><th title="Vacation days actually charged by schedule outcomes this year. Must-off requests are free until a schedule settles them, and charges vanish if their schedule is deleted.">Used ({yearNow})</th><th>Required / block</th><th title="Hard cap on this person's shifts per schedule block. Blank = unlimited (no cap).">Max / block</th><th title="Preference standing: 1.00 is neutral. Drops when someone consistently asks for more preferred days off than the roster norm; recovers after a few normal blocks. Read-only.">Pref standing</th><th>Start date</th><th /></tr></thead>
         <tbody>
           {db.users.map((u) => (
             <tr key={u.id}>

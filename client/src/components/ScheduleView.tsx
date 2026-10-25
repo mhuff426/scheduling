@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { api } from '../api';
 import { DOW, MONTHS, monthGrid, prettyDate, formatTime, addDays, weekStart } from '../dates';
-import { settlementFor } from '../shiftMath';
+import { settlementFor, shiftTypeBreakdown } from '../shiftMath';
 import { safeBg, CHIP_INK } from '../contrast';
 import { holidayDatesInRange } from '../../../shared/holidays.js';
 import type { AppState, Assignment, Holiday, Schedule, Slot, User } from '../../../shared/types.js';
@@ -304,17 +304,7 @@ export default function ScheduleView({ db, currentUser, act, isAdmin }: Props) {
               </tbody>
             </table>
           )}
-          <p className="muted small">
-            Total: {myAssignments.length} shift{myAssignments.length === 1 ? '' : 's'}
-            {' · '}Extra shifts picked up via trades:{' '}
-            {(db.trades || []).filter(
-              (t) =>
-                t.type === 'giveaway' &&
-                t.status === 'completed' &&
-                t.scheduleId === schedule.id &&
-                t.claimedBy === listUser?.id
-            ).length}
-          </p>
+          {listUser && <ShiftBreakdownTable db={db} schedule={schedule} user={listUser} />}
         </div>
         {listUser && (
           <SettlementCard
@@ -327,6 +317,37 @@ export default function ScheduleView({ db, currentUser, act, isAdmin }: Props) {
         </>
       )}
     </div>
+  );
+}
+
+// How many of each kind of shift the person works this block, and how many of
+// those they picked up as extras via giveaways.
+function ShiftBreakdownTable({ db, schedule, user }: { db: AppState; schedule: Schedule; user: User }) {
+  const { rows, total } = shiftTypeBreakdown(db, schedule, user.id);
+  if (rows.length === 0) return null;
+  return (
+    <table className="table shift-breakdown">
+      <thead>
+        <tr><th>Shift type</th><th>Shifts</th><th title="Shifts picked up from coworkers' giveaways">Extra picked up</th></tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.shiftTypeId}>
+            <td>
+              <span className="dot" style={{ background: safeBg(user.color) }} /> {r.name}
+              {r.standby && (
+                <span className="muted small" title="Standby duty doesn't count toward required shifts"> (standby)</span>
+              )}
+            </td>
+            <td>{r.shifts}</td>
+            <td>{r.extra}</td>
+          </tr>
+        ))}
+      </tbody>
+      <tfoot>
+        <tr><th>Total</th><th>{total.shifts}</th><th>{total.extra}</th></tr>
+      </tfoot>
+    </table>
   );
 }
 

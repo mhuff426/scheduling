@@ -278,6 +278,37 @@ export function computeCaps(db: Db, { startDate, endDate, userIds }: { startDate
   return { stats: { asks, median: med }, caps, warnings };
 }
 
+// How many standard deviations above the roster mean someone's preferred-off
+// ask count must be before their preferred days become consumable for charge
+// avoidance (a heavy asker's days may be pulled in a rescue chain; a modest
+// asker's days stay protected). Tune here.
+export const HEAVY_ASKER_STDDEV = 2;
+
+// Mirrors computeCaps's exclude-self mean/sd (with the same SD floor of 1 day,
+// so a quiet roster doesn't flag someone heavy over a 1-day difference), but
+// against a lower threshold (k standard deviations, default 2 vs caps' 4) and
+// returning a plain membership set rather than a per-user cap count.
+export function heavyAskers(db: Db, { startDate, endDate, userIds }: { startDate: string; endDate: string; userIds?: string[] | null }, k: number = HEAVY_ASKER_STDDEV): Set<string> {
+  const users = includedUsers(db, { userIds });
+  const range = { startDate, endDate };
+  const asks: Record<string, number> = {};
+  for (const u of users) asks[u.id] = prefsInRange(db, u.id, range).length;
+
+  const heavy = new Set<string>();
+  if (users.length >= 2) {
+    for (const u of users) {
+      const others = users.filter((x) => x.id !== u.id).map((x) => asks[x.id]);
+      const mean = others.reduce((a, b) => a + b, 0) / others.length;
+      const sd = Math.sqrt(
+        others.reduce((a, b) => a + (b - mean) ** 2, 0) / others.length
+      );
+      const threshold = mean + k * Math.max(sd, 1);
+      if (asks[u.id] > threshold) heavy.add(u.id);
+    }
+  }
+  return heavy;
+}
+
 // Long-term preference standing, derived on demand from the ask snapshots of
 // past schedules (never stored as a running counter, so deleting or
 // regenerating a schedule self-corrects). 1.0 is neutral; chronic over-askers
@@ -439,6 +470,41 @@ export function summarizeSchedule(db: Db, schedule: ScheduleDraft) {
       warnings.push(
         `${u.name} has ${counts[u.id] || 0} of ${required} minimum shifts${covered} — ${residual} short.`
       );
+    }
+    // Charge diagnostics: how much of a charge was structurally unavoidable
+    // (not enough schedulable days at all to reach the requirement) versus
+    // unresolved for other reasons (most notably, protected preferred-off
+    // days the generator wouldn't override). This doesn't affect the charge
+    // itself — vacationCharged is untouched — it only explains it. Uses raw
+    // must-off entries (summarizeSchedule has no softOff context to know
+    // which were downgraded this block), which is an approximation.
+    if (charge > 0) {
+      const offDates = new Set(
+        mustOffInRange(db, u.id, { startDate: schedule.startDate, endDate: schedule.endDate }).map((t) => t.date)
+      );
+      let schedulableDays = 0;
+      for (const d of eachDate(schedule.startDate, schedule.endDate)) {
+        if (offDates.has(d)) continue;
+        if (isAway(db, u.id, d)) continue;
+        if (isBeforeStart(u, d)) continue;
+        schedulableDays++;
+      }
+      const unavoidable = clamp(required - schedulableDays, 0, charge);
+      const unresolved = charge - unavoidable;
+      if (unavoidable > 0 || unresolved > 0) {
+        const parts: string[] = [];
+        if (unavoidable > 0) {
+          parts.push(
+            `${unavoidable} unavoidable (only ${schedulableDays} schedulable day${schedulableDays === 1 ? '' : 's'} for ${required} required)`
+          );
+        }
+        if (unresolved > 0) {
+          parts.push(`${unresolved} unresolvable without overriding protected preferred days`);
+        }
+        warnings.push(
+          `${u.name} charged ${charge} vacation day${charge === 1 ? '' : 's'}: ${parts.join(', ')}.`
+        );
+      }
     }
   }
   for (const a of schedule.assignments) {
@@ -625,6 +691,78 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
     if (holidayDates.has(a.date)) holWorked.set(u, holWorked.get(u) - 1);
   };
 
+  // --- Charge-risk model -----------------------------------------------
+  // Predicts vacation charges as generation proceeds, so the greedy fill and
+  // repair pass can steer toward AVOIDABLE-charge-free outcomes without
+  // touching the settlement formula itself (below) — predictedCharge mirrors
+  // it exactly so "predicted" and "actual" never disagree.
+  const employeeById = gmap<User>(employees.map((u) => [u.id, u]));
+  const heavy = heavyAskers(db, range);
+  const mustOffCount = gmap<number>(employees.map((u) => [u.id, mustOffInRange(db, u.id, range).length]));
+  const vacAvail = gmap<number>(employees.map((u) => [u.id, Math.max(0, vacationAvailable(db, u, blockYear))]));
+  const fullRequired = gmap<number>(employees.map((u) => [u.id, Math.min(Number(u.requiredShifts) || 0, effMax.get(u.id))]));
+
+  // Live: reads current `counts`, so it tracks the schedule as it fills in.
+  const predictedCharge = (uid: string) =>
+    Math.min(
+      Math.max(0, fullRequired.get(uid) - counts.get(uid)),
+      mustOffCount.get(uid),
+      vacAvail.get(uid)
+    );
+  const atRiskNow = (uid: string) =>
+    mustOffCount.get(uid) > 0 && vacAvail.get(uid) > 0 && counts.get(uid) < fullRequired.get(uid);
+
+  // Date-level approximation of "could this person legally work something
+  // between fromDate and the end of the block" — the coarse hard gates that
+  // are cheap to check per day (a tighter per-slot check would need to
+  // enumerate every slot on every remaining date, which is unaffordable
+  // inside a sort comparator). None of the inputs (vacation/away/start/slot
+  // presence) change once generation starts, so precompute a per-user suffix
+  // count over the block's dates once — an O(days) walk per user instead of
+  // an O(days) walk per (candidate, slot) comparison, which is what made this
+  // quadratic-ish (many slots share the same calendar date) before.
+  const blockDates = [...eachDate(startDate, endDate)];
+  const blockDateIndex = new Map<string, number>(blockDates.map((d, i) => [d, i]));
+  const schedulableSuffix = gmap<Int32Array>(
+    employees.map((u): [string, Int32Array] => {
+      const arr = new Int32Array(blockDates.length + 1);
+      for (let i = blockDates.length - 1; i >= 0; i--) {
+        const d = blockDates[i];
+        const ok =
+          !vacation.has(`${u.id}|${d}`) &&
+          !isAway(db, u.id, d) &&
+          !isBeforeStart(u, d) &&
+          slotsByDate.has(d);
+        arr[i] = arr[i + 1] + (ok ? 1 : 0);
+      }
+      return [u.id, arr];
+    })
+  );
+  const schedulableRemaining = (uid: string, fromDate: string) => {
+    const idx = blockDateIndex.get(fromDate);
+    return idx === undefined ? 0 : schedulableSuffix.get(uid)[idx];
+  };
+  // Floored at 0: once someone's own minimum is already mathematically out of
+  // reach (negative raw slack), further deepening that deficit doesn't make
+  // today's shift any more "theirs" to claim — it would just take a slot away
+  // from someone who could still make their own number, without changing the
+  // already-lost person's outcome (their shortfall is capped by settlement
+  // regardless of which specific days they missed). Flooring lets "tighter
+  // first" mean "most urgent among those who can still be saved," rather than
+  // "most hopeless wins."
+  const slack = (uid: string, date: string) =>
+    Math.max(0, schedulableRemaining(uid, date) - Math.max(0, effMin.get(uid) - counts.get(uid)));
+
+  // A person's own predicted charge outranks their own preference — never
+  // anyone else's. Used ONLY in the greedy comparator's tier-1 claim check;
+  // `claimOf` itself (donation sorting, softOff strong claims, etc.) is
+  // untouched.
+  const effectiveClaim = (uid: string, date: string) => {
+    const c = claimOf(uid, date);
+    if (c > 0 && atRiskNow(uid) && predictedCharge(uid) > 0) return 0;
+    return c;
+  };
+
   // Is there a preferred-off day for this user within the next `span` days
   // (used so a new run isn't started on someone about to want time off)?
   const hasPrefSoon = (uid: string, date: string, span: number) => {
@@ -696,10 +834,18 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
         }];
       })
     );
+    // Charge-risk slack, precomputed per candidate (once per slot, like
+    // `sig` above) rather than inside the comparator — schedulableRemaining
+    // walks the remaining dates, so computing it per-comparison would be
+    // quadratic in candidate count.
+    const slackOf = gmap<number>(candidates.map((u) => [u.id, slack(u.id, slot.date)]));
     candidates.sort((a, b) => {
       const A = sig.get(a.id), B = sig.get(b.id);
-      const claimA = claimOf(a.id, slot.date);
-      const claimB = claimOf(b.id, slot.date);
+      // A person's own predicted vacation charge outranks their own
+      // preference (effectiveClaim zeroes their claim in that case only) —
+      // this never affects anyone else's claim.
+      const claimA = effectiveClaim(a.id, slot.date);
+      const claimB = effectiveClaim(b.id, slot.date);
       if (claimA !== claimB) return claimA - claimB;
       // Holiday fairness (only on workable-holiday dates, so normal days are
       // unaffected): those who still owe their required count first, then the
@@ -715,6 +861,11 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
       const underMinA = counts.get(a.id) < effMin.get(a.id) ? 0 : 1;
       const underMinB = counts.get(b.id) < effMin.get(b.id) ? 0 : 1;
       if (underMinA !== underMinB) return (underMinA - underMinB) * needDir;
+      // Charge-avoidance tiebreak: whoever has the least slack toward their
+      // own minimum (tightest remaining runway) goes first — ties fall
+      // through to the tiers below, rotation remains the final decider.
+      const slackDiff = slackOf.get(a.id) - slackOf.get(b.id);
+      if (slackDiff !== 0) return slackDiff;
       if (A.eligible !== B.eligible) return A.eligible - B.eligible;
       if (A.atCap !== B.atCap) return A.atCap - B.atCap;
       // Rested people before early returns: recovery outranks the desire for
@@ -790,38 +941,213 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
   // to users under theirs, when the receiver can legally take the shift.
   // Prefer takeovers that avoid the receiver's preferred-off days and that pull
   // from a run boundary rather than splitting a run mid-stream.
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const u of employees) {
-      if (counts.get(u.id) >= effMin.get(u.id)) continue;
-      const donatable = assignments
-        .filter(
-          (a) =>
-            a.userId !== u.id &&
-            // Moving a weight-0 (standby) shift can't raise anyone's count.
-            weightOf(shiftById[a.shiftTypeId]) > 0 &&
-            counts.get(a.userId) > effMin.get(a.userId) &&
-            available(u, a.date, shiftById[a.shiftTypeId])
-        )
-        .sort((a, b) => {
-          const claimA = claimOf(u.id, a.date);
-          const claimB = claimOf(u.id, b.date);
-          if (claimA !== claimB) return claimA - claimB;
-          const recA = recoveryPenalty(u, a.date, shiftById[a.shiftTypeId]);
-          const recB = recoveryPenalty(u, b.date, shiftById[b.shiftTypeId]);
-          if (recA !== recB) return recA - recB;
-          const boundA = atRunBoundary(a) ? 0 : 1;
-          const boundB = atRunBoundary(b) ? 0 : 1;
-          if (boundA !== boundB) return boundA - boundB;
-          return loads.get(b.userId) - loads.get(a.userId);
-        });
-      if (donatable.length === 0) continue;
-      const a = donatable[0];
-      take(a);
-      give(a, u);
-      changed = true;
+  //
+  // Two charge-avoidance extensions on top of the original single-hop pass:
+  //  - Receivers are processed in charge-urgency order first (biggest
+  //    predicted vacation charge, tie-broken by standing, then original
+  //    order), THEN the remaining under-effMin users in their original order
+  //    — so a transfer that can prevent a charge gets first crack at a shift.
+  //  - When the single-hop transfer can't close a charge-at-risk receiver's
+  //    gap, a bounded (depth <= 3, fan-out <= 8) rescue chain is tried: pull
+  //    from a donor whose day isn't a protected (modest-asker) preference,
+  //    recursively finding THAT donor a replacement so nobody is left below
+  //    their own fullRequired without one.
+  const trySingleHop = (u: User) => {
+    const donatable = assignments
+      .filter(
+        (a) =>
+          a.userId !== u.id &&
+          // Moving a weight-0 (standby) shift can't raise anyone's count.
+          weightOf(shiftById[a.shiftTypeId]) > 0 &&
+          counts.get(a.userId) > effMin.get(a.userId) &&
+          available(u, a.date, shiftById[a.shiftTypeId])
+      )
+      .sort((a, b) => {
+        const claimA = claimOf(u.id, a.date);
+        const claimB = claimOf(u.id, b.date);
+        if (claimA !== claimB) return claimA - claimB;
+        const recA = recoveryPenalty(u, a.date, shiftById[a.shiftTypeId]);
+        const recB = recoveryPenalty(u, b.date, shiftById[b.shiftTypeId]);
+        if (recA !== recB) return recA - recB;
+        const boundA = atRunBoundary(a) ? 0 : 1;
+        const boundB = atRunBoundary(b) ? 0 : 1;
+        if (boundA !== boundB) return boundA - boundB;
+        return loads.get(b.userId) - loads.get(a.userId);
+      });
+    if (donatable.length === 0) return false;
+    const a = donatable[0];
+    take(a);
+    give(a, u);
+    return true;
+  };
+
+  // A donor's day is protected — never taken as part of someone else's rescue
+  // — when it's a genuine, full-strength preferred-off day from someone who
+  // isn't a heavy asker. Demoted excess days (DEMOTED_CLAIM) and heavy
+  // askers' days are consumable.
+  const isProtected = (donorId: string, date: string) => {
+    const c = claimOf(donorId, date);
+    return c > 0 && c !== DEMOTED_CLAIM && !heavy.has(donorId);
+  };
+
+  const totalPredictedCharge = () => {
+    let sum = 0;
+    for (const u of employees) sum += predictedCharge(u.id);
+    return sum;
+  };
+
+  // Attempts to hand `p` one more counting shift by pulling it from another
+  // holder (and, if that leaves the donor short of their own fullRequired,
+  // finding the donor a replacement in turn — recursively, up to depth 3).
+  // Every move is applied immediately via take/give so nested checks see the
+  // post-move state; a branch that dead-ends rolls its own moves back before
+  // trying the next candidate.
+  // Depth (<=3) and fan-out (<=8) bound the cost of any ONE tryRescue call,
+  // but not the total across every at-risk employee and every rescue round —
+  // in a heavily oversubscribed block (many people simultaneously short),
+  // that product can still be large. A shared work budget across the whole
+  // rescue phase caps the aggregate cost outright: once exhausted, further
+  // rescue attempts simply decline (the existing single-hop pass and
+  // settlement's charge accounting still apply — this only gives up on
+  // *additional* charge-avoidance search, never on correctness).
+  let rescueBudget = 1200;
+  const tryRescue = (p: User, depth: number, visited: Set<string>): boolean => {
+    if (depth > 3 || rescueBudget-- <= 0) return false;
+    // Protected days (a modest asker's genuine preferred-off day, worked
+    // anyway) are never eligible at all — not merely deprioritized — per the
+    // "may NEVER be taken" rule. Everything else sorts run-boundary first,
+    // then donor load DESC.
+    //
+    // Cheap checks (identity/weight/visited/protection) and the sort run over
+    // the full assignment list first; `available` — which walks rest-rule
+    // math per candidate — only runs against the already-best-ordered
+    // prefix, stopping as soon as the fan-out cap is filled. Checking
+    // `available` before slicing (the naive order) would pay its cost for
+    // every assignment in the schedule at every recursion node, which is
+    // what made this quadratic-ish in practice.
+    const ranked = assignments
+      .filter(
+        (a) =>
+          a.userId !== p.id &&
+          weightOf(shiftById[a.shiftTypeId]) > 0 &&
+          !visited.has(`${a.date}|${a.shiftTypeId}`) &&
+          !isProtected(a.userId, a.date)
+      )
+      .sort((a, b) => {
+        const boundA = atRunBoundary(a) ? 0 : 1;
+        const boundB = atRunBoundary(b) ? 0 : 1;
+        if (boundA !== boundB) return boundA - boundB;
+        return loads.get(b.userId) - loads.get(a.userId);
+      });
+    const candidates: Assignment[] = [];
+    for (const a of ranked) {
+      if (available(p, a.date, shiftById[a.shiftTypeId])) {
+        candidates.push(a);
+        if (candidates.length >= 8) break; // cap fan-out
+      }
     }
+
+    for (const s of candidates) {
+      const donorId = s.userId;
+      const donor = employeeById.get(donorId);
+      const slotKey = `${s.date}|${s.shiftTypeId}`;
+
+      visited.add(slotKey);
+      take(s);
+      give(s, p);
+
+      // Allowed outright when the donor is left whole (still at/above their
+      // own fullRequired — the hard rule that a donor is never left below it
+      // without a replacement). This condition also guarantees no NEW
+      // predictedCharge for the donor, since predictedCharge is necessarily
+      // 0 once counts >= fullRequired.
+      if (counts.get(donorId) >= fullRequired.get(donorId)) {
+        return true;
+      }
+
+      // Donor is left short: find them a replacement — an open slot they can
+      // take, or (recursively) a shift of their own to pull from someone else.
+      const unfilledIdx = unfilled.findIndex((sl) => available(donor, sl.date, shiftById[sl.shiftTypeId]));
+      if (unfilledIdx !== -1) {
+        const sl = unfilled[unfilledIdx];
+        const na: Assignment = { date: sl.date, shiftTypeId: sl.shiftTypeId, userId: '' };
+        give(na, donor);
+        assignments.push(na);
+        unfilled.splice(unfilledIdx, 1);
+        return true;
+      }
+      if (tryRescue(donor, depth + 1, visited)) return true;
+
+      // Dead end down this branch: roll back and try the next candidate.
+      take(s);
+      give(s, donor);
+      visited.delete(slotKey);
+    }
+    return false;
+  };
+
+  // Single-hop fixpoint: converges quickly on its own (each pass either moves
+  // at least one shift toward someone's effMin or does nothing, so it's
+  // bounded by the number of such moves possible). Charge-urgency order
+  // (biggest predicted charge first, then standing DESC, then original order)
+  // decides who gets first crack within each pass — same shape as the
+  // under-effMin loop this replaces, just reordered.
+  const runSingleHopFixpoint = () => {
+    let progressed = false;
+    let localChanged = true;
+    while (localChanged) {
+      localChanged = false;
+      const chargeSnapshot = gmap<number>(employees.map((u) => [u.id, predictedCharge(u.id)]));
+      const atRisk = employees.filter((u) => chargeSnapshot.get(u.id) > 0);
+      atRisk.sort((a, b) => {
+        const byCharge = chargeSnapshot.get(b.id) - chargeSnapshot.get(a.id);
+        if (byCharge !== 0) return byCharge;
+        return (standings[b.id] ?? 1) - (standings[a.id] ?? 1);
+      });
+      const atRiskIds = new Set(atRisk.map((u) => u.id));
+      const rest = employees.filter((u) => !atRiskIds.has(u.id) && counts.get(u.id) < effMin.get(u.id));
+      for (const u of [...atRisk, ...rest]) {
+        if (counts.get(u.id) < effMin.get(u.id) && trySingleHop(u)) {
+          localChanged = true;
+          progressed = true;
+        }
+      }
+    }
+    return progressed;
+  };
+
+  runSingleHopFixpoint();
+
+  // Rescue chains are tried in bounded sweeps AFTER single-hop has already
+  // converged, rather than interleaved into every single-hop pass — a sweep
+  // that makes no progress would otherwise force a full extra fixpoint
+  // re-scan of everyone, and a sweep is far more expensive per employee than
+  // a single-hop attempt (bounded recursive search vs. one filter+sort). Each
+  // round tries every still-at-risk employee (worst-to-best charge, standing
+  // breaks ties) once; a productive round re-runs single-hop (a rescue can
+  // free up a fresh donor for someone else) and loops, capped defensively at
+  // employees.length + 1 rounds.
+  let rescueRounds = 0;
+  let rescueProgressed = true;
+  while (rescueProgressed && rescueRounds <= employees.length) {
+    rescueRounds++;
+    rescueProgressed = false;
+    const chargeSnapshot = gmap<number>(employees.map((u) => [u.id, predictedCharge(u.id)]));
+    const atRisk = employees.filter((u) => chargeSnapshot.get(u.id) > 0);
+    atRisk.sort((a, b) => {
+      const byCharge = chargeSnapshot.get(b.id) - chargeSnapshot.get(a.id);
+      if (byCharge !== 0) return byCharge;
+      return (standings[b.id] ?? 1) - (standings[a.id] ?? 1);
+    });
+    for (const u of atRisk) {
+      if (atRiskNow(u.id) && predictedCharge(u.id) > 0) {
+        const before = totalPredictedCharge();
+        if (tryRescue(u, 0, new Set()) && totalPredictedCharge() < before) {
+          rescueProgressed = true;
+        }
+      }
+    }
+    if (rescueProgressed) runSingleHopFixpoint();
   }
 
   // Settle vacation: shortfall against the FULL personal requirement is
