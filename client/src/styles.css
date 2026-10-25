@@ -158,6 +158,11 @@ select, input {
   color: var(--muted); padding: 6px 10px; border-bottom: 2px solid var(--line);
 }
 .table td { padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.table tfoot th {
+  font-size: 13.5px; text-transform: none; letter-spacing: normal;
+  color: var(--ink); font-weight: 700; border-bottom: none; border-top: 2px solid var(--line);
+  padding: 8px 10px;
+}
 
 /* calendar */
 .cal-wrap { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }

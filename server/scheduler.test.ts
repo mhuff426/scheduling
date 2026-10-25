@@ -6,9 +6,10 @@ import {
   isGrouped, runBounds, nightCapOk, effectiveMaximums, weightOf,
   recoveryNeed, effectiveMinimums, requiredFor,
   isAway, isBeforeStart, hasRequiredRole,
+  heavyAskers, HEAVY_ASKER_STDDEV, summarizeSchedule,
 } from './scheduler.js';
 import { vacationAvailable } from './db.js';
-import type { Assignment, Db, ShiftType, TimeOff, User } from '../shared/types.js';
+import type { Assignment, Db, ScheduleDraft, ShiftType, TimeOff, User } from '../shared/types.js';
 
 const mkUser = (id: string, name: string, extra: Record<string, any> = {}): User => ({
   id, name, roles: ['role-employee'], vacationDays: 10, color: '#888', ...extra,
@@ -1116,6 +1117,381 @@ const oneOff = (id: string, name: string, date: string, workable: boolean) =>
   assert.ok(!r.assignments.some((x) => x.date === '2026-06-03'), 'a recurring closed holiday suppresses that date');
   assert.ok(!r.unfilled.some((x) => x.date === '2026-06-03'), 'a recurring closed holiday produces no slot');
   assert.strictEqual(r.assignments.length, 4, 'the other 4 days are staffed');
+}
+
+// ===== charge-aware rework: heavy askers =====
+
+// October 2026 helpers for the charge-aware fixtures (July's D/pref belong to
+// the anti-gaming section above).
+const O = (n: number) => `2026-10-${String(n).padStart(2, '0')}`;
+const OCT = { startDate: '2026-10-01', endDate: '2026-10-14', userIds: null };
+const oPref = (uid: string, n: number): TimeOff => ({ id: `op-${uid}-${n}`, userId: uid, date: O(n), type: 'preferred' });
+const oMust = (uid: string, n: number): TimeOff => ({ id: `om-${uid}-${n}`, userId: uid, date: O(n), type: 'vacation' });
+
+// ---- the tuning knob is exported and set to 2 standard deviations
+assert.strictEqual(HEAVY_ASKER_STDDEV, 2, 'heavy-asker threshold constant must be 2σ');
+
+// ---- uniform roster: nobody is a heavy asker
+{
+  // Everyone asks for 2 preferred days. For each user the others' mean is 2
+  // with sd 0 (floored to 1), so the threshold is 2 + 2*1 = 4 — nobody clears it.
+  const users = [...'abcd'].map((c) => mkUser(c, c.toUpperCase()));
+  const timeOff: TimeOff[] = [];
+  for (const u of users) for (let n = 1; n <= 2; n++) timeOff.push(oPref(u.id, n));
+  const heavy = heavyAskers(mkDb(users, [day], timeOff), OCT);
+  assert.ok(heavy instanceof Set, 'heavyAskers returns a Set');
+  assert.strictEqual(heavy.size, 0, `uniform 2-ask roster has no heavy askers: ${[...heavy]}`);
+}
+
+// ---- one extreme over-asker is flagged, and only them
+{
+  // a asks 9; b, c, d ask 1. For a: others' mean 1, sd 0 -> floored to 1 ->
+  // threshold 1 + 2*1 = 3, and 9 > 3. For b: the others include a's 9, so
+  // mean ≈ 3.67 and sd ≈ 3.77 -> threshold ≈ 11.2; b's 1 is far below.
+  const users = [...'abcd'].map((c) => mkUser(c, c.toUpperCase()));
+  const timeOff: TimeOff[] = [];
+  for (let n = 1; n <= 9; n++) timeOff.push(oPref('a', n));
+  for (const id of ['b', 'c', 'd']) timeOff.push(oPref(id, 1));
+  const heavy = heavyAskers(mkDb(users, [day], timeOff), OCT);
+  assert.deepStrictEqual([...heavy], ['a'], `only the 9-ask outlier is heavy: ${[...heavy]}`);
+}
+
+// SD-floor / k-tunability fixture: a asks 3; b, c, d ask 2 each.
+const mkQuietRoster = () => {
+  const users = [...'abcd'].map((c) => mkUser(c, c.toUpperCase()));
+  const timeOff: TimeOff[] = [];
+  for (let n = 1; n <= 3; n++) timeOff.push(oPref('a', n));
+  for (const id of ['b', 'c', 'd']) for (let n = 1; n <= 2; n++) timeOff.push(oPref(id, n));
+  return mkDb(users, [day], timeOff);
+};
+
+// ---- SD floor: mean+1 on a quiet roster is NOT heavy at the default 2σ
+{
+  // For a the others' sd is 0, but the floor of 1 day makes the threshold
+  // 2 + 2*1 = 4, so a's 3 (one over the norm) stays modest.
+  assert.strictEqual(
+    heavyAskers(mkQuietRoster(), OCT).size, 0,
+    'one ask above a quiet roster must not be heavy (SD floor)'
+  );
+}
+
+// ---- k is tunable: k=0 flags the top asker, a large k flags nobody
+{
+  // Same fixture. k=0: a's threshold is the others' mean 2, and 3 > 2 -> heavy
+  // (b's 2 sits below the 2.33 mean of [3,2,2], so only a flips). k=10:
+  // threshold 2 + 10*1 = 12 -> the set empties. Pins the "easily tunable" knob.
+  const db = mkQuietRoster();
+  assert.deepStrictEqual([...heavyAskers(db, OCT, 0)], ['a'], 'k=0 must flag the top asker');
+  assert.strictEqual(heavyAskers(db, OCT, 10).size, 0, 'k=10 must flag nobody');
+}
+
+// ---- range scoping: asks outside [startDate, endDate] don't count
+{
+  // a has 1 October ask plus 8 September asks; b, c, d have 1 October ask.
+  // Scored over October, everyone ties at 1 -> empty. Scored over September,
+  // a's 8 vs 0,0,0 -> heavy — proving the September asks were real but scoped out.
+  const users = [...'abcd'].map((c) => mkUser(c, c.toUpperCase()));
+  const timeOff: TimeOff[] = [];
+  for (const u of users) timeOff.push(oPref(u.id, 1));
+  for (let n = 1; n <= 8; n++) {
+    timeOff.push({ id: `sep-a-${n}`, userId: 'a', date: `2026-09-${String(n).padStart(2, '0')}`, type: 'preferred' });
+  }
+  const db = mkDb(users, [day], timeOff);
+  assert.strictEqual(heavyAskers(db, OCT).size, 0, 'out-of-range asks must not count');
+  assert.deepStrictEqual(
+    [...heavyAskers(db, { startDate: '2026-09-01', endDate: '2026-09-14', userIds: null })],
+    ['a'],
+    'the same asks DO count inside their own range'
+  );
+}
+
+// ---- must-off (vacation-type) requests never count toward heaviness
+{
+  // a files 9 must-offs plus 1 preferred; b, c, d file 1 preferred each. Only
+  // PREFERRED asks feed the statistic, so everyone ties at 1 -> empty set.
+  const users = [...'abcd'].map((c) => mkUser(c, c.toUpperCase()));
+  const timeOff: TimeOff[] = [];
+  for (const u of users) timeOff.push(oPref(u.id, 1));
+  for (let n = 2; n <= 10; n++) timeOff.push(oMust('a', n));
+  assert.strictEqual(
+    heavyAskers(mkDb(users, [day], timeOff), OCT).size, 0,
+    'vacation-type (must-off) requests must not make someone a heavy asker'
+  );
+}
+
+// ===== charge-aware rework: charge avoidance =====
+
+// ---- an avoidable charge is eliminated: the at-risk person reaches full required
+{
+  // 7-day block, one daily slot. A requires 4 but is must-off days 1-3,
+  // leaving exactly 4 schedulable days (4-7); B (required 3) is free all week.
+  // Without charge awareness A could drift below 4 and settle the gap from
+  // vacation; the rework must hand A all 4 of its remaining days: A works 4,
+  // B covers days 1-3, nothing goes open, and nobody is charged.
+  const db = mkDb(
+    [mkUser('a', 'A', { requiredShifts: 4 }), mkUser('b', 'B', { requiredShifts: 3 })],
+    [day],
+    [oMust('a', 1), oMust('a', 2), oMust('a', 3)]
+  );
+  const r = generateSchedule(db, { startDate: O(1), endDate: O(7) });
+  assert.strictEqual(r.counts['a'], 4, `A must reach its full required 4, got ${r.counts['a']}`);
+  assert.deepStrictEqual(r.vacationCharged, {}, `no vacation may be charged: ${JSON.stringify(r.vacationCharged)}`);
+  assert.strictEqual(r.unfilled.length, 0, 'coverage stays intact while avoiding the charge');
+  assert.ok(!r.warnings.some((w) => w.includes('charged')), 'no charge diagnostics when nothing is charged');
+}
+
+// ---- a rescue must never create a NEW charge: a whole donor is never drained
+{
+  // 5-day block, one daily slot. D (required 3, must-off day 5, balance 5) can
+  // work days 1-4; A (required 3, must-off days 1-2, balance 5) can work days
+  // 3-5. Five slots cannot cover six owed shifts, so exactly one person ends
+  // short. Greedy: D takes days 1-2 alone, A (under its reduced minimum) wins
+  // day 3, D wins day 4 on tighter slack (its last schedulable day), A works
+  // day 5 -> A is short 1. The only rescue would pull day 4 from D, leaving D
+  // at 2 of 3 with a must-off and balance of its own — a brand-new charge. The
+  // chain must decline: D stays whole and uncharged; A keeps the single
+  // competition-forced charge.
+  const db = mkDb(
+    [mkUser('a', 'A', { requiredShifts: 3, vacationDays: 5 }),
+     mkUser('d', 'D', { requiredShifts: 3, vacationDays: 5 })],
+    [day],
+    [oMust('a', 1), oMust('a', 2), oMust('d', 5)]
+  );
+  const r = generateSchedule(db, { startDate: O(1), endDate: O(5) });
+  assert.strictEqual(r.counts['d'], 3, `donor D must keep its full required count, got ${r.counts['d']}`);
+  assert.strictEqual(r.vacationCharged['d'], undefined, 'a rescue must never charge a previously-whole donor');
+  assert.deepStrictEqual(r.vacationCharged, { a: 1 }, `only A's competitive charge remains: ${JSON.stringify(r.vacationCharged)}`);
+  assert.strictEqual(r.unfilled.length, 0, 'full coverage');
+}
+
+// ---- modest protection: the charge REMAINS rather than override a protected day
+{
+  // 6-day block, one daily slot. A (required 3, balance 9) is must-off days
+  // 1-2 and away day 6 -> schedulable only days 3-5. B (required 1) is away
+  // days 1-4 and prefers day 6 off; C (required 3) also prefers day 6 off.
+  // Each asks once, so neither is heavy — C's claim on day 6 is a protected
+  // modest preference (and so is B's).
+  //   Greedy: C alone covers days 1-2, wins day 4 while under its minimum of
+  //   3, B takes day 5 (its only... actually its first schedulable day it can
+  //   win) and day 6 resolves the B/C claim tie by load -> A ends with 2 of 3.
+  //   A's three schedulable days hold one slot each and C still owes 3 total,
+  //   so completing A forces someone onto the protected day 6 beyond the slot
+  //   B already holds — every rescue permutation dead-ends on the protected
+  //   claim. Per the ladder (modest preferred-off > charge avoidance) the
+  //   charge must survive and C must keep its preferred day off.
+  const db = mkDb(
+    [mkUser('a', 'A', { requiredShifts: 3, vacationDays: 9 }),
+     mkUser('b', 'B', { requiredShifts: 1 }),
+     mkUser('c', 'C', { requiredShifts: 3 })],
+    [day],
+    [oMust('a', 1), oMust('a', 2), oPref('b', 6), oPref('c', 6)]
+  );
+  db.awayTime.push({ id: 'aw-a', userId: 'a', start: O(6), end: O(6) });
+  db.awayTime.push({ id: 'aw-b', userId: 'b', start: O(1), end: O(4) });
+  assert.strictEqual(
+    heavyAskers(db, { startDate: O(1), endDate: O(6), userIds: null }).size, 0,
+    'fixture sanity: both askers must be modest'
+  );
+  const r = generateSchedule(db, { startDate: O(1), endDate: O(6) });
+  assert.deepStrictEqual(
+    r.vacationCharged, { a: 1 },
+    `A's charge must remain rather than override a protected preferred day: ${JSON.stringify(r.vacationCharged)}`
+  );
+  assert.ok(
+    !r.assignments.some((x) => x.userId === 'c' && x.date === O(6)),
+    "modest C keeps their preferred day off — never consumed for someone else's rescue"
+  );
+  assert.strictEqual(r.unfilled.length, 0, 'protection never costs coverage');
+  assert.ok(
+    (r.counts['b'] || 0) >= 1 && (r.counts['c'] || 0) >= 3,
+    `no bystander pushed below their requirement: ${JSON.stringify(r.counts)}`
+  );
+  assert.ok(
+    r.warnings.some((w) => w.includes('unresolvable without overriding protected preferred days')),
+    `the surviving charge is explained as protection-bound: ${JSON.stringify(r.warnings)}`
+  );
+}
+
+// Heavy-consumption / determinism fixture: same rescue topology as above but
+// with B not asking and C a heavy asker. A (required 3, balance 9) is must-off
+// days 1-2 and away day 6; B requires 1; C (required 2) is away days 2-4 and
+// prefers day 6 — plus three asks parked on its own away days (2-4), which
+// cannot influence the greedy layout but lift C's ask count to 4 vs 0,0:
+// threshold 0 + 2*max(0,1) = 2, so C is heavy (yet under computeCaps' 4σ cap
+// of 4, so no demotion muddies the claims).
+//   Greedy: C covers day 1, B day 2, A wins days 3-4, C day 5 (under minimum),
+//   day 6 goes to B (claim 0 beats C's 1.0) -> A short 1 with predicted
+//   charge 1. Rescue: A pulls day 5 from C (unprotected), C is left short and
+//   backfills from B's day 6 — consumable BECAUSE C is heavy — and B (required
+//   1, still holding day 2) stays whole. Result: no charge, C works one of its
+//   own (heavy) preferred days, coverage intact.
+const mkHeavyRescueDb = () => {
+  const db = mkDb(
+    [mkUser('a', 'A', { requiredShifts: 3, vacationDays: 9 }),
+     mkUser('b', 'B', { requiredShifts: 1 }),
+     mkUser('c', 'C', { requiredShifts: 2 })],
+    [day],
+    [oMust('a', 1), oMust('a', 2), oPref('c', 6), oPref('c', 2), oPref('c', 3), oPref('c', 4)]
+  );
+  db.awayTime.push({ id: 'aw-a', userId: 'a', start: O(6), end: O(6) });
+  db.awayTime.push({ id: 'aw-c', userId: 'c', start: O(2), end: O(4) });
+  return db;
+};
+
+// ---- heavy consumption: a heavy asker's preferred day IS consumable for a rescue
+{
+  const db = mkHeavyRescueDb();
+  assert.ok(
+    heavyAskers(db, { startDate: O(1), endDate: O(6), userIds: null }).has('c'),
+    'fixture sanity: C must be a heavy asker'
+  );
+  const r = generateSchedule(db, { startDate: O(1), endDate: O(6) });
+  assert.deepStrictEqual(r.vacationCharged, {}, `the rescue must clear A's charge: ${JSON.stringify(r.vacationCharged)}`);
+  assert.strictEqual(r.counts['a'], 3, `rescued A reaches full required, got ${r.counts['a']}`);
+  assert.ok(
+    r.assignments.some((x) => x.userId === 'c' && x.date === O(6)),
+    "heavy C is scheduled onto (one of) their preferred days to complete the rescue"
+  );
+  assert.ok(
+    (r.counts['b'] || 0) >= 1 && (r.counts['c'] || 0) >= 2,
+    `no chain participant left below their requirement: ${JSON.stringify(r.counts)}`
+  );
+  assert.strictEqual(r.unfilled.length, 0, 'coverage intact through the chain');
+  assert.ok(
+    r.warnings.some((w) => w.includes('C was scheduled on ' + O(6))),
+    'the consumed preferred day is still surfaced as an override warning'
+  );
+}
+
+// ---- self-rescue: an at-risk person works their OWN preferred-off day
+{
+  // 3-day block. A (required 2, balance 10) is must-off day 1 and prefers day
+  // 3 off — its only path to 2 shifts runs through its own preferred day. B
+  // (required 1) could take day 3 instead, which would leave A short and
+  // charged. A's own predicted charge outranks A's own preference: A works
+  // days 2 AND 3, uncharged.
+  const db = mkDb(
+    [mkUser('a', 'A', { requiredShifts: 2 }), mkUser('b', 'B', { requiredShifts: 1 })],
+    [day],
+    [oMust('a', 1), oPref('a', 3)]
+  );
+  const r = generateSchedule(db, { startDate: O(1), endDate: O(3) });
+  assert.ok(
+    r.assignments.some((x) => x.userId === 'a' && x.date === O(3)),
+    'A must work its own preferred day rather than be charged'
+  );
+  assert.strictEqual(r.counts['a'], 2, `A reaches full required, got ${r.counts['a']}`);
+  assert.deepStrictEqual(r.vacationCharged, {}, 'self-rescue leaves nothing charged');
+  assert.ok(
+    r.warnings.some((w) => w.includes('A was scheduled on ' + O(3))),
+    'the self-overridden preference is still reported'
+  );
+}
+
+// ---- settlement numerics are unchanged by the rework (unavoidable charge)
+{
+  // Replicates the classic settlement shape (see the June fixtures above):
+  // lone A requires 5 across a 5-day block but is must-off 2 of them. Nobody
+  // exists to rescue A and only 3 days are workable, so the settled charge is
+  // still exactly min(shortfall 2, mustOff 2, balance 10) = 2 — byte-for-byte
+  // the same map as before the rework.
+  const db = mkDb([mkUser('a', 'A', { requiredShifts: 5 })], [day], [oMust('a', 2), oMust('a', 3)]);
+  const r = generateSchedule(db, { startDate: O(1), endDate: O(5) });
+  assert.strictEqual(r.counts['a'], 3, 'A works the other 3 days');
+  assert.deepStrictEqual(r.vacationCharged, { a: 2 }, `settlement formula untouched: ${JSON.stringify(r.vacationCharged)}`);
+  assert.ok(!r.warnings.some((w) => w.includes('minimum shifts')), 'covered shortfall still does not warn');
+  // ...and the new diagnostic explains it as structurally unavoidable.
+  const w = r.warnings.find((x) => x.includes('charged'));
+  assert.ok(w, `a charge diagnostic must accompany the charge: ${JSON.stringify(r.warnings)}`);
+  assert.ok(
+    w!.includes('2 unavoidable (only 3 schedulable days for 5 required)'),
+    `unavoidable part with day counts: ${w}`
+  );
+  assert.ok(!w!.includes('unresolvable'), `the zero unresolved part is omitted: ${w}`);
+}
+
+// ---- determinism: a rescue-triggering fixture generates identically twice
+{
+  const run = () => generateSchedule(mkHeavyRescueDb(), { startDate: O(1), endDate: O(6) });
+  const r1 = run();
+  const r2 = run();
+  assert.deepStrictEqual(r1.assignments, r2.assignments, 'same inputs -> same assignments');
+  assert.deepStrictEqual(r1.vacationCharged, r2.vacationCharged, 'same inputs -> same charges');
+  assert.deepStrictEqual(r1.counts, r2.counts, 'same inputs -> same counts');
+  assert.deepStrictEqual(r1.warnings, r2.warnings, 'same inputs -> same warnings');
+}
+
+// ===== charge-aware rework: diagnostics (summarizeSchedule) =====
+
+// ---- unavoidable-only: too few schedulable days, no protection wording
+{
+  // A requires 5 but only days 1, 4, 5 are schedulable (must-off 2-3): the
+  // whole 2-day charge is structurally unavoidable, so the warning carries
+  // only the unavoidable part — the zero "unresolvable" part is omitted.
+  const db = mkDb([mkUser('a', 'A', { requiredShifts: 5 })], [day], [oMust('a', 2), oMust('a', 3)]);
+  const draft: ScheduleDraft = {
+    startDate: O(1), endDate: O(5), userIds: ['a'],
+    assignments: [
+      { date: O(1), shiftTypeId: 'day', userId: 'a' },
+      { date: O(4), shiftTypeId: 'day', userId: 'a' },
+      { date: O(5), shiftTypeId: 'day', userId: 'a' },
+    ],
+    unfilled: [], vacationCharged: { a: 2 },
+  };
+  const { warnings } = summarizeSchedule(db, draft);
+  const w = warnings.find((x) => x.includes('charged'));
+  assert.ok(w, `expected a charge diagnostic: ${JSON.stringify(warnings)}`);
+  assert.ok(w!.includes('charged 2 vacation days:'), `plural "days" for a 2-day charge: ${w}`);
+  assert.ok(
+    w!.includes('2 unavoidable (only 3 schedulable days for 5 required)'),
+    `unavoidable wording with the day math: ${w}`
+  );
+  assert.ok(!w!.includes('unresolvable'), `no unresolvable part when the charge is fully unavoidable: ${w}`);
+}
+
+// ---- unresolved-only: enough schedulable days -> protection wording only
+{
+  // A requires 3 with 4 schedulable days (only day 1 is must-off), works 2 and
+  // is charged 1: the days were there, so nothing is "unavoidable" — the whole
+  // charge is reported as unresolvable without overriding protected days.
+  const db = mkDb([mkUser('a', 'A', { requiredShifts: 3 })], [day], [oMust('a', 1)]);
+  const draft: ScheduleDraft = {
+    startDate: O(1), endDate: O(5), userIds: ['a'],
+    assignments: [
+      { date: O(2), shiftTypeId: 'day', userId: 'a' },
+      { date: O(4), shiftTypeId: 'day', userId: 'a' },
+    ],
+    unfilled: [], vacationCharged: { a: 1 },
+  };
+  const { warnings } = summarizeSchedule(db, draft);
+  const w = warnings.find((x) => x.includes('charged'));
+  assert.ok(w, `expected a charge diagnostic: ${JSON.stringify(warnings)}`);
+  assert.ok(
+    w!.includes('1 unresolvable without overriding protected preferred days'),
+    `unresolved wording: ${w}`
+  );
+  assert.ok(!w!.includes('unavoidable'), `no unavoidable part when enough days existed: ${w}`);
+}
+
+// ---- pluralization: a 1-day charge and a 1-day count use the singular
+{
+  // A requires 2 with days 1-2 must-off across a 3-day block: 1 schedulable
+  // day, charge 1 -> "charged 1 vacation day:" and "only 1 schedulable day".
+  const db = mkDb(
+    [mkUser('a', 'A', { requiredShifts: 2, vacationDays: 5 })],
+    [day],
+    [oMust('a', 1), oMust('a', 2)]
+  );
+  const draft: ScheduleDraft = {
+    startDate: O(1), endDate: O(3), userIds: ['a'],
+    assignments: [{ date: O(3), shiftTypeId: 'day', userId: 'a' }],
+    unfilled: [], vacationCharged: { a: 1 },
+  };
+  const { warnings } = summarizeSchedule(db, draft);
+  const w = warnings.find((x) => x.includes('charged'));
+  assert.ok(w, `expected a charge diagnostic: ${JSON.stringify(warnings)}`);
+  assert.ok(w!.includes('charged 1 vacation day:'), `singular "day" for a 1-day charge: ${w}`);
+  assert.ok(w!.includes('only 1 schedulable day for 2 required'), `singular schedulable "day": ${w}`);
 }
 
 console.log('All scheduler tests passed.');
