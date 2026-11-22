@@ -8,7 +8,8 @@ import type { CollectionKey } from './mysql.js';
 import {
   generateSchedule, summarizeSchedule, preferenceStandings,
 } from './scheduler.js';
-import { ADMIN_REASSIGN_POLICY, scheduleEligibility } from './eligibility.js';
+import { ADMIN_REASSIGN_POLICY, CONFIRM_WARNINGS_CODE, needsConfirmation, scheduleEligibility } from './eligibility.js';
+import type { EligibilityWarning } from './eligibility.js';
 import {
   createTrade, respondToOpenTrade, withdrawResponse,
   acceptOpenResponse, acceptDirect, rejectDirect, claimGiveaway, cancelTrade,
@@ -39,9 +40,17 @@ app.use((req: Request, res: Response, next) => {
 // transaction back — they always happen before any mutation). Business
 // outcomes that must persist even on failure (trades) use return values.
 class HttpError extends Error {
-  constructor(public status: number, message: string, public code?: string) {
+  constructor(public status: number, message: string, public code?: string, public extra?: object) {
     super(message);
   }
+}
+
+// Confirmation contract (ADR 0001): refuse a mutation whose eligibility
+// warnings the request hasn't confirmed, carrying the warnings so the client
+// can ask and resend with `confirmedWarnings` (the warning kinds).
+function requireConfirmed(warnings: EligibilityWarning[], confirmedWarnings: unknown): void {
+  if (!needsConfirmation(warnings, confirmedWarnings)) return;
+  throw new HttpError(409, warnings.map((w) => w.message).join(' '), CONFIRM_WARNINGS_CODE, { warnings });
 }
 
 // Express 4 doesn't catch rejected async handlers — every route goes through
@@ -50,7 +59,7 @@ const handle = (fn: (req: Request, res: Response) => Promise<unknown>) =>
   (req: Request, res: Response) => {
     fn(req, res).catch((e) => {
       if (e instanceof HttpError) {
-        return res.status(e.status).json({ error: e.message, ...(e.code ? { code: e.code } : {}) });
+        return res.status(e.status).json({ error: e.message, ...(e.code ? { code: e.code } : {}), ...e.extra });
       }
       const code = (e as { code?: string })?.code;
       if (code === 'ER_LOCK_WAIT_TIMEOUT') {
@@ -803,13 +812,14 @@ app.post('/api/schedules', handle(async (req, res) => {
 
 // Manual assignment editing: fill an open slot, hand a shift to someone else,
 // or unassign a shift back to open. Hard rules (vacation, one shift per day,
-// 8h rest) still apply to the receiving employee.
+// 8h rest) still apply to the receiving employee; going past the shift
+// maximum or consecutive-night limit needs `confirmedWarnings`.
 app.post('/api/schedules/:id/reassign', handle(async (req, res) => {
   const schedule = await withMutation((db) => {
     requireAdmin(db, req);
     const schedule = db.schedules.find((s) => s.id === req.params.id);
     if (!schedule) throw new HttpError(404, 'Schedule not found.');
-    const { date, shiftTypeId, fromUserId, toUserId } = req.body;
+    const { date, shiftTypeId, fromUserId, toUserId, confirmedWarnings } = req.body;
     const st = db.shiftTypes.find((s) => s.id === shiftTypeId);
     if (!st) throw new HttpError(400, 'Shift type no longer exists.');
 
@@ -822,12 +832,13 @@ app.post('/api/schedules/:id/reassign', handle(async (req, res) => {
           )
         : null;
       // Admin reassign policy (ADR 0001): an unaffordable must-off day is
-      // allowed; hard rules, affordable must-off days, the consecutive-night
-      // limit and the shift maximum block.
+      // allowed; hard rules and affordable must-off days block; the
+      // consecutive-night limit and shift maximum warn the admin.
       const r = scheduleEligibility(
         db, schedule, { date, shiftTypeId }, to, ADMIN_REASSIGN_POLICY, moving ? [moving] : []
       );
       if (!r.eligible) throw new HttpError(400, r.reason);
+      requireConfirmed(r.warnings, confirmedWarnings);
     }
 
     if (!fromUserId) {

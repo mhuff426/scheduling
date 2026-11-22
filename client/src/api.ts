@@ -1,5 +1,6 @@
 import type { Slot } from '../../shared/types.js';
 import { noteVersion } from './versions';
+import { withConfirmedWarnings } from './confirmWarnings';
 
 async function request(method: string, url: string, body?: any): Promise<any> {
   const res = await fetch(url, {
@@ -15,7 +16,9 @@ async function request(method: string, url: string, body?: any): Promise<any> {
     if (res.status === 401 && !url.includes('/api/auth/me')) {
       window.dispatchEvent(new CustomEvent('auth:required'));
     }
-    throw new Error(data.error || `Request failed (${res.status})`);
+    // The error carries the server's `code` and body (e.g. the eligibility
+    // warnings of a refusal that needs confirming).
+    throw Object.assign(new Error(data.error || `Request failed (${res.status})`), { code: data.code, data });
   }
   return data;
 }
@@ -47,7 +50,9 @@ export const api = {
     request('PUT', `/api/holidays/${id}`, h).then((r) => { noteVersion('holidays', id, r.version); return r; }),
   deleteHoliday: (id: string) => request('DELETE', `/api/holidays/${id}`),
   createSchedule: (s: any) => request('POST', '/api/schedules', s),
-  reassign: (scheduleId: string, move: any) => request('POST', `/api/schedules/${scheduleId}/reassign`, move),
+  reassign: (scheduleId: string, move: any) =>
+    withConfirmedWarnings((confirmedWarnings) =>
+      request('POST', `/api/schedules/${scheduleId}/reassign`, { ...move, confirmedWarnings })),
   createTrade: (t: any) => request('POST', '/api/trades', t),
   respondTrade: (id: string, body: any) => request('POST', `/api/trades/${id}/respond`, body),
   withdrawResponse: (id: string, body: any) => request('POST', `/api/trades/${id}/withdraw`, body),

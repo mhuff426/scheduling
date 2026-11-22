@@ -27,13 +27,14 @@ export const GENERATOR_POLICY: EligibilityPolicy = {
   shiftMaximum: 'block',
 };
 // An admin may do anything the generator could have done: an unaffordable
-// must-off day is open to them. An affordable one stays the person's own.
+// must-off day is open to them. An affordable one stays the person's own. An
+// admin overriding the generator may go past its limits, after confirming.
 export const ADMIN_REASSIGN_POLICY: EligibilityPolicy = {
   name: 'admin reassign',
   affordableMustOff: 'block',
   unaffordableMustOff: 'ignore',
-  consecutiveNightLimit: 'block',
-  shiftMaximum: 'block',
+  consecutiveNightLimit: 'warn',
+  shiftMaximum: 'warn',
 };
 export const TRADE_POLICY: EligibilityPolicy = {
   name: 'trade',
@@ -79,6 +80,16 @@ export type Eligibility =
 export interface EligibilityWarning {
   kind: 'must-off day' | 'shift maximum' | 'consecutive-night limit';
   message: string;
+}
+
+// Confirmation contract: a mutation that produces warnings is refused with
+// CONFIRM_WARNINGS_CODE (carrying the warnings) until the request lists, in
+// `confirmedWarnings`, the kind of every warning it now triggers. Checked
+// afresh on every request, so a warning that appeared since is refused again.
+export const CONFIRM_WARNINGS_CODE = 'eligibility_warnings';
+export function needsConfirmation(warnings: EligibilityWarning[], confirmedWarnings: unknown): boolean {
+  const confirmed = Array.isArray(confirmedWarnings) ? confirmedWarnings : [];
+  return warnings.some((w) => !confirmed.includes(w.kind));
 }
 
 // True if the user holds a role allowed to fill this shift type. A shift with
