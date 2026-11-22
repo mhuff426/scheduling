@@ -1505,6 +1505,70 @@ const mkHeavyRescueDb = () => {
   assert.ok(w!.includes('only 1 schedulable day for 2 required'), `singular schedulable "day": ${w}`);
 }
 
+// ---- schedulable days: an unaffordable must-off day is schedulable
+{
+  // A has 1 vacation day but 2 must-off days (2-3) in a 5-day block: both are
+  // unaffordable, so the generator could have scheduled A on them. All 5 days
+  // are schedulable, so a 2-day charge on required 5 isn't "unavoidable".
+  const db = mkDb(
+    [mkUser('a', 'A', { requiredShifts: 5, vacationDays: 1 })],
+    [day],
+    [oMust('a', 2), oMust('a', 3)]
+  );
+  const draft: ScheduleDraft = {
+    startDate: O(1), endDate: O(5), userIds: ['a'],
+    assignments: [
+      { date: O(1), shiftTypeId: 'day', userId: 'a' },
+      { date: O(4), shiftTypeId: 'day', userId: 'a' },
+      { date: O(5), shiftTypeId: 'day', userId: 'a' },
+    ],
+    unfilled: [], vacationCharges: chargesOf('a', 2, O(1)),
+  };
+  const { warnings } = summarizeSchedule(db, draft);
+  const w = warnings.find((x) => x.includes('charged'));
+  assert.ok(w, `expected a charge diagnostic: ${JSON.stringify(warnings)}`);
+  assert.ok(!w!.includes('unavoidable'), `unaffordable must-off days count as schedulable: ${w}`);
+  assert.ok(w!.includes('2 unresolvable without overriding protected preferred days'), `whole charge unresolved: ${w}`);
+}
+
+// ---- schedulable days: days with no shift aren't schedulable
+{
+  // The only shift is weekly on Mondays; 2026-10-05 is the one Monday in
+  // 1-7 Oct. A requires 2 but can only ever work 1 day, so the 1-day charge
+  // is unavoidable.
+  const mon: ShiftType = { ...inv, id: 'mon', name: 'Monday', staffRequired: 1 };
+  const db = mkDb([mkUser('a', 'A', { requiredShifts: 2 })], [mon]);
+  const draft: ScheduleDraft = {
+    startDate: O(1), endDate: O(7), userIds: ['a'],
+    assignments: [{ date: O(5), shiftTypeId: 'mon', userId: 'a' }],
+    unfilled: [], vacationCharges: chargesOf('a', 1, O(5)),
+  };
+  const { warnings } = summarizeSchedule(db, draft);
+  const w = warnings.find((x) => x.includes('charged'));
+  assert.ok(w, `expected a charge diagnostic: ${JSON.stringify(warnings)}`);
+  assert.ok(w!.includes('1 unavoidable (only 1 schedulable day for 2 required)'), `no-shift days skipped: ${w}`);
+}
+
+// ---- schedulable days: a closed holiday has no shift
+{
+  // Daily shift over 1-3 Oct, with 2 Oct a non-workable holiday: 2 schedulable
+  // days for required 3.
+  const db = mkDb([mkUser('a', 'A', { requiredShifts: 3 })], [day]);
+  db.holidays = [{ id: 'h', name: 'Closed', workable: false, recurrence: { type: 'one-off', date: O(2) } }];
+  const draft: ScheduleDraft = {
+    startDate: O(1), endDate: O(3), userIds: ['a'],
+    assignments: [
+      { date: O(1), shiftTypeId: 'day', userId: 'a' },
+      { date: O(3), shiftTypeId: 'day', userId: 'a' },
+    ],
+    unfilled: [], vacationCharges: chargesOf('a', 1, O(1)),
+  };
+  const { warnings } = summarizeSchedule(db, draft);
+  const w = warnings.find((x) => x.includes('charged'));
+  assert.ok(w, `expected a charge diagnostic: ${JSON.stringify(warnings)}`);
+  assert.ok(w!.includes('1 unavoidable (only 2 schedulable days for 3 required)'), `closed holiday skipped: ${w}`);
+}
+
 // ===== per-day vacation years: a schedule spanning New Year =====
 // 28 Dec 2026 - 10 Jan 2027 (14 days), one daily shift, must-off 30 Dec and 3 Jan.
 {

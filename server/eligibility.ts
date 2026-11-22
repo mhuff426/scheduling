@@ -254,7 +254,17 @@ export function unaffordableMustOffDays(
   return out;
 }
 
-type FactsSchedule = Pick<Schedule, 'startDate' | 'endDate'> & Partial<Pick<Schedule, 'id' | 'vacationCharges'>>;
+// A schedulable day (GLOSSARY.md): a day in the schedule with at least one
+// shift, where the person has started, isn't on away time and has no must-off
+// day other than an unaffordable one. The generator's look-ahead and the
+// schedule summary's charge warning both count days with this.
+export function isSchedulableDay(person: User, date: string, facts: DayFacts, hasShift: boolean): boolean {
+  if (!hasShift || isBeforeStart(person, date) || facts.isAway(date)) return false;
+  const off = facts.mustOff(date);
+  return !off || !off.affordable;
+}
+
+type FactsSchedule =Pick<Schedule, 'startDate' | 'endDate'> & Partial<Pick<Schedule, 'id' | 'vacationCharges'>>;
 
 // Day facts read straight from the db, for trades and reassign. Affordability
 // is recomputed live: year balances from every schedule as they stand now,
