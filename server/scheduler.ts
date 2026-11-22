@@ -1126,13 +1126,22 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
   // Settle vacation: shortfall against the FULL personal requirement is
   // covered by vacation charges on the must-off days that caused it, earliest
   // first, each dated on its day and limited by that day's vacation-year
-  // balance (never negative).
+  // balance (never negative). A must-off day the person ended up working
+  // (possible once their must-offs were downgraded to soft claims) didn't
+  // cause any shortfall, so it is never charged — otherwise the charge could
+  // land in a different vacation year from the day actually taken off.
   const vacationCharges: VacationCharge[] = [];
+  const workedDates = new Map<string, Set<string>>();
+  for (const a of assignments) {
+    if (!workedDates.has(a.userId)) workedDates.set(a.userId, new Set());
+    workedDates.get(a.userId)!.add(a.date);
+  }
   for (const u of employees) {
+    const worked = workedDates.get(u.id);
     for (const date of shortfallCharges({
       required: requiredShifts(u),
       counting: counts.get(u.id),
-      mustOffDates: mustOffDates.get(u.id),
+      mustOffDates: mustOffDates.get(u.id).filter((d) => !worked?.has(d)),
       yearBalance: yearBalanceOf(u.id),
     })) vacationCharges.push({ userId: u.id, date, cause: 'shortfall' });
   }

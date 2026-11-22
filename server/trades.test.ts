@@ -325,6 +325,13 @@ const otherSchedule = (id: string, chargeDates: string[]) => ({
   assert.ok(outside.error && outside.error.includes('2101'), `a year the schedule doesn't cover is refused: ${outside.error}`);
   const tooMany = setExtraElection(db, 'sch1', { userId: 'a', vacationByYear: { 2099: 2, 2100: 2 }, incentive: 0 });
   assert.ok(tooMany.error && tooMany.error.includes('Only 3 extra'), 'the total across years is capped by extra days');
+  // spellings of the same year collapse to one canonical key
+  const aliased = setExtraElection(db, 'sch1', { userId: 'a', vacationByYear: { '2099': 1, '02099': 1, ' 2100': 1 }, incentive: 0 });
+  assert.ok(!aliased.error, `aliased years accepted: ${aliased.error}`);
+  assert.deepStrictEqual(db.schedules[0].extraElections!.a, { vacationByYear: { 2099: 2, 2100: 1 }, incentive: 0 }, 'one key per year');
+  const fractional = setExtraElection(db, 'sch1', { userId: 'a', vacationByYear: { '2099.5': 1 }, incentive: 0 });
+  assert.strictEqual(fractional.code, 400, 'a non-integer year is refused');
+  assert.ok(!setExtraElection(db, 'sch1', { userId: 'a', vacationByYear: { 2099: 1, 2100: 2 }, incentive: 0 }).error);
 
   // spending 2100's elected days blocks lowering 2100, but not moving 2099's
   db.schedules.push(otherSchedule('sch2', ['2100-02-01', '2100-02-02']));
