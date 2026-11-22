@@ -18,6 +18,7 @@ import type {
 } from '../shared/types.js';
 import type { DbConfig } from './config.js';
 import { ensureSchema } from './schema.js';
+import { electedVacationInYear, electedYears } from '../shared/settlement.js';
 
 export type CollectionKey = keyof Db;
 export const COLLECTION_KEYS: CollectionKey[] = [
@@ -192,7 +193,7 @@ function rowsFor(key: CollectionKey, db: Db): TableRows[] {
         (s.vacationCharges || []).forEach((c, j) => vacCharges.push([s.id, c.userId, c.date, c.cause, j]));
         for (const [uid, e] of Object.entries(s.extraElections || {})) {
           elections.push([s.id, uid, e.incentive]);
-          for (const [year, days] of Object.entries(e.vacationByYear || {})) electionVacation.push([s.id, uid, Number(year), days]);
+          for (const year of electedYears(e)) electionVacation.push([s.id, uid, year, electedVacationInYear(e, year)]);
         }
         for (const [uid, n] of Object.entries(s.preferenceStats?.asks || {})) prefAsks.push([s.id, uid, n]);
       });

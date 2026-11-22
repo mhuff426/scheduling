@@ -42,15 +42,15 @@ test('a schedule spanning New Year lets the employee split elected vacation acro
   await reset(request, { schedules: [spanning] });
   await openMyShifts(page);
 
-  const y2099 = page.getByLabel('Extra vacation for 2099');
-  const y2100 = page.getByLabel('Extra vacation for 2100');
+  const y2099 = page.getByLabel('As vacation for 2099');
+  const y2100 = page.getByLabel('As vacation for 2100');
   await expect(y2099).toBeVisible();
   await expect(y2100).toBeVisible();
   await expect(page.getByText(/spans 2099 and 2100/)).toBeVisible();
 
   await y2099.fill('1');
   await y2100.fill('2');
-  await page.getByRole('button', { name: 'Save split' }).click();
+  await page.getByRole('button', { name: 'Save extra-day election' }).click();
 
   await expect.poll(async () => (await state(request)).schedules[0].extraElections['u-admin']).toEqual({
     vacationByYear: { 2099: 1, 2100: 2 }, incentive: 0,
@@ -63,8 +63,8 @@ test('a schedule spanning New Year lets the employee split elected vacation acro
 test('all elected vacation can go to the later year', async ({ page, request }) => {
   await reset(request, { schedules: [spanning] });
   await openMyShifts(page);
-  await page.getByLabel('Extra vacation for 2100').fill('3');
-  await page.getByRole('button', { name: 'Save split' }).click();
+  await page.getByLabel('As vacation for 2100').fill('3');
+  await page.getByRole('button', { name: 'Save extra-day election' }).click();
   await expect.poll(async () => (await state(request)).schedules[0].extraElections['u-admin']).toEqual({
     vacationByYear: { 2100: 3 }, incentive: 0,
   });
@@ -73,9 +73,9 @@ test('all elected vacation can go to the later year', async ({ page, request }) 
 test('a schedule inside one vacation year shows a single vacation field', async ({ page, request }) => {
   await reset(request, { schedules: [single] });
   await openMyShifts(page);
-  await expect(page.getByLabel('Extra vacation for 2099')).toHaveCount(0);
-  await page.getByLabel('Extra vacation', { exact: true }).fill('2');
-  await page.getByRole('button', { name: 'Save split' }).click();
+  await expect(page.getByLabel('As vacation for 2099')).toHaveCount(0);
+  await page.getByLabel('As vacation', { exact: true }).fill('2');
+  await page.getByRole('button', { name: 'Save extra-day election' }).click();
   await expect.poll(async () => (await state(request)).schedules[0].extraElections['u-admin']).toEqual({
     vacationByYear: { 2099: 2 }, incentive: 0,
   });
@@ -96,4 +96,11 @@ test('legacy charge counts and elections migrate without changing a year balance
     { userId: 'u-bea', date: '2099-12-28', cause: 'legacy' },
   ]);
   expect(s.extraElections['u-admin']).toEqual({ vacationByYear: { 2099: 2 }, incentive: 1 });
+});
+
+test('the old single `vacation` election field is refused, not silently ignored', async ({ request }) => {
+  await reset(request, { schedules: [single] });
+  const res = await request.put('/api/schedules/sch-jun/extra-election', { data: { vacation: 1, incentive: 0 } });
+  expect(res.status()).toBe(400);
+  expect((await res.json()).error).toContain('vacationByYear');
 });

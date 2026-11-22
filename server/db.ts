@@ -13,9 +13,13 @@
 // and the unit tests import its pure helpers and must load with no database
 // configured or running.
 import type { Pool, PoolConnection } from 'mysql2/promise';
-import type { Db, RoleTag, User } from '../shared/types.js';
+import type { Db, RoleTag, Schedule, User } from '../shared/types.js';
 import { getDbConfig } from './config.js';
-import { migrateLegacySettlement } from '../shared/settlement.js';
+import { migrateLegacySettlement, type LegacySettlement } from '../shared/settlement.js';
+
+// A schedule as it may be loaded from data saved before per-day vacation
+// years (#37): its settlement possibly still in the legacy shape.
+type LegacySchedule = Omit<Schedule, 'extraElections'> & LegacySettlement;
 import {
   COLLECTION_KEYS, createDbPool, ensureDatabase, ensureSchema,
   loadAllFromMysql, writeCollections, waitForDb,
@@ -115,8 +119,9 @@ export function normalizeDb(loaded: Db): Db {
   // Per-day vacation years: legacy per-schedule charge counts become dated
   // `legacy` charges, and elected vacation moves to the start year.
   for (const s of loaded.schedules || []) {
-    Object.assign(s, migrateLegacySettlement(s as Parameters<typeof migrateLegacySettlement>[0]));
-    delete (s as any).vacationCharged;
+    const legacy: LegacySchedule = s;
+    Object.assign(legacy, migrateLegacySettlement(legacy));
+    delete legacy.vacationCharged;
   }
   return loaded;
 }

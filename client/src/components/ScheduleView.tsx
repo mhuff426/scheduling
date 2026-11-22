@@ -3,7 +3,8 @@ import { api } from '../api';
 import { DOW, MONTHS, monthGrid, prettyDate, formatTime, addDays, weekStart } from '../dates';
 import { shiftTypeBreakdown } from '../shiftMath';
 import {
-  countingShifts, electedVacation, extraDays, requiredShifts, vacationChargedIn, vacationYearsOf,
+  countingShifts, electedVacation, electedVacationInYear, extraDays, requiredShifts, vacationCharged,
+  vacationChargedInYear, vacationYearsOf,
 } from '../../../shared/settlement.js';
 import { safeBg, CHIP_INK } from '../contrast';
 import { holidayDatesInRange } from '../../../shared/holidays.js';
@@ -356,19 +357,25 @@ function ShiftBreakdownTable({ db, schedule, user }: { db: AppState; schedule: S
 
 // The figures the settlement card and admin table show, all from settlement.
 // `years` is every vacation year the schedule spans (two across New Year).
+// The per-year breakdowns ("2026: 1, 2027: 2") are '' for a schedule inside
+// one vacation year, or when there's nothing to break down.
 function settlementFor(db: AppState, schedule: Schedule, user: User) {
   const years = vacationYearsOf(schedule);
   const election = schedule.extraElections?.[user.id] || { vacationByYear: {}, incentive: 0 };
+  const charged = vacationCharged(schedule, user.id);
+  const vacation = electedVacation(election);
+  const vacationIn = (year: number) => electedVacationInYear(election, year);
   return {
     years,
     count: countingShifts(db, schedule, user.id),
     required: requiredShifts(user),
-    charged: vacationChargedIn(schedule, user.id),
-    chargedIn: (year: number) => vacationChargedIn(schedule, user.id, year),
+    charged,
+    chargedPerYear: charged > 0 ? perYear(years, (y) => vacationChargedInYear(schedule, user.id, y)) : '',
     extra: extraDays(db, schedule, user),
     election,
-    vacation: electedVacation(election),
-    vacationIn: (year: number) => electedVacation(election, year),
+    vacation,
+    vacationIn,
+    vacationPerYear: vacation > 0 ? perYear(years, vacationIn) : '',
   };
 }
 
@@ -384,43 +391,43 @@ function perYear(years: number[], n: (year: number) => number) {
 function SettlementCard({ db, schedule, user, self, act }: { db: AppState; schedule: Schedule; user: User; self: boolean; act: Act }) {
   const s = settlementFor(db, schedule, user);
   const split = s.years.length > 1;
-  const saved = () => Object.fromEntries(s.years.map((y) => [String(y), s.vacationIn(y)]));
+  const saved = () => Object.fromEntries(s.years.map((y) => [y, s.vacationIn(y)]));
   const [vacByYear, setVacByYear] = useState<Record<string, number>>(saved);
   const [inc, setInc] = useState(s.election.incentive);
   const vac = Object.values(vacByYear).reduce((t, n) => t + n, 0);
   const dirty = s.years.some((y) => (vacByYear[y] || 0) !== s.vacationIn(y)) || inc !== s.election.incentive;
   const unallocated = s.extra - s.vacation - s.election.incentive;
   const setYear = (year: number, n: number) => setVacByYear((v) => ({ ...v, [year]: Math.max(0, n) }));
-  const chargedYears = perYear(s.years, s.chargedIn);
-  const electedYears = perYear(s.years, s.vacationIn);
+  const vacationLabel = (y: number) => (split ? `As vacation for ${y}` : 'As vacation');
 
   return (
     <div className="card">
       <h2>🧾 Schedule settlement — {user.name}</h2>
       <p className="muted small">
         Worked <strong>{s.count}</strong> of <strong>{s.required}</strong> required
-        {' · '}vacation days taken: <strong>{s.charged}</strong>
-        {s.charged > 0 && chargedYears && ` (${chargedYears})`}
+        {' · '}vacation charges: <strong>{s.charged}</strong>
+        {s.chargedPerYear && ` (${s.chargedPerYear})`}
         {' · '}extra days: <strong>{s.extra}</strong>
-        {s.extra > 0 && unallocated > 0 && ` (${unallocated} not yet allocated)`}
+        {s.extra > 0 && unallocated > 0 && ` (${unallocated} not yet elected)`}
       </p>
       {self && s.extra > 0 && (
         <div className="row spread">
+          <span className="small">Extra-day election:</span>
           {s.years.map((y) => (
             <label key={y} className="row small">
-              {split ? `Extra vacation for ${y}` : 'Extra vacation'}
+              {vacationLabel(y)}
               <input
                 className="inline-num" type="number" min="0" max={s.extra}
-                aria-label={split ? `Extra vacation for ${y}` : 'Extra vacation'}
+                aria-label={vacationLabel(y)}
                 value={vacByYear[y] || 0} onChange={(e) => setYear(y, Number(e.target.value) || 0)}
               />
             </label>
           ))}
           <label className="row small">
-            Incentive pay
+            As incentive pay
             <input
               className="inline-num" type="number" min="0" max={s.extra}
-              aria-label="Incentive pay"
+              aria-label="As incentive pay"
               value={inc} onChange={(e) => setInc(Math.max(0, Number(e.target.value) || 0))}
             />
           </label>
@@ -429,22 +436,22 @@ function SettlementCard({ db, schedule, user, self, act }: { db: AppState; sched
             disabled={!dirty || vac + inc > s.extra}
             onClick={() => act(() => api.electExtra(schedule.id, { userId: user.id, vacationByYear: vacByYear, incentive: inc }))}
           >
-            Save split
+            Save extra-day election
           </button>
-          {vac + inc > s.extra && <span className="muted small">only {s.extra} to allocate</span>}
+          {vac + inc > s.extra && <span className="muted small">only {s.extra} to elect</span>}
         </div>
       )}
       {self && s.extra > 0 && (
         <p className="muted small">
           {split
-            ? `This schedule spans ${s.years.join(' and ')}: choose which year's balance your extra vacation adds to, or split it across both. `
-            : "Split your extra days: extra vacation adds to this year's balance. "}
+            ? `This schedule spans ${s.years.join(' and ')}: choose which year balance your days elected as vacation add to, or split them across both. `
+            : 'Days elected as vacation add to this year balance. '}
           Incentive pay is paid out by HR.
         </p>
       )}
       {!self && (s.vacation > 0 || s.election.incentive > 0) && (
         <p className="muted small">
-          Elected: {s.vacation} extra vacation{electedYears && ` (${electedYears})`}, {s.election.incentive} incentive pay.
+          Extra-day election: {s.vacation} as vacation{s.vacationPerYear && ` (${s.vacationPerYear})`}, {s.election.incentive} as incentive pay.
         </p>
       )}
     </div>
@@ -460,8 +467,8 @@ function AdminSettlementTable({ db, schedule, users }: { db: AppState; schedule:
         <thead>
           <tr>
             <th>Employee</th><th>Worked</th><th>Required</th>
-            <th>Vacation taken</th><th>Extra days</th>
-            <th>→ Extra vacation</th><th>→ Incentive pay</th>
+            <th>Vacation charges</th><th>Extra days</th>
+            <th>→ Elected as vacation</th><th>→ Elected as incentive pay</th>
           </tr>
         </thead>
         <tbody>
@@ -472,9 +479,9 @@ function AdminSettlementTable({ db, schedule, users }: { db: AppState; schedule:
                 <td><span className="dot" style={{ background: safeBg(u.color) }} /> {u.name}</td>
                 <td>{s.count}</td>
                 <td>{s.required}</td>
-                <td>{s.charged}{s.charged > 0 && s.years.length > 1 && <span className="muted small"> ({perYear(s.years, s.chargedIn)})</span>}</td>
+                <td>{s.charged}{s.chargedPerYear && <span className="muted small"> ({s.chargedPerYear})</span>}</td>
                 <td>{s.extra}</td>
-                <td>{s.vacation}{s.vacation > 0 && s.years.length > 1 && <span className="muted small"> ({perYear(s.years, s.vacationIn)})</span>}</td>
+                <td>{s.vacation}{s.vacationPerYear && <span className="muted small"> ({s.vacationPerYear})</span>}</td>
                 <td>{s.election.incentive}</td>
               </tr>
             );

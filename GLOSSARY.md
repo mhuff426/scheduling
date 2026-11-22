@@ -30,6 +30,9 @@ How many counting shifts a person is below their required shifts in a schedule.
 One vacation day taken from a person's year balance to cover a shortfall caused by a must-off day or by giving a shift away. It belongs to the vacation year of the day it covers.
 _Avoid_: Deduction, vacation used
 
+**Charge cause**:
+Why a vacation charge was made: **shortfall** (a must-off day covered when the schedule was generated), **giveaway** (a shift given away and claimed, dated on that shift's day) or **legacy** (migrated from a count saved before charges were dated, dated on its schedule's start date).
+
 **Extra day**:
 A counting shift or vacation charge beyond a person's required shifts in a schedule.
 _Avoid_: Overtime, surplus

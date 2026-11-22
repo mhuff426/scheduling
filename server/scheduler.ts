@@ -21,7 +21,7 @@
 
 import { holidayDatesInRange } from '../shared/holidays.js';
 import {
-  shiftWeight, isCountingShiftType, shiftMaximum, requiredShifts, shortfall, vacationChargedIn,
+  shiftWeight, isCountingShiftType, shiftMaximum, requiredShifts, shortfall, vacationCharged,
   vacationYearOf, vacationYearsOf, yearBalance, shortfallCharges,
 } from '../shared/settlement.js';
 import type {
@@ -421,7 +421,7 @@ export function summarizeSchedule(db: Db, schedule: ScheduleDraft) {
     // Vacation days charged for this schedule cover shortfall; warn only on
     // the uncovered remainder.
     const required = requiredShifts(u);
-    const charge = vacationChargedIn(schedule, u.id);
+    const charge = vacationCharged(schedule, u.id);
     const residual = shortfall(db, schedule, u) - charge;
     if (residual > 0) {
       const covered = charge > 0 ? `, ${charge} covered by vacation day${charge === 1 ? '' : 's'}` : '';

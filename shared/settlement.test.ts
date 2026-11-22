@@ -1,8 +1,8 @@
 // Smoke test: tsx shared/settlement.test.ts
 import assert from 'assert';
 import {
-  shiftWeight, countingShifts, shiftMaximum, requiredShifts, shortfall, extraDays, vacationChargedIn,
-  vacationYearOf, vacationYearsOf, yearBalance, electedVacation, shortfallCharges, giveaway, migrateLegacySettlement,
+  shiftWeight, countingShifts, shiftMaximum, requiredShifts, shortfall, extraDays, vacationCharged, vacationChargedInYear,
+  vacationYearOf, vacationYearsOf, yearBalance, electedVacation, electedVacationInYear, electedYears, shortfallCharges, giveaway, applyElectionCut, migrateLegacySettlement,
 } from './settlement.js';
 import type { Assignment, Schedule, ShiftType, VacationCharge, VacationChargeCause } from './types.js';
 
@@ -80,7 +80,7 @@ const shiftTypes = [day, standby, heavy];
   };
   assert.strictEqual(shortfall({ shiftTypes }, over, ann), 0, 'no shortfall at or above required');
   assert.strictEqual(extraDays({ shiftTypes }, over, ann), 2, '3 counting + 2 charged - 3 required');
-  assert.strictEqual(vacationChargedIn(over, 'a'), 2, "only a's charges");
+  assert.strictEqual(vacationCharged(over, 'a'), 2, "only a's charges");
 }
 
 // ---- vacation year: the calendar year of a day; a schedule spans every year its days fall in
@@ -115,8 +115,10 @@ const shiftTypes = [day, standby, heavy];
   assert.strictEqual(yearBalance({ schedules }, { id: 'a', vacationDays: 1 }, 2027).balance, 0);
   assert.strictEqual(yearBalance({ schedules }, { id: 'a', vacationDays: 0 }, 2026).balance, -1);
   assert.strictEqual(electedVacation({ vacationByYear: { 2026: 1, 2027: 2 }, incentive: 5 }), 3, 'all years');
-  assert.strictEqual(electedVacation({ vacationByYear: { 2026: 1, 2027: 2 }, incentive: 5 }, 2027), 2, 'one year');
+  assert.strictEqual(electedVacationInYear({ vacationByYear: { 2026: 1, 2027: 2 }, incentive: 5 }, 2027), 2, 'one year');
   assert.strictEqual(electedVacation(undefined), 0);
+  assert.deepStrictEqual(electedYears({ vacationByYear: { 2027: 2, 2026: 1, 2028: 0 }, incentive: 0 }), [2026, 2027], 'years with days, earliest first');
+  assert.strictEqual(vacationChargedInYear(schedules[1], 'a', 2027), 1);
 }
 
 // ---- shortfall charges: must-off days earliest first, each vacation year's balance its own limit
@@ -159,7 +161,7 @@ const shiftTypes = [day, standby, heavy];
     const r = calc(sched(), giver(), 'standby');
     assert.strictEqual(r.needsDay, false, 'standby giveaway never needs a vacation day');
     assert.strictEqual(r.extraAfter, 0);
-    assert.strictEqual(r.balanceAfter, 5);
+    assert.deepStrictEqual(r.balancesAfter, {}, 'nothing charged or cut');
     assert.ok(r.canPost && r.canClaim);
   }
   // above required: no day
@@ -167,7 +169,7 @@ const shiftTypes = [day, standby, heavy];
     const r = calc(sched(), giver({ requiredShifts: 1 }), 'day');
     assert.strictEqual(r.needsDay, false, '2 counting, 1 required: still at required after giving one');
     assert.strictEqual(r.extraAfter, 0, '1 counting - 1 required');
-    assert.strictEqual(r.balanceAfter, 5);
+    assert.deepStrictEqual(r.balancesAfter, {});
   }
   // at required: needs a day, which keeps extra days level
   {
@@ -176,7 +178,7 @@ const shiftTypes = [day, standby, heavy];
     assert.strictEqual(r.chargeYear, 2099);
     assert.strictEqual(r.extraAfter, 0, '1 counting + 1 new charge - 2 required');
     assert.strictEqual(r.balanceBefore, 5);
-    assert.strictEqual(r.balanceAfter, 4, 'the vacation day comes off the year balance');
+    assert.deepStrictEqual(r.balancesAfter, { 2099: 4 }, 'the vacation day comes off the year balance');
     assert.ok(r.canPost && r.canClaim);
   }
   // an existing charge covers the gap: no new day
@@ -190,11 +192,11 @@ const shiftTypes = [day, standby, heavy];
     const r = calc(sched({ extraElections: el({ 2099: 1 }, 1) }), giver({ requiredShifts: 0 }), 'day');
     assert.strictEqual(r.extraAfter, 1);
     assert.deepStrictEqual(r.electionCut, { incentive: 1, vacationByYear: {} }, 'incentive cut first');
-    assert.strictEqual(r.balanceAfter, 6, '5 + 1 elected vacation, nothing cut from it');
+    assert.deepStrictEqual(r.balancesAfter, {}, 'only incentive cut: no year touched');
 
     const r2 = calc(sched({ extraElections: el({ 2099: 2 }) }), giver({ requiredShifts: 0 }), 'day');
     assert.deepStrictEqual(r2.electionCut, { incentive: 0, vacationByYear: { 2099: 1 } }, 'then vacation');
-    assert.strictEqual(r2.balanceAfter, 6, '5 + 2 elected - 1 cut');
+    assert.deepStrictEqual(r2.balancesAfter, { 2099: 6 }, '5 + 2 elected - 1 cut');
 
     const none = calc(sched(), giver({ requiredShifts: 0 }), 'day');
     assert.deepStrictEqual(none.electionCut, { incentive: 0, vacationByYear: {} }, 'no election -> no cut');
@@ -202,15 +204,15 @@ const shiftTypes = [day, standby, heavy];
   // claim-time block: the balance after the day and the vacation cut would go below zero
   {
     const r = calc(sched(), giver({ vacationDays: 0 }), 'day');
-    assert.strictEqual(r.balanceAfter, -1);
+    assert.deepStrictEqual(r.balancesAfter, { 2099: -1 });
     assert.strictEqual(r.canClaim, false, 'unaffordable at claim');
     const ok = calc(sched(), giver({ vacationDays: 1 }), 'day');
-    assert.strictEqual(ok.balanceAfter, 0);
+    assert.deepStrictEqual(ok.balancesAfter, { 2099: 0 });
     assert.strictEqual(ok.canClaim, true, 'landing exactly on zero is affordable');
     // a vacation cut alone can block the claim
     const cut = calc(sched({ extraElections: el({ 2099: 2 }) }), giver({ requiredShifts: 0, vacationDays: -2 }), 'day');
     assert.strictEqual(cut.needsDay, false);
-    assert.strictEqual(cut.balanceAfter, -1, '-2 + 2 elected - 1 cut');
+    assert.deepStrictEqual(cut.balancesAfter, { 2099: -1 }, '-2 + 2 elected - 1 cut');
     assert.strictEqual(cut.canClaim, false);
   }
   // posting-time refusal: a day is needed and the balance is already zero or less
@@ -282,6 +284,32 @@ const shiftTypes = [day, standby, heavy];
     assert.deepStrictEqual(r3.balancesAfter, { 2026: -3, 2027: 0 });
     assert.strictEqual(r3.canClaim, false, 'neither year can absorb the cut');
   }
+  // only years actually charged or cut gate the claim: an untouched, already-negative year doesn't block it
+  {
+    // 2026 is at 0 + 1 elected - 3 charged = -2; 2027 at 0 + 2 elected = 2.
+    // required 0: 3 extra, 2 after the giveaway; elected 3 -> cut 1, all from 2027 (2026 can't absorb any).
+    const spent2026 = { vacationCharges: ['2026-01-02', '2026-01-03', '2026-01-04'].map((d) => C('a', d)) };
+    const elected = sched({ extraElections: { a: { vacationByYear: { 2026: 1, 2027: 2 }, incentive: 0 } } });
+    const g = giver({ requiredShifts: 0, vacationDays: 0 });
+    for (const date of ['2026-12-30', '2027-01-05']) {
+      const r = give(elected, g, date, [spent2026]);
+      assert.strictEqual(r.needsDay, false);
+      assert.deepStrictEqual(r.electionCut, { incentive: 0, vacationByYear: { 2027: 1 } });
+      assert.deepStrictEqual(r.balancesAfter, { 2027: 1 }, `only the cut year is touched (shift on ${date})`);
+      assert.strictEqual(r.canClaim, true, `the untouched negative 2026 doesn't block (shift on ${date})`);
+    }
+  }
+}
+
+// ---- applying an election cut: each year's elected days drop by the cut; years left at zero disappear
+{
+  const el = { vacationByYear: { 2026: 2, 2027: 1 }, incentive: 3 };
+  assert.deepStrictEqual(
+    applyElectionCut(el, { incentive: 1, vacationByYear: { 2027: 1, 2026: 1 } }),
+    { vacationByYear: { 2026: 1 }, incentive: 2 }
+  );
+  assert.deepStrictEqual(applyElectionCut(el, { incentive: 0, vacationByYear: {} }), el, 'no cut -> unchanged');
+  assert.deepStrictEqual(el, { vacationByYear: { 2026: 2, 2027: 1 }, incentive: 3 }, 'the original election is not mutated');
 }
 
 // ---- migration: legacy per-schedule counts become dated charges and start-year elections; no year balance changes
@@ -305,6 +333,15 @@ const shiftTypes = [day, standby, heavy];
   assert.deepStrictEqual([bal('a', 2026), bal('a', 2027), bal('b', 2026), bal('b', 2027)], [11, 9, 9, 10]);
   // idempotent: an already-migrated schedule passes through unchanged
   assert.deepStrictEqual(migrateLegacySettlement({ startDate: '2026-12-28', ...migrated[0] }), migrated[0]);
+  // a fractional legacy count can't become whole charges without changing a balance: refuse, naming the schedule and person
+  assert.throws(
+    () => migrateLegacySettlement({ id: 'sch-x', startDate: '2026-12-28', vacationCharged: { a: 1.5 } }),
+    /sch-x.*\ba\b.*1\.5/
+  );
+  assert.throws(
+    () => migrateLegacySettlement({ id: 'sch-y', startDate: '2026-12-28', extraElections: { b: { vacation: 0.5, incentive: 0 } } }),
+    /sch-y.*\bb\b.*0\.5/
+  );
 }
 
 console.log('All settlement tests passed.');
