@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { api } from '../api';
 import { DOW, MONTHS, monthGrid, prettyDate, formatTime, addDays, weekStart } from '../dates';
-import { settlementFor, shiftTypeBreakdown } from '../shiftMath';
+import { shiftTypeBreakdown } from '../shiftMath';
+import { countingShifts, extraDays, requiredShifts, vacationChargedIn } from '../../../shared/settlement.js';
 import { safeBg, CHIP_INK } from '../contrast';
 import { holidayDatesInRange } from '../../../shared/holidays.js';
 import type { AppState, Assignment, Holiday, Schedule, Slot, User } from '../../../shared/types.js';
@@ -349,6 +350,17 @@ function ShiftBreakdownTable({ db, schedule, user }: { db: AppState; schedule: S
       </tfoot>
     </table>
   );
+}
+
+// The figures the settlement card and admin table show, all from settlement.
+function settlementFor(db: AppState, schedule: Schedule, user: User) {
+  return {
+    count: countingShifts(db, schedule, user.id),
+    required: requiredShifts(user),
+    charged: vacationChargedIn(schedule, user.id),
+    extra: extraDays(db, schedule, user),
+    election: schedule.extraElections?.[user.id] || { vacation: 0, incentive: 0 },
+  };
 }
 
 // Per-person settlement for one schedule: shifts worked vs required, vacation

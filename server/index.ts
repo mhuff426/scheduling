@@ -7,8 +7,8 @@ import { initDb, readState, withMutation, newId, vacationCountForDate, resetDbFo
 import type { CollectionKey } from './mysql.js';
 import {
   generateSchedule, summarizeSchedule, preferenceStandings,
-  effectiveMaximums, weightOf,
 } from './scheduler.js';
+import { countingShifts, isCountingShiftType, shiftMaximum } from '../shared/settlement.js';
 import {
   canTakeShift, createTrade, respondToOpenTrade, withdrawResponse,
   acceptOpenResponse, acceptDirect, rejectDirect, claimGiveaway, cancelTrade,
@@ -825,14 +825,12 @@ app.post('/api/schedules/:id/reassign', handle(async (req, res) => {
       // with shift trading; admin reassignment additionally enforces the cap.
       const err = canTakeShift(db, schedule, { date, shiftTypeId }, to, moving ? [moving] : []);
       if (err) throw new HttpError(400, err);
-      // Weight-0 (standby) shifts don't count toward the shift maximum.
-      const shiftById = Object.fromEntries(db.shiftTypes.map((s) => [s.id, s]));
-      const maxAllowed = effectiveMaximums(db).get(to.id) ?? Infinity;
-      const countingHeld = schedule.assignments.filter(
-        (a) =>
-          a.userId === toUserId && a !== moving && weightOf(shiftById[a.shiftTypeId]) > 0
-      ).length;
-      if (weightOf(st) > 0 && countingHeld + 1 > maxAllowed)
+      // Only counting shifts (standby excluded) count toward the shift maximum.
+      const maxAllowed = shiftMaximum(to);
+      const countingHeld = countingShifts(
+        db, { assignments: schedule.assignments.filter((a) => a !== moving) }, to.id
+      );
+      if (isCountingShiftType(st) && countingHeld + 1 > maxAllowed)
         throw new HttpError(400, `${to.name} is already at their maximum of ${maxAllowed} shifts for this schedule.`);
     }
 

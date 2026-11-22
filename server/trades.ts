@@ -11,12 +11,12 @@
 // call saveDb() after invoking them (which also keeps these testable against
 // fixture objects).
 
-import { newId, vacationAvailable } from './db.js';
+import { newId } from './db.js';
 import {
   restOk, nightCapOk, summarizeSchedule, includedUsers,
-  weightOf, countingShifts, requiredFor, extraDays,
   isBeforeStart, isAway, hasRequiredRole,
 } from './scheduler.js';
+import { extraDays, giveaway, vacationYearOf, yearBalance } from '../shared/settlement.js';
 import type {
   Assignment, Db, ExtraElection, Schedule, ShiftType, Slot, Trade, TradeType, User,
 } from '../shared/types.js';
@@ -165,17 +165,6 @@ export function swapPartners(db: Db, scheduleId: string, userId: string, offered
   return partners;
 }
 
-// Would losing `offered` drop the giver below their requirement, counting the
-// vacation already charged to them this schedule? (Weight-0 standby shifts
-// never count, so giving one away never needs a day.)
-function giveawayNeedsDay(db: Db, schedule: Schedule, giverId: string, offered: Slot) {
-  const st = db.shiftTypes.find((s) => s.id === offered.shiftTypeId);
-  const losesCount = st && weightOf(st) > 0 ? 1 : 0;
-  const after = countingShifts(db, schedule, giverId) - losesCount;
-  const charged = schedule.vacationCharged?.[giverId] || 0;
-  return after + charged < requiredFor(db, schedule, giverId);
-}
-
 function expire(db: Db, trade: Trade, reason: string) {
   trade.status = 'expired';
   trade.resolvedAt = new Date().toISOString();
@@ -235,14 +224,11 @@ export function createTrade(db: Db, { scheduleId, fromUserId, type, offered, toU
   } else if (type === 'giveaway') {
     // A vacation day is only needed when losing this shift drops the giver
     // below their requirement — and then only if they can afford it.
-    if (giveawayNeedsDay(db, schedule, fromUserId, offered)) {
-      const year = Number(schedule.startDate.slice(0, 4));
-      if (vacationAvailable(db, from, year) <= 0)
-        return {
-          error: `Giving this shift up would use a vacation day and you have none left for ${year} — you must switch shifts instead.`,
-          code: 400,
-        };
-    }
+    if (!giveaway(db, schedule, from, offered).canPost)
+      return {
+        error: `Giving this shift up would use a vacation day and you have none left for ${vacationYearOf(schedule)} — you must switch shifts instead.`,
+        code: 400,
+      };
     for (const u of includedUsers(db, schedule)) {
       if (u.id !== fromUserId)
         notify(db, u.id, `${from.name} is giving up their ${slotLabel(db, trade.offered)} — first to claim it takes it.`, trade.id);
@@ -382,7 +368,8 @@ export function claimGiveaway(db: Db, tradeId: string, { userId }: { userId: str
 
   const assign = findAssignment(schedule, trade.fromUserId, trade.offered);
   if (!assign || !isFuture(trade.offered.date)) {
-    expire(db, trade, 'the shift changed hands or is in the past (vacation day refunded).');
+    // Nothing was charged yet — a giveaway only settles when it's claimed.
+    expire(db, trade, 'the shift changed hands or is in the past.');
     return { error: 'That shift is no longer available — giveaway expired.', code: 409 };
   }
 
@@ -393,34 +380,21 @@ export function claimGiveaway(db: Db, tradeId: string, { userId }: { userId: str
   // loss drops them below required, and trim their extra-day election if
   // their extra shrinks (incentive first). Block when either step would push
   // their year's balance negative.
-  const giver = db.users.find((u) => u.id === trade.fromUserId);
-  const year = Number(schedule.startDate.slice(0, 4));
-  const needsDay = giveawayNeedsDay(db, schedule, trade.fromUserId, trade.offered);
-  const st = db.shiftTypes.find((s) => s.id === trade.offered.shiftTypeId);
-  const losesCount = st && weightOf(st) > 0 ? 1 : 0;
-  const predictedExtra = Math.max(
-    0,
-    countingShifts(db, schedule, trade.fromUserId) - losesCount +
-      (schedule.vacationCharged?.[trade.fromUserId] || 0) + (needsDay ? 1 : 0) -
-      requiredFor(db, schedule, trade.fromUserId)
-  );
-  const el = schedule.extraElections?.[trade.fromUserId];
-  const electedSum = el ? el.vacation + el.incentive : 0;
-  const over = Math.max(0, electedSum - predictedExtra);
-  const vacTrim = el ? Math.max(0, over - el.incentive) : 0;
-  if (vacationAvailable(db, giver!, year) - (needsDay ? 1 : 0) - vacTrim < 0) {
-    expire(db, trade, `${giver!.name} can no longer cover the vacation day it requires.`);
+  const giver = db.users.find((u) => u.id === trade.fromUserId)!;
+  const settled = giveaway(db, schedule, giver, trade.offered);
+  if (!settled.canClaim) {
+    expire(db, trade, `${giver.name} can no longer cover the vacation day it requires.`);
     return { error: 'The giver can no longer afford this giveaway — it has expired.', code: 409 };
   }
-  if (needsDay) {
+  if (settled.needsDay) {
     schedule.vacationCharged ??= {};
     schedule.vacationCharged[trade.fromUserId] =
       (schedule.vacationCharged[trade.fromUserId] || 0) + 1;
   }
-  if (el && over > 0) {
-    const incCut = Math.min(over, el.incentive);
-    el.incentive -= incCut;
-    el.vacation -= over - incCut;
+  const el = schedule.extraElections?.[trade.fromUserId];
+  if (el) {
+    el.incentive -= settled.electionCut.incentive;
+    el.vacation -= settled.electionCut.vacation;
   }
 
   assign.userId = userId;
@@ -447,7 +421,7 @@ export function cancelTrade(db: Db, tradeId: string, { userId }: { userId: strin
   for (const uid of audience) {
     notify(db, uid, `${userName(db, userId)} withdrew their trade for ${slotLabel(db, trade.offered)}.`, trade.id);
   }
-  // A cancelled giveaway stops counting against vacation (see vacationUsed).
+  // Nothing to undo for a giveaway: vacation is only charged when it's claimed.
   return { trade };
 }
 
@@ -463,15 +437,14 @@ export function setExtraElection(db: Db, scheduleId: string, { userId, vacation,
   if (!user) return { error: 'User not found.', code: 404 };
   const vac = Math.max(0, Math.floor(Number(vacation) || 0));
   const inc = Math.max(0, Math.floor(Number(incentive) || 0));
-  const extra = extraDays(db, schedule, userId);
+  const extra = extraDays(db, schedule, user);
   if (vac + inc > extra)
     return {
       error: `Only ${extra} extra day${extra === 1 ? '' : 's'} available to allocate.`,
       code: 400,
     };
-  const year = Number(schedule.startDate.slice(0, 4));
   const prev = schedule.extraElections?.[userId]?.vacation || 0;
-  if (vac < prev && vacationAvailable(db, user, year) - (prev - vac) < 0)
+  if (vac < prev && yearBalance(db, user, vacationYearOf(schedule)).balance - (prev - vac) < 0)
     return { error: 'You have already used the vacation days earned from those extra days.', code: 400 };
   schedule.extraElections ??= {};
   schedule.extraElections[userId] = { vacation: vac, incentive: inc };

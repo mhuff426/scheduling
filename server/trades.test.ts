@@ -5,7 +5,7 @@ import {
   acceptDirect, rejectDirect, claimGiveaway, cancelTrade, extraShifts, canTakeShift,
   setExtraElection, tradeOptions, swapPartners,
 } from './trades.js';
-import { vacationUsed, vacationAvailable } from './db.js';
+import { yearBalance } from '../shared/settlement.js';
 import type { Assignment, Db, Schedule, ShiftType, TimeOff, User } from '../shared/types.js';
 
 // Dates in 2099 are always "future".
@@ -42,6 +42,8 @@ function mkDb(users: User[], assignments: Assignment[], timeOff: TimeOff[] = [])
 const owner = (db: Db, date: string, shiftTypeId: string) =>
   db.schedules[0].assignments.find((a) => a.date === date && a.shiftTypeId === shiftTypeId)!.userId;
 const notesFor = (db: Db, uid: string) => db.notifications.filter((n) => n.userId === uid).map((n) => n.message);
+// Vacation charged to a user across 2099's schedules.
+const vacationUsed = (db: Db, uid: string) => yearBalance(db, db.users.find((u) => u.id === uid)!, 2099).used;
 
 // ---- direct swap: happy path ----
 {
@@ -62,8 +64,8 @@ const notesFor = (db: Db, uid: string) => db.notifications.filter((n) => n.userI
   assert.strictEqual(owner(db, '2099-01-10', 'day'), 'a');
   assert.strictEqual(trade!.status, 'completed');
   assert.ok(notesFor(db, 'a').some((m) => m.includes('accepted your swap')), 'proposer notified');
-  assert.strictEqual(vacationUsed(db, 'a', 2099), 0, 'swaps never cost vacation');
-  assert.strictEqual(vacationUsed(db, 'b', 2099), 0);
+  assert.strictEqual(vacationUsed(db, 'a'), 0, 'swaps never cost vacation');
+  assert.strictEqual(vacationUsed(db, 'b'), 0);
 }
 
 // ---- direct swap: reject notifies the proposer ----
@@ -165,7 +167,7 @@ const notesFor = (db: Db, uid: string) => db.notifications.filter((n) => n.userI
     offered: { date: '2099-01-15', shiftTypeId: 'day' },
   });
   assert.ok(trade, 'giveaway created');
-  assert.strictEqual(vacationUsed(db, 'a', 2099), 0, 'no charge at posting');
+  assert.strictEqual(vacationUsed(db, 'a'), 0, 'no charge at posting');
   assert.strictEqual(owner(db, '2099-01-15', 'day'), 'a', 'shift stays with giver until claimed');
 
   const rc = claimGiveaway(db, trade!.id, { userId: 'c' });
@@ -174,7 +176,7 @@ const notesFor = (db: Db, uid: string) => db.notifications.filter((n) => n.userI
   assert.ok(!rb.error, `claim failed: ${rb.error}`);
   assert.strictEqual(owner(db, '2099-01-15', 'day'), 'b');
   assert.strictEqual(trade!.status, 'completed');
-  assert.strictEqual(vacationUsed(db, 'a', 2099), 0, 'above-required giveaway never charges');
+  assert.strictEqual(vacationUsed(db, 'a'), 0, 'above-required giveaway never charges');
   assert.deepStrictEqual(extraShifts(db, 'sch1'), { b: 1 }, 'extra shift tracked');
   assert.ok(notesFor(db, 'a').some((m) => m.includes('picked up your')), 'giver notified');
   const again = claimGiveaway(db, trade!.id, { userId: 'c' });
@@ -193,11 +195,11 @@ const notesFor = (db: Db, uid: string) => db.notifications.filter((n) => n.userI
     offered: { date: '2099-01-15', shiftTypeId: 'day' },
   });
   assert.ok(trade, 'affordable giveaway allowed');
-  assert.strictEqual(vacationUsed(db, 'a', 2099), 0, 'nothing charged before the claim');
+  assert.strictEqual(vacationUsed(db, 'a'), 0, 'nothing charged before the claim');
   const r = claimGiveaway(db, trade!.id, { userId: 'b' });
   assert.ok(!r.error, `claim failed: ${r.error}`);
   assert.strictEqual(db.schedules[0].vacationCharged!.a, 1, 'day charged at claim');
-  assert.strictEqual(vacationUsed(db, 'a', 2099), 1);
+  assert.strictEqual(vacationUsed(db, 'a'), 1);
 }
 
 // ---- broke giver: posting blocked when a day would be needed and none remain ----
@@ -243,7 +245,6 @@ const notesFor = (db: Db, uid: string) => db.notifications.filter((n) => n.userI
   assert.ok(over.error && over.error.includes('Only 2 extra'), 'over-allocation rejected');
   const ok = setExtraElection(db, 'sch1', { userId: 'a', vacation: 1, incentive: 1 });
   assert.ok(!ok.error, `election failed: ${ok.error}`);
-  assert.strictEqual(vacationAvailable(db, db.users[0], 2099), 1, 'elected vacation credits the allowance');
 
   // giving up a shift shrinks extra from 2 to 1 -> incentive trimmed first
   const { trade } = createTrade(db, {

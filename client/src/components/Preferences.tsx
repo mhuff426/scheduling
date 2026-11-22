@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api';
 import { DOW, MONTHS, monthGrid, todayYmd, prettyDate } from '../dates';
-import { vacationSummary } from '../shiftMath';
+import { yearBalance } from '../../../shared/settlement.js';
 import { versionOf } from '../versions';
 import { holidayDatesInRange } from '../../../shared/holidays.js';
 import type { AppState, User, Holiday } from '../../../shared/types.js';
@@ -32,7 +32,7 @@ export default function Preferences({ db, currentUser, act }: Props) {
       holidaysByDate[o.date] = o.holiday;
   // Vacation is settled from schedule outcomes: charged when must-off days
   // kept you under your required shifts, earned back via extra-day elections.
-  const { used, earned, available } = vacationSummary(db, currentUser, year);
+  const { used, earned, balance: available } = yearBalance(db, currentUser, year);
   const mustOffThisYear = mine.filter(
     (t) => t.type === 'vacation' && t.date.startsWith(String(year))
   ).length;
