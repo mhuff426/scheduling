@@ -16,7 +16,7 @@
 // - `read` -> `is_read`, awayTime `start`/`end` -> `start_date`/`end_date`
 //   (reserved words); all identifiers backtick-quoted.
 import type { Pool, PoolConnection } from 'mysql2/promise';
-import { migrateLegacySettlement } from '../shared/settlement.js';
+import { electedVacationInYear, electedYears, migrateLegacySettlement } from '../shared/settlement.js';
 
 const TABLE_SUFFIX = 'ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci';
 
@@ -297,6 +297,36 @@ async function columnExists(conn: Pool | PoolConnection, table: string, column: 
   return (rows as unknown[]).length > 0;
 }
 
+type LegacyScheduleRow = { id: string; start_date: string };
+type LegacyChargeRow = { schedule_id: string; user_id: string; days: number };
+type LegacyElectionRow = { schedule_id: string; user_id: string; vacation: number; incentive: number };
+
+// The rows migrateToVacationYears writes, from the old rows: one
+// schedule_vacation_charges row per legacy charge ([schedule, user, date,
+// cause, position]) and one schedule_election_vacation row per elected year
+// ([schedule, user, year, days]). Pure, so it's testable without MySQL.
+// Throws (failing the migration) on a fractional old count.
+export function legacySettlementRows(
+  schedules: LegacyScheduleRow[], chargeRows: LegacyChargeRow[], electionRows: LegacyElectionRow[]
+): { charges: [string, string, string, string, number][]; vacation: [string, string, number, number][] } {
+  const charges: [string, string, string, string, number][] = [];
+  const vacation: [string, string, number, number][] = [];
+  for (const { id, start_date } of schedules) {
+    const vacationCharged: Record<string, number> = {};
+    for (const r of chargeRows) if (r.schedule_id === id) vacationCharged[r.user_id] = Number(r.days);
+    const extraElections: Record<string, { vacation: number; incentive: number }> = {};
+    for (const r of electionRows) {
+      if (r.schedule_id === id) extraElections[r.user_id] = { vacation: Number(r.vacation), incentive: Number(r.incentive) };
+    }
+    const migrated = migrateLegacySettlement({ id, startDate: start_date, vacationCharged, extraElections });
+    migrated.vacationCharges.forEach((c, i) => charges.push([id, c.userId, c.date, c.cause, i]));
+    for (const [userId, el] of Object.entries(migrated.extraElections)) {
+      for (const year of electedYears(el)) vacation.push([id, userId, year, electedVacationInYear(el, year)]);
+    }
+  }
+  return { charges, vacation };
+}
+
 // Per-day vacation years (#37): the old per-schedule charge counts
 // (schedule_vacation_charged) become dated `legacy` charges on each
 // schedule's start date, and each election's vacation days move to the
@@ -318,21 +348,9 @@ async function migrateToVacationYears(pool: Pool): Promise<void> {
     const [electionRows] = oldElections
       ? await conn.query('SELECT `schedule_id`, `user_id`, `vacation`, `incentive` FROM `schedule_extra_elections` ORDER BY `schedule_id`, `user_id`')
       : [[]];
-    const charges: unknown[][] = [];
-    const vacation: unknown[][] = [];
-    for (const { id, start_date } of schedRows as { id: string; start_date: string }[]) {
-      const vacationCharged: Record<string, number> = {};
-      for (const r of chargeRows as any[]) if (r.schedule_id === id) vacationCharged[r.user_id] = Number(r.days);
-      const extraElections: Record<string, { vacation: number; incentive: number }> = {};
-      for (const r of electionRows as any[]) {
-        if (r.schedule_id === id) extraElections[r.user_id] = { vacation: Number(r.vacation), incentive: Number(r.incentive) };
-      }
-      const migrated = migrateLegacySettlement({ startDate: start_date, vacationCharged, extraElections });
-      migrated.vacationCharges.forEach((c, i) => charges.push([id, c.userId, c.date, c.cause, i]));
-      for (const [userId, el] of Object.entries(migrated.extraElections)) {
-        for (const [year, days] of Object.entries(el.vacationByYear)) vacation.push([id, userId, Number(year), days]);
-      }
-    }
+    const { charges, vacation } = legacySettlementRows(
+      schedRows as LegacyScheduleRow[], chargeRows as LegacyChargeRow[], electionRows as LegacyElectionRow[]
+    );
     if (oldCharges) {
       await conn.query("DELETE FROM `schedule_vacation_charges` WHERE `cause` = 'legacy'");
       if (charges.length) {

@@ -16,7 +16,10 @@ import {
   restOk, nightCapOk, summarizeSchedule, includedUsers,
   isBeforeStart, isAway, hasRequiredRole,
 } from './scheduler.js';
-import { electedVacation, extraDays, giveaway, vacationYearOf, vacationYearsOf, yearBalance } from '../shared/settlement.js';
+import {
+  applyElectionCut, electedVacation, electedVacationInYear, electedYears, extraDays, giveaway, vacationYearOf,
+  vacationYearsOf, yearBalance,
+} from '../shared/settlement.js';
 import type {
   Assignment, Db, ExtraElection, Schedule, ShiftType, Slot, Trade, TradeType, User,
 } from '../shared/types.js';
@@ -391,14 +394,7 @@ export function claimGiveaway(db: Db, tradeId: string, { userId }: { userId: str
     schedule.vacationCharges.push({ userId: trade.fromUserId, date: trade.offered.date, cause: 'giveaway' });
   }
   const el = schedule.extraElections?.[trade.fromUserId];
-  if (el) {
-    el.incentive -= settled.electionCut.incentive;
-    for (const [year, n] of Object.entries(settled.electionCut.vacationByYear)) {
-      const left = electedVacation(el, Number(year)) - n;
-      if (left > 0) el.vacationByYear[year] = left;
-      else delete el.vacationByYear[year];
-    }
-  }
+  if (el) schedule.extraElections![trade.fromUserId] = applyElectionCut(el, settled.electionCut);
 
   assign.userId = userId;
   refreshSchedule(db, schedule);
@@ -438,8 +434,12 @@ export function cancelTrade(db: Db, tradeId: string, { userId }: { userId: strin
 export function setExtraElection(
   db: Db,
   scheduleId: string,
-  { userId, vacationByYear, incentive }: { userId: string; vacationByYear?: Record<string, unknown>; incentive: number }
+  { userId, vacationByYear, incentive, ...rest }: { userId: string; vacationByYear?: Record<string, unknown>; incentive: number }
 ) {
+  // The single `vacation` number from before per-year elections (#37) would
+  // otherwise be silently ignored, clearing the person's elected vacation.
+  if ('vacation' in rest)
+    return { error: 'Elect vacation days per vacation year with `vacationByYear`; `vacation` is no longer supported.', code: 400 };
   const schedule = db.schedules.find((s) => s.id === scheduleId);
   if (!schedule) return { error: 'Schedule not found.', code: 404 };
   const user = db.users.find((u) => u.id === userId);
@@ -462,9 +462,8 @@ export function setExtraElection(
       code: 400,
     };
   const prev = schedule.extraElections?.[userId];
-  const touched = new Set([...Object.keys(prev?.vacationByYear || {}), ...Object.keys(byYear)].map(Number));
-  for (const year of touched) {
-    const lowered = electedVacation(prev, year) - electedVacation(next, year);
+  for (const year of electedYears(prev)) {
+    const lowered = electedVacationInYear(prev, year) - electedVacationInYear(next, year);
     if (lowered > 0 && yearBalance(db, user, year).balance - lowered < 0)
       return { error: `You have already used the ${year} vacation days earned from those extra days.`, code: 400 };
   }

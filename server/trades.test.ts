@@ -333,6 +333,12 @@ const otherSchedule = (id: string, chargeDates: string[]) => ({
   const lower2099 = setExtraElection(db, 'sch1', { userId: 'a', vacationByYear: { 2100: 2 }, incentive: 1 });
   assert.ok(!lower2099.error, `2099's day is unspent, so it can move to incentive: ${lower2099.error}`);
   assert.deepStrictEqual(db.schedules[0].extraElections!.a, { vacationByYear: { 2100: 2 }, incentive: 1 });
+
+  // the pre-#37 single `vacation` field is refused, not silently ignored
+  const legacy = setExtraElection(db, 'sch1', { userId: 'a', vacation: 1, incentive: 0 } as any);
+  assert.strictEqual(legacy.code, 400, 'legacy vacation field -> 400');
+  assert.ok(legacy.error && legacy.error.includes('vacationByYear'), `error names the new field: ${legacy.error}`);
+  assert.deepStrictEqual(db.schedules[0].extraElections!.a, { vacationByYear: { 2100: 2 }, incentive: 1 }, 'election unchanged');
 }
 
 // ---- election cut after a giveaway: incentive, then the earlier year as far as it can absorb, then the later ----
