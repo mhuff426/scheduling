@@ -615,7 +615,8 @@ assert.strictEqual(recoveryNeed(9), 2);
     { id: 'm3', userId: 'a', date: '2027-01-01', type: 'vacation' },
     { id: 'mb', userId: 'b', date: '2026-12-30', type: 'vacation' }, // b is hard-off the 30th
   ];
-  // 2 must-offs in 2026 against a 1-day 2026 balance -> all of a's go soft.
+  // 2 must-offs in 2026 against a 1-day 2026 balance, and 1 in 2027 with
+  // 2027's day already spent -> every one of a's goes soft.
   // a starts on the 30th, so at most 4 of their 5 required are workable and
   // they're scheduled over every downgraded day: still 1 short, but no day
   // they took off caused it, so nothing is charged (it warns instead).
@@ -623,6 +624,11 @@ assert.strictEqual(recoveryNeed(9), 2);
     mkUser('a', 'A', { vacationDays: 1, requiredShifts: 5, startDate: '2026-12-30' }),
     mkUser('b', 'B', { requiredShifts: 2 }),
   ], [day], timeOff);
+  db.schedules.push({
+    id: 'prior', startDate: '2027-02-01', endDate: '2027-02-14', createdAt: '', userIds: ['a'],
+    assignments: [], unfilled: [], counts: {}, warnings: [],
+    vacationCharges: [{ userId: 'a', date: '2027-02-02', cause: 'shortfall' }],
+  } as any);
   const r = generateSchedule(db, { startDate: '2026-12-29', endDate: '2027-01-02' });
   const worked = new Set(r.assignments.filter((x) => x.userId === 'a').map((x) => x.date));
   for (const d of ['2026-12-30', '2026-12-31', '2027-01-01'])
@@ -739,9 +745,9 @@ assert.strictEqual(recoveryNeed(9), 2);
   assert.strictEqual(mins.get('a'), 2, "A's required 3 minus 1 must-off day = 2");
   assert.strictEqual(mins.get('b'), 2, "B's required 2 with no must-offs = 2");
 
-  // softOff members keep their full required (their must-offs were downgraded).
-  const minsSoft = effectiveMinimums(db, { startDate: '2026-06-01', endDate: '2026-06-07' }, new Set(['a']));
-  assert.strictEqual(minsSoft.get('a'), 3, 'a soft-off user does not subtract must-off days');
+  // Downgraded (soft) must-off days don't reduce required.
+  const minsSoft = effectiveMinimums(db, { startDate: '2026-06-01', endDate: '2026-06-07' }, new Set(['a|2026-06-02']));
+  assert.strictEqual(minsSoft.get('a'), 3, 'a soft must-off day does not subtract');
 }
 
 // ---- (8) regression: desiredShifts is no longer consulted
@@ -1538,16 +1544,18 @@ const mkHeavyRescueDb = () => {
   // ---- affordability is checked per vacation year
   {
     // Allowance 1 a year, plus 1 elected into 2026; 2027's day is already
-    // spent. 2026's balance (2) would cover both must-offs, but 2027 (0)
-    // can't cover 3 Jan, so ALL of A's must-off days soften — A (alone)
-    // works them.
+    // spent. 2027 (0) can't cover 3 Jan, so only that must-off softens and
+    // A (alone) works it. 2026 (2) covers 30 Dec, which stays hard: it goes
+    // unfilled and its shortfall is charged to 2026.
     const db = mkDb([mkUser('a', 'A', { requiredShifts: 14, vacationDays: 1 })], [day], must);
     db.schedules.push({ ...priorCharges(['2027-02-02']), extraElections: { a: { vacationByYear: { 2026: 1 }, incentive: 0 } } } as any);
     assert.deepStrictEqual([2026, 2027].map((y) => yearBalance(db, db.users[0], y).balance), [2, 0]);
     const r = generateSchedule(db, block);
     const aDates = r.assignments.filter((x) => x.userId === 'a').map((x) => x.date);
-    assert.ok(aDates.includes('2026-12-30') && aDates.includes('2027-01-03'), `softened must-offs worked: ${aDates}`);
-    assert.deepStrictEqual(r.vacationCharges, [], 'nothing charged');
+    assert.ok(aDates.includes('2027-01-03'), `the unaffordable 2027 must-off is softened and worked: ${aDates}`);
+    assert.ok(!aDates.includes('2026-12-30'), `the affordable 2026 must-off stays hard: ${aDates}`);
+    assert.deepStrictEqual(r.vacationCharges, [{ userId: 'a', date: '2026-12-30', cause: 'shortfall' }],
+      'only the day actually taken off is charged, to 2026');
   }
   {
     // Both years can cover their own must-off day: nothing softens.
