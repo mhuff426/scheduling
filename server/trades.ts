@@ -16,7 +16,7 @@ import {
   restOk, nightCapOk, summarizeSchedule, includedUsers,
   isBeforeStart, isAway, hasRequiredRole,
 } from './scheduler.js';
-import { extraDays, giveaway, vacationYearOf, yearBalance } from '../shared/settlement.js';
+import { electedVacation, extraDays, giveaway, vacationYearOf, vacationYearsOf, yearBalance } from '../shared/settlement.js';
 import type {
   Assignment, Db, ExtraElection, Schedule, ShiftType, Slot, Trade, TradeType, User,
 } from '../shared/types.js';
@@ -226,7 +226,7 @@ export function createTrade(db: Db, { scheduleId, fromUserId, type, offered, toU
     // below their requirement — and then only if they can afford it.
     if (!giveaway(db, schedule, from, offered).canPost)
       return {
-        error: `Giving this shift up would use a vacation day and you have none left for ${vacationYearOf(schedule)} — you must switch shifts instead.`,
+        error: `Giving this shift up would use a vacation day and you have none left for ${vacationYearOf(offered.date)} — you must switch shifts instead.`,
         code: 400,
       };
     for (const u of includedUsers(db, schedule)) {
@@ -387,14 +387,17 @@ export function claimGiveaway(db: Db, tradeId: string, { userId }: { userId: str
     return { error: 'The giver can no longer afford this giveaway — it has expired.', code: 409 };
   }
   if (settled.needsDay) {
-    schedule.vacationCharged ??= {};
-    schedule.vacationCharged[trade.fromUserId] =
-      (schedule.vacationCharged[trade.fromUserId] || 0) + 1;
+    schedule.vacationCharges ??= [];
+    schedule.vacationCharges.push({ userId: trade.fromUserId, date: trade.offered.date, cause: 'giveaway' });
   }
   const el = schedule.extraElections?.[trade.fromUserId];
   if (el) {
     el.incentive -= settled.electionCut.incentive;
-    el.vacation -= settled.electionCut.vacation;
+    for (const [year, n] of Object.entries(settled.electionCut.vacationByYear)) {
+      const left = electedVacation(el, Number(year)) - n;
+      if (left > 0) el.vacationByYear[year] = left;
+      else delete el.vacationByYear[year];
+    }
   }
 
   assign.userId = userId;
@@ -426,29 +429,48 @@ export function cancelTrade(db: Db, tradeId: string, { userId }: { userId: strin
 }
 
 // Split a user's extra days (worked or charged beyond required) between
-// extra vacation (credits the year's allowance) and incentive pay (HR pays
-// out). The new split replaces the previous one; total may not exceed the
-// current extra, and lowering an elected vacation amount may not push the
+// extra vacation (credits a vacation year's balance) and incentive pay (HR
+// pays out). Vacation days are elected per vacation year the schedule spans,
+// so a schedule across New Year can put them in either year or split them.
+// The new split replaces the previous one; the total may not exceed the
+// current extra, and lowering a year's elected vacation may not push that
 // year's balance negative (those days may already be spent).
-export function setExtraElection(db: Db, scheduleId: string, { userId, vacation, incentive }: { userId: string; vacation: number; incentive: number }) {
+export function setExtraElection(
+  db: Db,
+  scheduleId: string,
+  { userId, vacationByYear, incentive }: { userId: string; vacationByYear?: Record<string, unknown>; incentive: number }
+) {
   const schedule = db.schedules.find((s) => s.id === scheduleId);
   if (!schedule) return { error: 'Schedule not found.', code: 404 };
   const user = db.users.find((u) => u.id === userId);
   if (!user) return { error: 'User not found.', code: 404 };
-  const vac = Math.max(0, Math.floor(Number(vacation) || 0));
+  const years = vacationYearsOf(schedule);
+  const byYear: Record<string, number> = {};
+  for (const [year, n] of Object.entries(vacationByYear || {})) {
+    const days = Math.max(0, Math.floor(Number(n) || 0));
+    if (!days) continue;
+    if (!years.includes(Number(year)))
+      return { error: `This schedule doesn't cover vacation year ${year}.`, code: 400 };
+    byYear[year] = days;
+  }
   const inc = Math.max(0, Math.floor(Number(incentive) || 0));
+  const next: ExtraElection = { vacationByYear: byYear, incentive: inc };
   const extra = extraDays(db, schedule, user);
-  if (vac + inc > extra)
+  if (electedVacation(next) + inc > extra)
     return {
       error: `Only ${extra} extra day${extra === 1 ? '' : 's'} available to allocate.`,
       code: 400,
     };
-  const prev = schedule.extraElections?.[userId]?.vacation || 0;
-  if (vac < prev && yearBalance(db, user, vacationYearOf(schedule)).balance - (prev - vac) < 0)
-    return { error: 'You have already used the vacation days earned from those extra days.', code: 400 };
+  const prev = schedule.extraElections?.[userId];
+  const touched = new Set([...Object.keys(prev?.vacationByYear || {}), ...Object.keys(byYear)].map(Number));
+  for (const year of touched) {
+    const lowered = electedVacation(prev, year) - electedVacation(next, year);
+    if (lowered > 0 && yearBalance(db, user, year).balance - lowered < 0)
+      return { error: `You have already used the ${year} vacation days earned from those extra days.`, code: 400 };
+  }
   schedule.extraElections ??= {};
-  schedule.extraElections[userId] = { vacation: vac, incentive: inc };
-  return { election: schedule.extraElections[userId] };
+  schedule.extraElections[userId] = next;
+  return { election: next };
 }
 
 // Extra shifts picked up per schedule, derived from completed giveaways.

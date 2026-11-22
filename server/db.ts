@@ -15,6 +15,7 @@
 import type { Pool, PoolConnection } from 'mysql2/promise';
 import type { Db, RoleTag, User } from '../shared/types.js';
 import { getDbConfig } from './config.js';
+import { migrateLegacySettlement } from '../shared/settlement.js';
 import {
   COLLECTION_KEYS, createDbPool, ensureDatabase, ensureSchema,
   loadAllFromMysql, writeCollections, waitForDb,
@@ -111,6 +112,12 @@ export function normalizeDb(loaded: Db): Db {
     st.version ??= 1;
   }
   for (const a of loaded.awayTime) a.version ??= 1;
+  // Per-day vacation years: legacy per-schedule charge counts become dated
+  // `legacy` charges, and elected vacation moves to the start year.
+  for (const s of loaded.schedules || []) {
+    Object.assign(s, migrateLegacySettlement(s as Parameters<typeof migrateLegacySettlement>[0]));
+    delete (s as any).vacationCharged;
+  }
   return loaded;
 }
 

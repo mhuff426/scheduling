@@ -15,7 +15,8 @@
 //   which keeps collection replacement order irrelevant.
 // - `read` -> `is_read`, awayTime `start`/`end` -> `start_date`/`end_date`
 //   (reserved words); all identifiers backtick-quoted.
-import type { Pool } from 'mysql2/promise';
+import type { Pool, PoolConnection } from 'mysql2/promise';
+import { migrateLegacySettlement } from '../shared/settlement.js';
 
 const TABLE_SUFFIX = 'ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci';
 
@@ -174,19 +175,33 @@ export const SCHEMA_STATEMENTS: string[] = [
     \`position\` INT NOT NULL,
     FOREIGN KEY (\`schedule_id\`) REFERENCES \`schedules\`(\`id\`) ON DELETE CASCADE
   ) ${TABLE_SUFFIX}`,
-  `CREATE TABLE IF NOT EXISTS \`schedule_vacation_charged\` (
+  // One row per vacation charge: the day it covers (its vacation year comes
+  // from that date) and why it was made.
+  `CREATE TABLE IF NOT EXISTS \`schedule_vacation_charges\` (
+    \`id\` BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     \`schedule_id\` VARCHAR(64) NOT NULL,
     \`user_id\` VARCHAR(64) NOT NULL,
-    \`days\` DOUBLE NOT NULL,
-    PRIMARY KEY (\`schedule_id\`, \`user_id\`),
+    \`date\` CHAR(10) NOT NULL,
+    \`cause\` VARCHAR(16) NOT NULL,
+    \`position\` INT NOT NULL,
+    INDEX \`idx_vacation_charges_schedule\` (\`schedule_id\`),
     FOREIGN KEY (\`schedule_id\`) REFERENCES \`schedules\`(\`id\`) ON DELETE CASCADE
   ) ${TABLE_SUFFIX}`,
   `CREATE TABLE IF NOT EXISTS \`schedule_extra_elections\` (
     \`schedule_id\` VARCHAR(64) NOT NULL,
     \`user_id\` VARCHAR(64) NOT NULL,
-    \`vacation\` DOUBLE NOT NULL,
     \`incentive\` DOUBLE NOT NULL,
     PRIMARY KEY (\`schedule_id\`, \`user_id\`),
+    FOREIGN KEY (\`schedule_id\`) REFERENCES \`schedules\`(\`id\`) ON DELETE CASCADE
+  ) ${TABLE_SUFFIX}`,
+  // Elected vacation days per vacation year (an election's incentive days
+  // live on schedule_extra_elections).
+  `CREATE TABLE IF NOT EXISTS \`schedule_election_vacation\` (
+    \`schedule_id\` VARCHAR(64) NOT NULL,
+    \`user_id\` VARCHAR(64) NOT NULL,
+    \`year\` INT NOT NULL,
+    \`days\` DOUBLE NOT NULL,
+    PRIMARY KEY (\`schedule_id\`, \`user_id\`, \`year\`),
     FOREIGN KEY (\`schedule_id\`) REFERENCES \`schedules\`(\`id\`) ON DELETE CASCADE
   ) ${TABLE_SUFFIX}`,
   `CREATE TABLE IF NOT EXISTS \`schedule_preference_asks\` (
@@ -266,6 +281,81 @@ async function ensureColumn(pool: Pool, table: string, column: string, ddl: stri
   }
 }
 
+async function tableExists(conn: Pool | PoolConnection, table: string): Promise<boolean> {
+  const [rows] = await conn.query(
+    'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?',
+    [table]
+  );
+  return (rows as unknown[]).length > 0;
+}
+
+async function columnExists(conn: Pool | PoolConnection, table: string, column: string): Promise<boolean> {
+  const [rows] = await conn.query(
+    'SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?',
+    [table, column]
+  );
+  return (rows as unknown[]).length > 0;
+}
+
+// Per-day vacation years (#37): the old per-schedule charge counts
+// (schedule_vacation_charged) become dated `legacy` charges on each
+// schedule's start date, and each election's vacation days move to the
+// start date's vacation year, through settlement's migrateLegacySettlement,
+// so no year balance changes. Idempotent: the row copy runs in one
+// transaction that first clears any half-finished copy, and the old
+// table/column are dropped only after it commits.
+async function migrateToVacationYears(pool: Pool): Promise<void> {
+  const oldCharges = await tableExists(pool, 'schedule_vacation_charged');
+  const oldElections = await columnExists(pool, 'schedule_extra_elections', 'vacation');
+  if (!oldCharges && !oldElections) return;
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [schedRows] = await conn.query('SELECT `id`, `start_date` FROM `schedules`');
+    const [chargeRows] = oldCharges
+      ? await conn.query('SELECT `schedule_id`, `user_id`, `days` FROM `schedule_vacation_charged` ORDER BY `schedule_id`, `user_id`')
+      : [[]];
+    const [electionRows] = oldElections
+      ? await conn.query('SELECT `schedule_id`, `user_id`, `vacation`, `incentive` FROM `schedule_extra_elections` ORDER BY `schedule_id`, `user_id`')
+      : [[]];
+    const charges: unknown[][] = [];
+    const vacation: unknown[][] = [];
+    for (const { id, start_date } of schedRows as { id: string; start_date: string }[]) {
+      const vacationCharged: Record<string, number> = {};
+      for (const r of chargeRows as any[]) if (r.schedule_id === id) vacationCharged[r.user_id] = Number(r.days);
+      const extraElections: Record<string, { vacation: number; incentive: number }> = {};
+      for (const r of electionRows as any[]) {
+        if (r.schedule_id === id) extraElections[r.user_id] = { vacation: Number(r.vacation), incentive: Number(r.incentive) };
+      }
+      const migrated = migrateLegacySettlement({ startDate: start_date, vacationCharged, extraElections });
+      migrated.vacationCharges.forEach((c, i) => charges.push([id, c.userId, c.date, c.cause, i]));
+      for (const [userId, el] of Object.entries(migrated.extraElections)) {
+        for (const [year, days] of Object.entries(el.vacationByYear)) vacation.push([id, userId, Number(year), days]);
+      }
+    }
+    if (oldCharges) {
+      await conn.query("DELETE FROM `schedule_vacation_charges` WHERE `cause` = 'legacy'");
+      if (charges.length) {
+        await conn.query('INSERT INTO `schedule_vacation_charges` (`schedule_id`, `user_id`, `date`, `cause`, `position`) VALUES ?', [charges]);
+      }
+    }
+    if (oldElections && vacation.length) {
+      await conn.query(
+        'INSERT INTO `schedule_election_vacation` (`schedule_id`, `user_id`, `year`, `days`) VALUES ? ON DUPLICATE KEY UPDATE `days` = VALUES(`days`)',
+        [vacation]
+      );
+    }
+    await conn.commit();
+  } catch (e) {
+    await conn.rollback().catch(() => {});
+    throw e;
+  } finally {
+    conn.release();
+  }
+  if (oldCharges) await pool.query('DROP TABLE `schedule_vacation_charged`');
+  if (oldElections) await pool.query('ALTER TABLE `schedule_extra_elections` DROP COLUMN `vacation`');
+}
+
 async function ensureIndex(pool: Pool, table: string, index: string, ddl: string): Promise<void> {
   const [rows] = await pool.query(
     'SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ? LIMIT 1',
@@ -300,4 +390,5 @@ export async function ensureSchema(pool: Pool): Promise<void> {
   await ensureColumn(pool, 'users', 'employee_id', '`employee_id` VARCHAR(64) NULL');
   // MySQL UNIQUE allows multiple NULLs, so this is safe while email is still optional.
   await ensureIndex(pool, 'users', 'uq_users_email', 'UNIQUE KEY `uq_users_email` (`email`)');
+  await migrateToVacationYears(pool);
 }

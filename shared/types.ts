@@ -109,9 +109,23 @@ export interface Assignment extends Slot {
   userId: string;
 }
 
+// A person's extra-day election for one schedule: vacation days elected per
+// vacation year (keyed by the year, e.g. "2026"), plus incentive days.
 export interface ExtraElection {
-  vacation: number;
+  vacationByYear: Record<string, number>;
   incentive: number;
+}
+
+// Why a vacation charge was made. `legacy` charges were migrated from the old
+// per-schedule counts and are dated on their schedule's start date.
+export type VacationChargeCause = 'shortfall' | 'giveaway' | 'legacy';
+
+// One vacation day taken from a person's year balance. It belongs to the
+// vacation year of the day it covers (`date`).
+export interface VacationCharge {
+  userId: string;
+  date: string; // "YYYY-MM-DD"
+  cause: VacationChargeCause;
 }
 
 export interface PreferenceStats {
@@ -129,7 +143,7 @@ export interface ScheduleDraft {
   unfilled: Slot[];
   counts?: Record<string, number>;
   warnings?: string[];
-  vacationCharged?: Record<string, number>;
+  vacationCharges?: VacationCharge[];
   extraElections?: Record<string, ExtraElection>;
   preferenceStats?: PreferenceStats;
 }

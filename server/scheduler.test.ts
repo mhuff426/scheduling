@@ -9,7 +9,16 @@ import {
   heavyAskers, HEAVY_ASKER_STDDEV, summarizeSchedule,
 } from './scheduler.js';
 import { yearBalance } from '../shared/settlement.js';
-import type { Assignment, Db, ScheduleDraft, ShiftType, TimeOff, User } from '../shared/types.js';
+import type { Assignment, Db, ScheduleDraft, ShiftType, TimeOff, User, VacationCharge } from '../shared/types.js';
+
+// Vacation days charged per person, from a schedule's dated charges.
+const chargedBy = (s: { vacationCharges?: VacationCharge[] }) => {
+  const out: Record<string, number> = {};
+  for (const c of s.vacationCharges || []) out[c.userId] = (out[c.userId] || 0) + 1;
+  return out;
+};
+const chargesOf = (userId: string, n: number, date: string): VacationCharge[] =>
+  Array.from({ length: n }, () => ({ userId, date, cause: 'shortfall' as const }));
 
 const mkUser = (id: string, name: string, extra: Record<string, any> = {}): User => ({
   id, name, roles: ['role-employee'], vacationDays: 10, color: '#888', ...extra,
@@ -557,7 +566,7 @@ assert.strictEqual(recoveryNeed(9), 2);
   ]);
   const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-05' });
   assert.strictEqual(r.counts['a'], 3, 'works the other 3 days');
-  assert.deepStrictEqual(r.vacationCharged, { a: 2 }, 'the 2 must-off days are charged');
+  assert.deepStrictEqual(chargedBy(r), { a: 2 }, 'the 2 must-off days are charged');
   assert.ok(!r.warnings.some((w) => w.includes('minimum shifts')), 'covered shortfall does not warn');
 }
 
@@ -566,7 +575,7 @@ assert.strictEqual(recoveryNeed(9), 2);
   const db = mkDb([mkUser('a', 'A'), mkUser('b', 'B')], [day]);
   allMin(db, 4); // both required 4 (old global minShifts: 4)
   const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-04' });
-  assert.deepStrictEqual(r.vacationCharged, {}, 'no must-offs -> no charges');
+  assert.deepStrictEqual(chargedBy(r), {}, 'no must-offs -> no charges');
   assert.strictEqual(
     r.warnings.filter((w) => w.includes('2 short')).length, 2,
     `both 2 short of 4: ${JSON.stringify(r.warnings)}`
@@ -644,7 +653,7 @@ assert.strictEqual(recoveryNeed(9), 2);
   );
   const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-03' });
   assert.ok(!r.warnings.some((w) => w.startsWith('B has')), `blank-required B gets no shortfall warning: ${JSON.stringify(r.warnings)}`);
-  assert.strictEqual(r.vacationCharged['b'], undefined, 'no vacation charged to a user with no required floor');
+  assert.strictEqual(chargedBy(r)['b'], undefined, 'no vacation charged to a user with no required floor');
 }
 
 // ---- (4) requiredShifts > maxShiftsOverride is clamped to the max (no warning)
@@ -668,7 +677,7 @@ assert.strictEqual(recoveryNeed(9), 2);
   ]);
   const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-05' });
   assert.strictEqual(r.counts['a'], 3, 'A works the 3 non-must-off days');
-  assert.deepStrictEqual(r.vacationCharged, { a: 2 }, 'the 2 must-off shortfall days are charged as vacation');
+  assert.deepStrictEqual(chargedBy(r), { a: 2 }, 'the 2 must-off shortfall days are charged as vacation');
   assert.ok(!r.warnings.some((w) => w.includes('minimum shifts')), 'charged shortfall does not also warn');
 }
 
@@ -686,7 +695,7 @@ assert.strictEqual(recoveryNeed(9), 2);
   // 7 days minus 3 must-off = 4 workable, capped at 3 -> A works 3, meets the
   // clamped floor of 3, so nothing is charged.
   assert.strictEqual(r.counts['a'], 3, `A capped at 3, got ${r.counts['a']}`);
-  assert.deepStrictEqual(r.vacationCharged, {}, 'no charge once the clamped floor is met');
+  assert.deepStrictEqual(chargedBy(r), {}, 'no charge once the clamped floor is met');
 }
 
 // ---- (6) effectiveMaximums / effectiveMinimums
@@ -773,7 +782,7 @@ assert.strictEqual(recoveryNeed(9), 2);
   for (const d of ['2026-06-02', '2026-06-03', '2026-06-04']) {
     assert.ok(!aDates.includes(d), `A must not be scheduled on away day ${d}`);
   }
-  assert.strictEqual(r.vacationCharged['a'], undefined, 'away time must NOT charge any vacation');
+  assert.strictEqual(chargedBy(r)['a'], undefined, 'away time must NOT charge any vacation');
   assert.strictEqual(
     yearBalance(db, db.users[0], 2026).balance, 10,
     'away time must NOT reduce vacation available (stays at the base vacationDays)'
@@ -789,7 +798,7 @@ assert.strictEqual(recoveryNeed(9), 2);
   db.awayTime.push({ id: 'aw1', userId: 'a', start: '2026-06-01', end: '2026-06-07' });
   const r = generateSchedule(db, { startDate: '2026-06-01', endDate: '2026-06-07' });
   assert.strictEqual(r.counts['a'] || 0, 0, 'fully-away A works zero shifts');
-  assert.strictEqual(r.vacationCharged['a'], undefined, 'away never charges vacation, even with a required floor');
+  assert.strictEqual(chargedBy(r)['a'], undefined, 'away never charges vacation, even with a required floor');
   assert.ok(
     r.warnings.some((w) => w.startsWith('A has')),
     `fully-away A with a required floor must still produce a shortfall warning: ${JSON.stringify(r.warnings)}`
@@ -812,7 +821,7 @@ assert.strictEqual(recoveryNeed(9), 2);
   assert.ok(!aDates.includes('2026-06-02') && !aDates.includes('2026-06-03'), 'must-off / away days are not worked');
   assert.strictEqual(r.counts['a'], 3, 'A works the other 3 days');
   assert.deepStrictEqual(
-    r.vacationCharged, { a: 2 },
+    chargedBy(r), { a: 2 },
     'must-off charging is exactly what the 2 must-offs alone produce; away does not change it'
   );
 }
@@ -1206,7 +1215,7 @@ const mkQuietRoster = () => {
   );
   const r = generateSchedule(db, { startDate: O(1), endDate: O(7) });
   assert.strictEqual(r.counts['a'], 4, `A must reach its full required 4, got ${r.counts['a']}`);
-  assert.deepStrictEqual(r.vacationCharged, {}, `no vacation may be charged: ${JSON.stringify(r.vacationCharged)}`);
+  assert.deepStrictEqual(chargedBy(r), {}, `no vacation may be charged: ${JSON.stringify(chargedBy(r))}`);
   assert.strictEqual(r.unfilled.length, 0, 'coverage stays intact while avoiding the charge');
   assert.ok(!r.warnings.some((w) => w.includes('charged')), 'no charge diagnostics when nothing is charged');
 }
@@ -1230,8 +1239,8 @@ const mkQuietRoster = () => {
   );
   const r = generateSchedule(db, { startDate: O(1), endDate: O(5) });
   assert.strictEqual(r.counts['d'], 3, `donor D must keep its full required count, got ${r.counts['d']}`);
-  assert.strictEqual(r.vacationCharged['d'], undefined, 'a rescue must never charge a previously-whole donor');
-  assert.deepStrictEqual(r.vacationCharged, { a: 1 }, `only A's competitive charge remains: ${JSON.stringify(r.vacationCharged)}`);
+  assert.strictEqual(chargedBy(r)['d'], undefined, 'a rescue must never charge a previously-whole donor');
+  assert.deepStrictEqual(chargedBy(r), { a: 1 }, `only A's competitive charge remains: ${JSON.stringify(chargedBy(r))}`);
   assert.strictEqual(r.unfilled.length, 0, 'full coverage');
 }
 
@@ -1265,8 +1274,8 @@ const mkQuietRoster = () => {
   );
   const r = generateSchedule(db, { startDate: O(1), endDate: O(6) });
   assert.deepStrictEqual(
-    r.vacationCharged, { a: 1 },
-    `A's charge must remain rather than override a protected preferred day: ${JSON.stringify(r.vacationCharged)}`
+    chargedBy(r), { a: 1 },
+    `A's charge must remain rather than override a protected preferred day: ${JSON.stringify(chargedBy(r))}`
   );
   assert.ok(
     !r.assignments.some((x) => x.userId === 'c' && x.date === O(6)),
@@ -1317,7 +1326,7 @@ const mkHeavyRescueDb = () => {
     'fixture sanity: C must be a heavy asker'
   );
   const r = generateSchedule(db, { startDate: O(1), endDate: O(6) });
-  assert.deepStrictEqual(r.vacationCharged, {}, `the rescue must clear A's charge: ${JSON.stringify(r.vacationCharged)}`);
+  assert.deepStrictEqual(chargedBy(r), {}, `the rescue must clear A's charge: ${JSON.stringify(chargedBy(r))}`);
   assert.strictEqual(r.counts['a'], 3, `rescued A reaches full required, got ${r.counts['a']}`);
   assert.ok(
     r.assignments.some((x) => x.userId === 'c' && x.date === O(6)),
@@ -1352,7 +1361,7 @@ const mkHeavyRescueDb = () => {
     'A must work its own preferred day rather than be charged'
   );
   assert.strictEqual(r.counts['a'], 2, `A reaches full required, got ${r.counts['a']}`);
-  assert.deepStrictEqual(r.vacationCharged, {}, 'self-rescue leaves nothing charged');
+  assert.deepStrictEqual(chargedBy(r), {}, 'self-rescue leaves nothing charged');
   assert.ok(
     r.warnings.some((w) => w.includes('A was scheduled on ' + O(3))),
     'the self-overridden preference is still reported'
@@ -1369,7 +1378,7 @@ const mkHeavyRescueDb = () => {
   const db = mkDb([mkUser('a', 'A', { requiredShifts: 5 })], [day], [oMust('a', 2), oMust('a', 3)]);
   const r = generateSchedule(db, { startDate: O(1), endDate: O(5) });
   assert.strictEqual(r.counts['a'], 3, 'A works the other 3 days');
-  assert.deepStrictEqual(r.vacationCharged, { a: 2 }, `settlement formula untouched: ${JSON.stringify(r.vacationCharged)}`);
+  assert.deepStrictEqual(chargedBy(r), { a: 2 }, `settlement formula untouched: ${JSON.stringify(chargedBy(r))}`);
   assert.ok(!r.warnings.some((w) => w.includes('minimum shifts')), 'covered shortfall still does not warn');
   // ...and the new diagnostic explains it as structurally unavoidable.
   const w = r.warnings.find((x) => x.includes('charged'));
@@ -1387,7 +1396,7 @@ const mkHeavyRescueDb = () => {
   const r1 = run();
   const r2 = run();
   assert.deepStrictEqual(r1.assignments, r2.assignments, 'same inputs -> same assignments');
-  assert.deepStrictEqual(r1.vacationCharged, r2.vacationCharged, 'same inputs -> same charges');
+  assert.deepStrictEqual(chargedBy(r1), chargedBy(r2), 'same inputs -> same charges');
   assert.deepStrictEqual(r1.counts, r2.counts, 'same inputs -> same counts');
   assert.deepStrictEqual(r1.warnings, r2.warnings, 'same inputs -> same warnings');
 }
@@ -1407,7 +1416,7 @@ const mkHeavyRescueDb = () => {
       { date: O(4), shiftTypeId: 'day', userId: 'a' },
       { date: O(5), shiftTypeId: 'day', userId: 'a' },
     ],
-    unfilled: [], vacationCharged: { a: 2 },
+    unfilled: [], vacationCharges: chargesOf("a", 2, O(1)),
   };
   const { warnings } = summarizeSchedule(db, draft);
   const w = warnings.find((x) => x.includes('charged'));
@@ -1432,7 +1441,7 @@ const mkHeavyRescueDb = () => {
       { date: O(2), shiftTypeId: 'day', userId: 'a' },
       { date: O(4), shiftTypeId: 'day', userId: 'a' },
     ],
-    unfilled: [], vacationCharged: { a: 1 },
+    unfilled: [], vacationCharges: chargesOf("a", 1, O(1)),
   };
   const { warnings } = summarizeSchedule(db, draft);
   const w = warnings.find((x) => x.includes('charged'));
@@ -1456,13 +1465,73 @@ const mkHeavyRescueDb = () => {
   const draft: ScheduleDraft = {
     startDate: O(1), endDate: O(3), userIds: ['a'],
     assignments: [{ date: O(3), shiftTypeId: 'day', userId: 'a' }],
-    unfilled: [], vacationCharged: { a: 1 },
+    unfilled: [], vacationCharges: chargesOf("a", 1, O(1)),
   };
   const { warnings } = summarizeSchedule(db, draft);
   const w = warnings.find((x) => x.includes('charged'));
   assert.ok(w, `expected a charge diagnostic: ${JSON.stringify(warnings)}`);
   assert.ok(w!.includes('charged 1 vacation day:'), `singular "day" for a 1-day charge: ${w}`);
   assert.ok(w!.includes('only 1 schedulable day for 2 required'), `singular schedulable "day": ${w}`);
+}
+
+// ===== per-day vacation years: a schedule spanning New Year =====
+// 28 Dec 2026 - 10 Jan 2027 (14 days), one daily shift, must-off 30 Dec and 3 Jan.
+{
+  const must = [
+    { id: 'm1', userId: 'a', date: '2026-12-30', type: 'vacation' as const },
+    { id: 'm2', userId: 'a', date: '2027-01-03', type: 'vacation' as const },
+  ];
+  const block = { startDate: '2026-12-28', endDate: '2027-01-10' };
+  const priorCharges = (dates: string[]) => ({
+    id: 'prior', startDate: '2027-02-01', endDate: '2027-02-14', createdAt: '', userIds: ['a'],
+    assignments: [], unfilled: [], counts: {}, warnings: [],
+    vacationCharges: dates.map((date) => ({ userId: 'a', date, cause: 'shortfall' as const })),
+  });
+
+  // ---- a shortfall charges the earliest must-off day, dated on that day
+  {
+    // B covers the must-off days; A is required 13 and can work only 12 -> shortfall 1.
+    const db = mkDb([mkUser('a', 'A', { requiredShifts: 13 }), mkUser('b', 'B')], [day], must);
+    const r = generateSchedule(db, block);
+    const aDates = r.assignments.filter((x) => x.userId === 'a').map((x) => x.date);
+    assert.ok(!aDates.includes('2026-12-30') && !aDates.includes('2027-01-03'), `must-offs honoured: ${aDates}`);
+    assert.deepStrictEqual(r.vacationCharges, [{ userId: 'a', date: '2026-12-30', cause: 'shortfall' }],
+      'charged on 30 Dec, so it counts toward 2026');
+  }
+  // ---- a shortfall of 2 charges one day to each year
+  {
+    const db = mkDb([mkUser('a', 'A', { requiredShifts: 14 }), mkUser('b', 'B')], [day], must);
+    const r = generateSchedule(db, block);
+    assert.deepStrictEqual(r.vacationCharges, [
+      { userId: 'a', date: '2026-12-30', cause: 'shortfall' },
+      { userId: 'a', date: '2027-01-03', cause: 'shortfall' },
+    ]);
+    db.schedules.push({ id: 's', createdAt: '', ...block, ...r } as any);
+    assert.strictEqual(yearBalance(db, db.users[0], 2026).balance, 9, '2026: 10 - 1');
+    assert.strictEqual(yearBalance(db, db.users[0], 2027).balance, 9, '2027: 10 - 1');
+  }
+  // ---- affordability is checked per vacation year
+  {
+    // Allowance 1 a year, plus 1 elected into 2026; 2027's day is already
+    // spent. 2026's balance (2) would cover both must-offs, but 2027 (0)
+    // can't cover 3 Jan, so ALL of A's must-off days soften — A (alone)
+    // works them.
+    const db = mkDb([mkUser('a', 'A', { requiredShifts: 14, vacationDays: 1 })], [day], must);
+    db.schedules.push({ ...priorCharges(['2027-02-02']), extraElections: { a: { vacationByYear: { 2026: 1 }, incentive: 0 } } } as any);
+    assert.deepStrictEqual([2026, 2027].map((y) => yearBalance(db, db.users[0], y).balance), [2, 0]);
+    const r = generateSchedule(db, block);
+    const aDates = r.assignments.filter((x) => x.userId === 'a').map((x) => x.date);
+    assert.ok(aDates.includes('2026-12-30') && aDates.includes('2027-01-03'), `softened must-offs worked: ${aDates}`);
+    assert.deepStrictEqual(r.vacationCharges, [], 'nothing charged');
+  }
+  {
+    // Both years can cover their own must-off day: nothing softens.
+    const db = mkDb([mkUser('a', 'A', { requiredShifts: 14, vacationDays: 1 })], [day], must);
+    const r = generateSchedule(db, block);
+    const aDates = r.assignments.filter((x) => x.userId === 'a').map((x) => x.date);
+    assert.ok(!aDates.includes('2026-12-30') && !aDates.includes('2027-01-03'), `must-offs honoured: ${aDates}`);
+    assert.strictEqual(r.vacationCharges.length, 2);
+  }
 }
 
 console.log('All scheduler tests passed.');
