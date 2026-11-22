@@ -20,7 +20,7 @@ How many counting shifts a person owes in one schedule: their personal requireme
 _Avoid_: Minimum, required floor, quota
 
 **Must-off day**:
-A day a person has asked to be off that the schedule must honour, and that can be covered by a vacation charge.
+A day a person has asked to be off. The generator and admins must honour it unless it is unaffordable, and the person may still choose to work it through a trade. It can be covered by a vacation charge.
 _Avoid_: Vacation request, hard off
 
 **Shortfall**:
@@ -50,3 +50,39 @@ _Avoid_: Vacation available, remaining vacation
 
 **Vacation year**:
 The year a vacation charge or election counts toward. Currently the calendar year.
+
+## Eligibility
+
+**Eligible**:
+A person is eligible for a shift when taking it breaks no hard rule.
+_Avoid_: Available, can take
+
+**Hard rule**:
+A rule no assignment may break: the person has a role the shift allows, has started, isn't on away time, works no other shift that day and gets 8 hours of rest around it.
+_Avoid_: Safety rule
+
+**Blocking reason**:
+The first hard rule a shift would break for a person, worded for that person.
+
+**Eligibility warning**:
+A limit a shift would take a person past without blocking it. Whoever accepts the assignment must confirm it first.
+_Avoid_: Soft block
+
+**Consecutive-night limit**:
+The most overnight shifts in a row the generator will assign a person. An admin may go past it after an eligibility warning; a person may go past it by trading.
+_Avoid_: Night cap
+
+**Shift maximum**:
+The most counting shifts the generator will assign a person in one schedule. A person may go over it by choosing to pick up or trade for more shifts.
+_Avoid_: Max cap, ceiling
+
+**Unaffordable must-off day**:
+A must-off day in a vacation year where the person's must-off days in the schedule outnumber their year balance without that schedule's own vacation charges. The generator and admins may schedule the person on it, while honouring it where coverage allows.
+_Avoid_: Soft off, downgraded must-off
+
+**Schedulable day**:
+A day in a schedule, with at least one shift, where the person has started, isn't on away time and has no must-off day other than an unaffordable one.
+
+**Withdrawn must-off request**:
+A must-off request its owner took back. It no longer protects the day but stays on record with who withdrew it and when. Only the person who made the request can withdraw it.
+_Avoid_: Deleted vacation request
