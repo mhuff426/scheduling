@@ -2,10 +2,10 @@
 import assert from 'assert';
 import {
   checkEligibility, GENERATOR_POLICY, ADMIN_REASSIGN_POLICY, TRADE_POLICY,
-  scheduleHeldShifts, indexedHeldShifts,
+  scheduleHeldShifts, indexedHeldShifts, scheduleEligibility,
 } from './eligibility.js';
 import type { DayFacts, EligibilityPolicy, HeldShifts } from './eligibility.js';
-import type { Assignment, ShiftType, User } from '../shared/types.js';
+import type { Assignment, Db, Schedule, ShiftType, User, VacationCharge } from '../shared/types.js';
 
 const day: ShiftType = { id: 'day', name: 'Day', startTime: '08:00', endTime: '16:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
 const mgr: ShiftType = { ...day, id: 'mgr', name: 'Manager', allowedRoles: ['role-mgr'] };
@@ -43,8 +43,8 @@ for (const [name, policy] of POLICIES) {
   assert.deepStrictEqual(check({ policy, shiftType: mgr, person: mkUser({ roles: ['role-mgr'] }) }), { eligible: true, warnings: [] }, name);
 }
 
-// ---- must-off days: today every caller blocks an affordable one; only the
-// generator may schedule over an unaffordable one ----
+// ---- must-off days: every caller blocks an affordable one; the generator and
+// admin reassign may schedule over an unaffordable one, with no warning ----
 const mustOffOn = (affordable: boolean): DayFacts => ({
   mustOff: (d) => (d === '2099-01-10' ? { affordable } : null), isAway: () => false,
 });
@@ -54,7 +54,7 @@ for (const [name, policy] of POLICIES) {
   assert.deepStrictEqual(check({ policy, facts: mustOffOn(true), date: '2099-01-11' }).eligible, true, `${name}: other days are fine`);
 }
 assert.deepStrictEqual(check({ policy: GENERATOR_POLICY, facts: mustOffOn(false) }), { eligible: true, warnings: [] }, 'generator: unaffordable must-off allowed');
-assert.deepStrictEqual(check({ policy: ADMIN_REASSIGN_POLICY, facts: mustOffOn(false) }), onVacation, 'admin: unaffordable must-off blocks (today)');
+assert.deepStrictEqual(check({ policy: ADMIN_REASSIGN_POLICY, facts: mustOffOn(false) }), { eligible: true, warnings: [] }, 'admin: unaffordable must-off allowed');
 assert.deepStrictEqual(check({ policy: TRADE_POLICY, facts: mustOffOn(false) }), onVacation, 'trade: unaffordable must-off blocks (today)');
 
 // ---- started: the start date itself is workable, the day before isn't ----
@@ -228,6 +228,57 @@ for (const [name, policy] of POLICIES) {
   const added = A('b', '2099-01-11', 'day');
   list.get('b')!.push(added); byDate.get('b')!.set(added.date, added); counts.set('b', counts.get('b')! + 1);
   assert.strictEqual(check({ person, date: '2099-01-11', held: indexed }).eligible, false);
+}
+
+// ---- live affordability (trades and reassign): a must-off day is unaffordable
+// when the person's must-off days in that vacation year, within the schedule,
+// outnumber their year balance counted without this schedule's own charges ----
+{
+  const sched = (id: string, startDate: string, endDate: string, vacationCharges: VacationCharge[] = []): Schedule => ({
+    id, startDate, endDate, userIds: ['b'], assignments: [], unfilled: [], counts: {}, warnings: [],
+    createdAt: '2099-01-01T00:00:00Z', vacationCharges,
+  });
+  const mkDb = (vacationDays: number, mustOff: string[], schedules: Schedule[]): Db => ({
+    users: [mkUser({ vacationDays })], roles: [], shiftTypes: [day], settings: { maxVacationPerDay: 2 },
+    timeOff: mustOff.map((date, i) => ({ id: `t${i}`, userId: 'b', date, type: 'vacation' })),
+    schedules, trades: [], notifications: [], awayTime: [], holidays: [], meta: { rotationCursor: 0 },
+  });
+  const charge = (date: string): VacationCharge => ({ userId: 'b', date, cause: 'shortfall' });
+  const reassign = (db: Db, date: string) =>
+    scheduleEligibility(db, db.schedules[0], { date, shiftTypeId: 'day' }, db.users[0], ADMIN_REASSIGN_POLICY);
+  const mustOffs = ['2099-01-05', '2099-01-06', '2099-01-07'];
+
+  // 3 balance, 3 must-off days: affordable, so the admin is blocked.
+  assert.deepStrictEqual(reassign(mkDb(3, mustOffs, [sched('s1', '2099-01-01', '2099-01-31')]), '2099-01-05'), onVacation, 'affordable blocks admin');
+  // 2 balance, 3 must-off days: unaffordable, so the admin may reassign onto any of them.
+  for (const d of mustOffs)
+    assert.deepStrictEqual(reassign(mkDb(2, mustOffs, [sched('s1', '2099-01-01', '2099-01-31')]), d), { eligible: true, warnings: [] }, `unaffordable ${d}`);
+
+  // The schedule's own charges don't make its must-off days unaffordable:
+  // 3 balance, 3 must-off days, all 3 charged by this schedule -> all affordable.
+  {
+    const db = mkDb(3, mustOffs, [sched('s1', '2099-01-01', '2099-01-31', mustOffs.map(charge))]);
+    for (const d of mustOffs) assert.deepStrictEqual(reassign(db, d), onVacation, `own charges left out ${d}`);
+  }
+  // Another schedule's charges (live balance changes) do count: 3 balance,
+  // 1 charged elsewhere in 2099 -> 2 left for 3 must-off days -> unaffordable.
+  {
+    const db = mkDb(3, mustOffs, [sched('s1', '2099-01-01', '2099-01-31'), sched('s0', '2098-12-01', '2098-12-31', [charge('2099-12-31')])]);
+    assert.deepStrictEqual(reassign(db, '2099-01-05').eligible, true, 'other schedules count');
+  }
+  // Must-off days outside the schedule don't count toward it.
+  assert.deepStrictEqual(
+    reassign(mkDb(2, [...mustOffs.slice(0, 2), '2099-03-01'], [sched('s1', '2099-01-01', '2099-01-31')]), '2099-01-05'),
+    onVacation, 'only the schedule\'s own must-off days count'
+  );
+
+  // A schedule spanning two vacation years is judged per year: 2 balance in
+  // each; 3 must-off days in 2098 (unaffordable), 2 in 2099 (affordable).
+  {
+    const db = mkDb(2, ['2098-12-29', '2098-12-30', '2098-12-31', '2099-01-01', '2099-01-02'], [sched('s1', '2098-12-20', '2099-01-10')]);
+    assert.strictEqual(reassign(db, '2098-12-30').eligible, true, '2098 unaffordable');
+    assert.deepStrictEqual(reassign(db, '2099-01-01'), onVacation, '2099 affordable');
+  }
 }
 
 console.log('All eligibility tests passed.');
