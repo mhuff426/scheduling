@@ -178,8 +178,9 @@ function rowsFor(key: CollectionKey, db: Db): TableRows[] {
       const unfilled: unknown[][] = [];
       const counts: unknown[][] = [];
       const warnings: unknown[][] = [];
-      const vacCharged: unknown[][] = [];
+      const vacCharges: unknown[][] = [];
       const elections: unknown[][] = [];
+      const electionVacation: unknown[][] = [];
       const prefAsks: unknown[][] = [];
       db.schedules.forEach((s, i) => {
         schedules.push([s.id, s.startDate, s.endDate, s.createdAt, s.preferenceStats?.median ?? null, i]);
@@ -188,8 +189,11 @@ function rowsFor(key: CollectionKey, db: Db): TableRows[] {
         (s.unfilled || []).forEach((u, j) => unfilled.push([s.id, u.date, u.shiftTypeId, j]));
         for (const [uid, n] of Object.entries(s.counts || {})) counts.push([s.id, uid, n]);
         (s.warnings || []).forEach((w, j) => warnings.push([s.id, w, j]));
-        for (const [uid, n] of Object.entries(s.vacationCharged || {})) vacCharged.push([s.id, uid, n]);
-        for (const [uid, e] of Object.entries(s.extraElections || {})) elections.push([s.id, uid, e.vacation, e.incentive]);
+        (s.vacationCharges || []).forEach((c, j) => vacCharges.push([s.id, c.userId, c.date, c.cause, j]));
+        for (const [uid, e] of Object.entries(s.extraElections || {})) {
+          elections.push([s.id, uid, e.incentive]);
+          for (const [year, days] of Object.entries(e.vacationByYear || {})) electionVacation.push([s.id, uid, Number(year), days]);
+        }
         for (const [uid, n] of Object.entries(s.preferenceStats?.asks || {})) prefAsks.push([s.id, uid, n]);
       });
       return [
@@ -199,8 +203,9 @@ function rowsFor(key: CollectionKey, db: Db): TableRows[] {
         { table: 'schedule_unfilled', columns: ['schedule_id', 'date', 'shift_type_id', 'position'], rows: unfilled },
         { table: 'schedule_counts', columns: ['schedule_id', 'user_id', 'shift_count'], rows: counts },
         { table: 'schedule_warnings', columns: ['schedule_id', 'message', 'position'], rows: warnings },
-        { table: 'schedule_vacation_charged', columns: ['schedule_id', 'user_id', 'days'], rows: vacCharged },
-        { table: 'schedule_extra_elections', columns: ['schedule_id', 'user_id', 'vacation', 'incentive'], rows: elections },
+        { table: 'schedule_vacation_charges', columns: ['schedule_id', 'user_id', 'date', 'cause', 'position'], rows: vacCharges },
+        { table: 'schedule_extra_elections', columns: ['schedule_id', 'user_id', 'incentive'], rows: elections },
+        { table: 'schedule_election_vacation', columns: ['schedule_id', 'user_id', 'year', 'days'], rows: electionVacation },
         { table: 'schedule_preference_asks', columns: ['schedule_id', 'user_id', 'asks'], rows: prefAsks },
       ];
     }
@@ -312,7 +317,7 @@ export async function loadAllFromMysql(conn: Queryable): Promise<Db | null> {
   const [
     userRows, userRoleRows, roleRows, shiftTypeRows, allowedRoleRows, timeOffRows,
     awayRows, holidayRows, scheduleRows, schedUserRows, assignmentRows, unfilledRows,
-    countRows, warningRows, vacChargedRows, electionRows, prefAskRows,
+    countRows, warningRows, vacChargeRows, electionRows, electionVacationRows, prefAskRows,
     tradeRows, responseRows, notificationRows,
   ] = await Promise.all([
     all(conn, 'users'), all(conn, 'user_roles'), all(conn, 'roles'),
@@ -320,8 +325,9 @@ export async function loadAllFromMysql(conn: Queryable): Promise<Db | null> {
     all(conn, 'away_time'), all(conn, 'holidays'), all(conn, 'schedules'),
     all(conn, 'schedule_users'), all(conn, 'assignments'), all(conn, 'schedule_unfilled'),
     all(conn, 'schedule_counts', '`schedule_id`, `user_id`'), all(conn, 'schedule_warnings'),
-    all(conn, 'schedule_vacation_charged', '`schedule_id`, `user_id`'),
+    all(conn, 'schedule_vacation_charges', '`schedule_id`, `position`'),
     all(conn, 'schedule_extra_elections', '`schedule_id`, `user_id`'),
+    all(conn, 'schedule_election_vacation', '`schedule_id`, `user_id`, `year`'),
     all(conn, 'schedule_preference_asks', '`schedule_id`, `user_id`'),
     all(conn, 'trades'), all(conn, 'trade_responses'), all(conn, 'notifications'),
   ]);
@@ -402,8 +408,14 @@ export async function loadAllFromMysql(conn: Queryable): Promise<Db | null> {
   const unfilledBySched = groupBy(unfilledRows, 'schedule_id');
   const countsBySched = groupBy(countRows, 'schedule_id');
   const warningsBySched = groupBy(warningRows, 'schedule_id');
-  const chargedBySched = groupBy(vacChargedRows, 'schedule_id');
+  const chargesBySched = groupBy(vacChargeRows, 'schedule_id');
   const electionsBySched = groupBy(electionRows, 'schedule_id');
+  const electionVacationBySched = groupBy(electionVacationRows, 'schedule_id');
+  // An election's per-year vacation rows, keyed by year.
+  const vacationByYear = (scheduleId: string, userId: string) =>
+    Object.fromEntries(
+      (electionVacationBySched.get(scheduleId) || []).filter((x) => x.user_id === userId).map((x) => [String(x.year), x.days])
+    );
   const asksBySched = groupBy(prefAskRows, 'schedule_id');
   const schedules: Schedule[] = scheduleRows.map((r) => ({
     id: r.id,
@@ -415,8 +427,8 @@ export async function loadAllFromMysql(conn: Queryable): Promise<Db | null> {
     counts: recordOf(countsBySched.get(r.id) || [], (x) => x.shift_count),
     warnings: (warningsBySched.get(r.id) || []).map((w) => w.message),
     createdAt: r.created_at,
-    vacationCharged: recordOf(chargedBySched.get(r.id) || [], (x) => x.days),
-    extraElections: recordOf(electionsBySched.get(r.id) || [], (x) => ({ vacation: x.vacation, incentive: x.incentive })),
+    vacationCharges: (chargesBySched.get(r.id) || []).map((c) => ({ userId: c.user_id, date: c.date, cause: c.cause })),
+    extraElections: recordOf(electionsBySched.get(r.id) || [], (x) => ({ vacationByYear: vacationByYear(r.id, x.user_id), incentive: x.incentive })),
     ...(r.preference_median == null ? {} : {
       preferenceStats: {
         asks: recordOf(asksBySched.get(r.id) || [], (x) => x.asks),

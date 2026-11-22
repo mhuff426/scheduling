@@ -22,10 +22,10 @@
 import { holidayDatesInRange } from '../shared/holidays.js';
 import {
   shiftWeight, isCountingShiftType, shiftMaximum, requiredShifts, shortfall, vacationChargedIn,
-  vacationYearOf, yearBalance, vacationCharge,
+  vacationYearOf, vacationYearsOf, yearBalance, shortfallCharges,
 } from '../shared/settlement.js';
 import type {
-  Assignment, Db, PreferenceStats, ScheduleDraft, ShiftType, Slot, TimeOff, User,
+  Assignment, Db, PreferenceStats, ScheduleDraft, ShiftType, Slot, TimeOff, User, VacationCharge,
 } from '../shared/types.js';
 
 const REST_MINUTES = 8 * 60;
@@ -433,7 +433,7 @@ export function summarizeSchedule(db: Db, schedule: ScheduleDraft) {
     // (not enough schedulable days at all to reach the requirement) versus
     // unresolved for other reasons (most notably, protected preferred-off
     // days the generator wouldn't override). This doesn't affect the charge
-    // itself — vacationCharged is untouched — it only explains it. Uses raw
+    // itself — the charges are untouched — it only explains it. Uses raw
     // must-off entries (summarizeSchedule has no softOff context to know
     // which were downgraded this block), which is an approximation.
     if (charge > 0) {
@@ -526,20 +526,27 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
   }
   const typeIndex: Record<string, number> = Object.fromEntries(db.shiftTypes.map((s, i) => [s.id, i]));
 
-  // Affordability check: someone asking for more must-off days in this block
-  // than they have vacation days left gets ALL their must-offs downgraded to
-  // soft "strongly prefer off" claims — honored when possible, schedulable
-  // over when coverage requires it.
+  // Affordability check, per vacation year: someone whose must-off days in
+  // this block falling in one vacation year outnumber that year's balance
+  // gets ALL their must-offs in the block downgraded to soft "strongly prefer
+  // off" claims — honored when possible, schedulable over when coverage
+  // requires it.
   // Holiday fairness counts per calendar year; vacation per vacation year.
   const blockYear = Number(startDate.slice(0, 4));
-  const vacationYear = vacationYearOf({ startDate });
-  const yearBalanceOf = (u: User) => Math.max(0, yearBalance(db, u, vacationYear).balance);
+  const blockYears = vacationYearsOf({ startDate, endDate });
+  // Year balances (floored) before this block, per person per vacation year.
+  const balances = gmap<Map<number, number>>(
+    employees.map((u) => [u.id, new Map(blockYears.map((y) => [y, Math.max(0, yearBalance(db, u, y).balance)]))])
+  );
+  const yearBalanceOf = (uid: string) => (year: number) => balances.get(uid).get(year) ?? 0;
   const range = { startDate, endDate, userIds };
+  const mustOffDates = gmap<string[]>(employees.map((u) => [u.id, mustOffInRange(db, u.id, range).map((t) => t.date)]));
   const softOff = new Set(
     employees
-      .filter(
-        (u) =>
-          mustOffInRange(db, u.id, range).length > yearBalanceOf(u)
+      .filter((u) =>
+        blockYears.some(
+          (y) => mustOffDates.get(u.id).filter((d) => vacationYearOf(d) === y).length > yearBalanceOf(u.id)(y)
+        )
       )
       .map((u) => u.id)
   );
@@ -659,20 +666,24 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
   // "actual" never disagree.
   const employeeById = gmap<User>(employees.map((u) => [u.id, u]));
   const heavy = heavyAskers(db, range);
-  const mustOffCount = gmap<number>(employees.map((u) => [u.id, mustOffInRange(db, u.id, range).length]));
-  const vacAvail = gmap<number>(employees.map((u) => [u.id, yearBalanceOf(u)]));
+  const mustOffCount = gmap<number>(employees.map((u) => [u.id, mustOffDates.get(u.id).length]));
+  // Whether a person has any vacation left in a year one of their must-off
+  // days falls in — i.e. whether a shortfall could charge them at all.
+  const canBeCharged = gmap<boolean>(employees.map((u) => [
+    u.id, mustOffDates.get(u.id).some((d) => yearBalanceOf(u.id)(vacationYearOf(d)) > 0),
+  ]));
   const fullRequired = gmap<number>(employees.map((u) => [u.id, requiredShifts(u)]));
 
   // Live: reads current `counts`, so it tracks the schedule as it fills in.
   const predictedCharge = (uid: string) =>
-    vacationCharge({
+    shortfallCharges({
       required: fullRequired.get(uid),
       counting: counts.get(uid),
-      mustOffDays: mustOffCount.get(uid),
-      yearBalance: vacAvail.get(uid),
-    });
+      mustOffDates: mustOffDates.get(uid),
+      yearBalance: yearBalanceOf(uid),
+    }).length;
   const atRiskNow = (uid: string) =>
-    mustOffCount.get(uid) > 0 && vacAvail.get(uid) > 0 && counts.get(uid) < fullRequired.get(uid);
+    mustOffCount.get(uid) > 0 && canBeCharged.get(uid) && counts.get(uid) < fullRequired.get(uid);
 
   // Date-level approximation of "could this person legally work something
   // between fromDate and the end of the block" — the coarse hard gates that
@@ -1113,22 +1124,22 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
   }
 
   // Settle vacation: shortfall against the FULL personal requirement is
-  // covered by vacation days — capped by the must-off days that caused it and
-  // by what the person has left this year (never negative).
-  const vacationCharged: Record<string, number> = {};
+  // covered by vacation charges on the must-off days that caused it, earliest
+  // first, each dated on its day and limited by that day's vacation-year
+  // balance (never negative).
+  const vacationCharges: VacationCharge[] = [];
   for (const u of employees) {
-    const charge = vacationCharge({
+    for (const date of shortfallCharges({
       required: requiredShifts(u),
       counting: counts.get(u.id),
-      mustOffDays: mustOffInRange(db, u.id, range).length,
-      yearBalance: yearBalanceOf(u),
-    });
-    if (charge > 0) vacationCharged[u.id] = charge;
+      mustOffDates: mustOffDates.get(u.id),
+      yearBalance: yearBalanceOf(u.id),
+    })) vacationCharges.push({ userId: u.id, date, cause: 'shortfall' });
   }
 
   const draft: ScheduleDraft = {
     startDate, endDate, userIds: userIds ?? db.users.map((u) => u.id),
-    assignments, unfilled, vacationCharged,
+    assignments, unfilled, vacationCharges,
   };
   const { counts: finalCounts, warnings } = summarizeSchedule(db, draft);
 
@@ -1137,7 +1148,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
     unfilled,
     warnings,
     counts: finalCounts,
-    vacationCharged,
+    vacationCharges,
     preferenceStats: stats,
     nextRotationCursor: employees.length ? rotation % employees.length : 0,
   };

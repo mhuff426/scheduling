@@ -198,7 +198,7 @@ const vacationUsed = (db: Db, uid: string) => yearBalance(db, db.users.find((u) 
   assert.strictEqual(vacationUsed(db, 'a'), 0, 'nothing charged before the claim');
   const r = claimGiveaway(db, trade!.id, { userId: 'b' });
   assert.ok(!r.error, `claim failed: ${r.error}`);
-  assert.strictEqual(db.schedules[0].vacationCharged!.a, 1, 'day charged at claim');
+  assert.deepStrictEqual(db.schedules[0].vacationCharges, [{ userId: 'a', date: '2099-01-15', cause: 'giveaway' }], 'day charged at claim, dated on the shift given away');
   assert.strictEqual(vacationUsed(db, 'a'), 1);
 }
 
@@ -226,7 +226,7 @@ const vacationUsed = (db: Db, uid: string) => yearBalance(db, db.users.find((u) 
     offered: { date: '2099-01-15', shiftTypeId: 'day' },
   });
   // another schedule in the same year eats a's last day before anyone claims
-  db.schedules.push({ id: 'sch2', startDate: '2099-02-01', endDate: '2099-02-07', assignments: [], unfilled: [], vacationCharged: { a: 1 } } as unknown as Schedule);
+  db.schedules.push({ id: 'sch2', startDate: '2099-02-01', endDate: '2099-02-07', assignments: [], unfilled: [], vacationCharges: [{ userId: 'a', date: '2099-02-01', cause: 'shortfall' }] } as unknown as Schedule);
   const r = claimGiveaway(db, trade!.id, { userId: 'b' });
   assert.strictEqual(r.code, 409, 'unaffordable claim rejected');
   assert.strictEqual(trade!.status, 'expired');
@@ -241,9 +241,9 @@ const vacationUsed = (db: Db, uid: string) => yearBalance(db, db.users.find((u) 
     [A('a', '2099-01-15', 'day'), A('a', '2099-01-16', 'day'), A('a', '2099-01-17', 'day')]
   );
   // a: count 3, required 1 -> extra 2
-  const over = setExtraElection(db, 'sch1', { userId: 'a', vacation: 2, incentive: 1 });
+  const over = setExtraElection(db, 'sch1', { userId: 'a', vacationByYear: { 2099: 2 }, incentive: 1 });
   assert.ok(over.error && over.error.includes('Only 2 extra'), 'over-allocation rejected');
-  const ok = setExtraElection(db, 'sch1', { userId: 'a', vacation: 1, incentive: 1 });
+  const ok = setExtraElection(db, 'sch1', { userId: 'a', vacationByYear: { 2099: 1 }, incentive: 1 });
   assert.ok(!ok.error, `election failed: ${ok.error}`);
 
   // giving up a shift shrinks extra from 2 to 1 -> incentive trimmed first
@@ -253,12 +253,12 @@ const vacationUsed = (db: Db, uid: string) => yearBalance(db, db.users.find((u) 
   });
   const r = claimGiveaway(db, trade!.id, { userId: 'b' });
   assert.ok(!r.error, `claim failed: ${r.error}`);
-  assert.deepStrictEqual(db.schedules[0].extraElections!.a, { vacation: 1, incentive: 0 }, 'incentive trimmed first');
+  assert.deepStrictEqual(db.schedules[0].extraElections!.a, { vacationByYear: { 2099: 1 }, incentive: 0 }, 'incentive trimmed first');
 
   // spending the elected vacation elsewhere blocks both lowering it and the
   // giveaway that would trim it
-  db.schedules.push({ id: 'sch2', startDate: '2099-03-01', endDate: '2099-03-07', assignments: [], unfilled: [], vacationCharged: { a: 1 } } as unknown as Schedule);
-  const lower = setExtraElection(db, 'sch1', { userId: 'a', vacation: 0, incentive: 0 });
+  db.schedules.push({ id: 'sch2', startDate: '2099-03-01', endDate: '2099-03-07', assignments: [], unfilled: [], vacationCharges: [{ userId: 'a', date: '2099-02-01', cause: 'shortfall' }] } as unknown as Schedule);
+  const lower = setExtraElection(db, 'sch1', { userId: 'a', vacationByYear: {}, incentive: 0 });
   assert.ok(lower.error && lower.error.includes('already used'), 'cannot un-elect spent vacation');
   const { trade: t2 } = createTrade(db, {
     scheduleId: 'sch1', fromUserId: 'a', type: 'giveaway',
@@ -267,6 +267,100 @@ const vacationUsed = (db: Db, uid: string) => yearBalance(db, db.users.find((u) 
   const r2 = claimGiveaway(db, t2!.id, { userId: 'b' });
   assert.strictEqual(r2.code, 409, 'claim blocked when trimming elected vacation would go negative');
   assert.strictEqual(t2!.status, 'expired');
+}
+
+// ===== a schedule spanning New Year (28 Dec 2099 - 10 Jan 2100) =====
+const spanning = (users: User[], assignments: Assignment[]) => {
+  const db = mkDb(users, assignments);
+  Object.assign(db.schedules[0], { startDate: '2099-12-28', endDate: '2100-01-10' });
+  return db;
+};
+const balanceOf = (db: Db, uid: string, year: number) => yearBalance(db, db.users.find((u) => u.id === uid)!, year).balance;
+const otherSchedule = (id: string, chargeDates: string[]) => ({
+  id, startDate: chargeDates[0], endDate: chargeDates[0], assignments: [], unfilled: [],
+  vacationCharges: chargeDates.map((date) => ({ userId: 'a', date, cause: 'shortfall' })),
+} as unknown as Schedule);
+
+// ---- giveaway charge is dated on the day of the shift given away ----
+{
+  const db = spanning(
+    [mkUser('a', 'Ann', { vacationDays: 5, requiredShifts: 2 }), mkUser('b', 'Ben')],
+    [A('a', '2099-12-29', 'day'), A('a', '2100-01-05', 'day')]
+  );
+  const { trade } = createTrade(db, {
+    scheduleId: 'sch1', fromUserId: 'a', type: 'giveaway', offered: { date: '2100-01-05', shiftTypeId: 'day' },
+  });
+  const r = claimGiveaway(db, trade!.id, { userId: 'b' });
+  assert.ok(!r.error, `claim failed: ${r.error}`);
+  assert.deepStrictEqual(db.schedules[0].vacationCharges, [{ userId: 'a', date: '2100-01-05', cause: 'giveaway' }]);
+  assert.deepStrictEqual([balanceOf(db, 'a', 2099), balanceOf(db, 'a', 2100)], [5, 4], 'charged to 2100, not the start year');
+}
+
+// ---- posting is refused when the given-away day's year has nothing left ----
+{
+  const db = spanning(
+    [mkUser('a', 'Ann', { vacationDays: 1, requiredShifts: 2 }), mkUser('b', 'Ben')],
+    [A('a', '2099-12-29', 'day'), A('a', '2100-01-05', 'day')]
+  );
+  db.schedules.push(otherSchedule('sch2', ['2100-02-01']));
+  const jan = createTrade(db, { scheduleId: 'sch1', fromUserId: 'a', type: 'giveaway', offered: { date: '2100-01-05', shiftTypeId: 'day' } });
+  assert.ok(jan.error && jan.error.includes('none left for 2100'), `2100 is spent: ${jan.error}`);
+  const dec = createTrade(db, { scheduleId: 'sch1', fromUserId: 'a', type: 'giveaway', offered: { date: '2099-12-29', shiftTypeId: 'day' } });
+  assert.ok(dec.trade, '2099 still has a day');
+}
+
+// ---- split elections: the employee picks the year(s) for elected vacation ----
+{
+  const db = spanning(
+    [mkUser('a', 'Ann', { vacationDays: 0, requiredShifts: 0 }), mkUser('b', 'Ben')],
+    [A('a', '2099-12-29', 'day'), A('a', '2099-12-30', 'day'), A('a', '2100-01-05', 'day')]
+  );
+  // 3 extra days
+  const split = setExtraElection(db, 'sch1', { userId: 'a', vacationByYear: { 2099: 1, 2100: 2 }, incentive: 0 });
+  assert.ok(!split.error, `split failed: ${split.error}`);
+  assert.deepStrictEqual(db.schedules[0].extraElections!.a, { vacationByYear: { 2099: 1, 2100: 2 }, incentive: 0 });
+  assert.deepStrictEqual([balanceOf(db, 'a', 2099), balanceOf(db, 'a', 2100)], [1, 2], 'each year credited its own days');
+
+  const outside = setExtraElection(db, 'sch1', { userId: 'a', vacationByYear: { 2101: 1 }, incentive: 0 });
+  assert.ok(outside.error && outside.error.includes('2101'), `a year the schedule doesn't cover is refused: ${outside.error}`);
+  const tooMany = setExtraElection(db, 'sch1', { userId: 'a', vacationByYear: { 2099: 2, 2100: 2 }, incentive: 0 });
+  assert.ok(tooMany.error && tooMany.error.includes('Only 3 extra'), 'the total across years is capped by extra days');
+
+  // spending 2100's elected days blocks lowering 2100, but not moving 2099's
+  db.schedules.push(otherSchedule('sch2', ['2100-02-01', '2100-02-02']));
+  const lower2100 = setExtraElection(db, 'sch1', { userId: 'a', vacationByYear: { 2099: 2, 2100: 1 }, incentive: 0 });
+  assert.ok(lower2100.error && lower2100.error.includes('already used'), 'lowering 2100 would push it below zero');
+  const lower2099 = setExtraElection(db, 'sch1', { userId: 'a', vacationByYear: { 2100: 2 }, incentive: 1 });
+  assert.ok(!lower2099.error, `2099's day is unspent, so it can move to incentive: ${lower2099.error}`);
+  assert.deepStrictEqual(db.schedules[0].extraElections!.a, { vacationByYear: { 2100: 2 }, incentive: 1 });
+}
+
+// ---- election cut after a giveaway: incentive, then the earlier year as far as it can absorb, then the later ----
+{
+  const db = spanning(
+    [mkUser('a', 'Ann', { vacationDays: 0, requiredShifts: 0 }), mkUser('b', 'Ben')],
+    [A('a', '2099-12-29', 'day'), A('a', '2099-12-30', 'day'), A('a', '2100-01-05', 'day'), A('a', '2100-01-06', 'day')]
+  );
+  // 4 extra: 2099: 2, 2100: 1, incentive 1
+  assert.ok(!setExtraElection(db, 'sch1', { userId: 'a', vacationByYear: { 2099: 2, 2100: 1 }, incentive: 1 }).error);
+  // spend one of 2099's elected days elsewhere: 2099 can absorb only 1 cut
+  db.schedules.push(otherSchedule('sch2', ['2099-03-01']));
+  const give = (date: string) => {
+    const { trade } = createTrade(db, { scheduleId: 'sch1', fromUserId: 'a', type: 'giveaway', offered: { date, shiftTypeId: 'day' } });
+    return { trade: trade!, r: claimGiveaway(db, trade!.id, { userId: 'b' }) };
+  };
+  assert.ok(!give('2099-12-29').r.error); // 3 extra left -> cut the incentive day
+  assert.deepStrictEqual(db.schedules[0].extraElections!.a, { vacationByYear: { 2099: 2, 2100: 1 }, incentive: 0 });
+  assert.ok(!give('2099-12-30').r.error); // 2 extra left -> cut 1 from 2099 (all it can absorb)
+  assert.deepStrictEqual(db.schedules[0].extraElections!.a, { vacationByYear: { 2099: 1, 2100: 1 }, incentive: 0 });
+  assert.deepStrictEqual([balanceOf(db, 'a', 2099), balanceOf(db, 'a', 2100)], [0, 1]);
+  assert.ok(!give('2100-01-05').r.error); // 1 extra left -> 2099 is at 0, so the cut comes from 2100
+  assert.deepStrictEqual(db.schedules[0].extraElections!.a, { vacationByYear: { 2099: 1 }, incentive: 0 });
+  assert.deepStrictEqual([balanceOf(db, 'a', 2099), balanceOf(db, 'a', 2100)], [0, 0]);
+  // nothing left to absorb the last cut: blocked and expired
+  const last = give('2100-01-06');
+  assert.strictEqual(last.r.code, 409, 'neither year can absorb the cut');
+  assert.strictEqual(last.trade.status, 'expired');
 }
 
 // ---- max-shifts cap deliberately does NOT block a claim ----
