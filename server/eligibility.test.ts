@@ -1,0 +1,233 @@
+// Smoke test: tsx server/eligibility.test.ts
+import assert from 'assert';
+import {
+  checkEligibility, GENERATOR_POLICY, ADMIN_REASSIGN_POLICY, TRADE_POLICY,
+  scheduleHeldShifts, indexedHeldShifts,
+} from './eligibility.js';
+import type { DayFacts, EligibilityPolicy, HeldShifts } from './eligibility.js';
+import type { Assignment, ShiftType, User } from '../shared/types.js';
+
+const day: ShiftType = { id: 'day', name: 'Day', startTime: '08:00', endTime: '16:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1 };
+const mgr: ShiftType = { ...day, id: 'mgr', name: 'Manager', allowedRoles: ['role-mgr'] };
+const shiftTypes: Record<string, ShiftType> = { day, mgr };
+
+const mkUser = (extra: Partial<User> = {}): User => ({
+  id: 'b', name: 'Ben', roles: ['role-employee'], vacationDays: 10, color: '#888', ...extra,
+});
+const A = (userId: string, date: string, shiftTypeId: string): Assignment => ({ userId, date, shiftTypeId });
+const noFacts: DayFacts = { mustOff: () => null, isAway: () => false };
+
+const POLICIES: [string, EligibilityPolicy][] = [
+  ['generator', GENERATOR_POLICY], ['admin reassign', ADMIN_REASSIGN_POLICY], ['trade', TRADE_POLICY],
+];
+
+function check({
+  person = mkUser(), date = '2099-01-10', shiftType = day, assignments = [] as Assignment[],
+  facts = noFacts, policy = TRADE_POLICY as EligibilityPolicy, held = undefined as HeldShifts | undefined,
+} = {}) {
+  return checkEligibility({
+    person, date, shiftType, shiftTypes, facts, policy,
+    held: held ?? scheduleHeldShifts(assignments, person.id, shiftTypes),
+  });
+}
+
+// ---- role: a person without an allowed role is blocked, under every policy ----
+for (const [name, policy] of POLICIES) {
+  const r = check({ shiftType: mgr, policy });
+  assert.deepStrictEqual(r, { eligible: false, reason: "Ben doesn't have a role allowed for that shift." }, name);
+}
+
+// ---- an allowed role (or an unrestricted shift) is eligible with no warnings ----
+for (const [name, policy] of POLICIES) {
+  assert.deepStrictEqual(check({ policy }), { eligible: true, warnings: [] }, name);
+  assert.deepStrictEqual(check({ policy, shiftType: mgr, person: mkUser({ roles: ['role-mgr'] }) }), { eligible: true, warnings: [] }, name);
+}
+
+// ---- must-off days: today every caller blocks an affordable one; only the
+// generator may schedule over an unaffordable one ----
+const mustOffOn = (affordable: boolean): DayFacts => ({
+  mustOff: (d) => (d === '2099-01-10' ? { affordable } : null), isAway: () => false,
+});
+const onVacation = { eligible: false, reason: 'Ben is on vacation that day.' };
+for (const [name, policy] of POLICIES) {
+  assert.deepStrictEqual(check({ policy, facts: mustOffOn(true) }), onVacation, `${name}: affordable must-off blocks`);
+  assert.deepStrictEqual(check({ policy, facts: mustOffOn(true), date: '2099-01-11' }).eligible, true, `${name}: other days are fine`);
+}
+assert.deepStrictEqual(check({ policy: GENERATOR_POLICY, facts: mustOffOn(false) }), { eligible: true, warnings: [] }, 'generator: unaffordable must-off allowed');
+assert.deepStrictEqual(check({ policy: ADMIN_REASSIGN_POLICY, facts: mustOffOn(false) }), onVacation, 'admin: unaffordable must-off blocks (today)');
+assert.deepStrictEqual(check({ policy: TRADE_POLICY, facts: mustOffOn(false) }), onVacation, 'trade: unaffordable must-off blocks (today)');
+
+// ---- started: the start date itself is workable, the day before isn't ----
+for (const [name, policy] of POLICIES) {
+  const person = mkUser({ startDate: '2099-01-10' });
+  assert.deepStrictEqual(check({ policy, person, date: '2099-01-09' }), { eligible: false, reason: "Ben hasn't started yet (starts 2099-01-10)." }, name);
+  assert.strictEqual(check({ policy, person, date: '2099-01-10' }).eligible, true, name);
+}
+
+// ---- away time blocks ----
+for (const [name, policy] of POLICIES) {
+  const facts: DayFacts = { mustOff: () => null, isAway: (d) => d === '2099-01-10' };
+  assert.deepStrictEqual(check({ policy, facts }), { eligible: false, reason: 'Ben is on away time that day.' }, name);
+  assert.strictEqual(check({ policy, facts, date: '2099-01-11' }).eligible, true, name);
+}
+
+// ---- one shift a day, and 8 hours of rest, judged on the shifts held ----
+const night: ShiftType = { ...day, id: 'night', name: 'Night', startTime: '22:00', endTime: '06:00' };
+const eve: ShiftType = { ...day, id: 'eve', name: 'Evening', startTime: '17:00', endTime: '21:00' };
+shiftTypes.night = night;
+shiftTypes.eve = eve;
+for (const [name, policy] of POLICIES) {
+  assert.deepStrictEqual(
+    check({ policy, shiftType: eve, assignments: [A('b', '2099-01-10', 'day')] }),
+    { eligible: false, reason: 'Ben already works a shift that day.' }, name
+  );
+  // Night on the 9th ends 06:00 on the 10th: a 08:00 day shift leaves 2h.
+  assert.deepStrictEqual(
+    check({ policy, assignments: [A('b', '2099-01-09', 'night')] }),
+    { eligible: false, reason: 'Ben would have less than 8 hours of rest around that shift.' }, name
+  );
+  // Someone else's shifts don't count.
+  assert.strictEqual(check({ policy, assignments: [A('a', '2099-01-10', 'day'), A('a', '2099-01-09', 'night')] }).eligible, true, name);
+}
+
+// ---- shifts being given up are left out of the held shifts ----
+{
+  const mine = A('b', '2099-01-10', 'eve');
+  const held = scheduleHeldShifts([mine, A('b', '2099-01-09', 'night')], 'b', shiftTypes, [mine]);
+  assert.deepStrictEqual(
+    check({ held }), { eligible: false, reason: 'Ben would have less than 8 hours of rest around that shift.' },
+    'giving up the eve shift frees the day, but the night before still breaks rest'
+  );
+  const held2 = scheduleHeldShifts([mine], 'b', shiftTypes, [mine]);
+  assert.strictEqual(check({ held: held2 }).eligible, true, 'a same-day swap is judged without the shift given up');
+}
+
+// ---- consecutive-night limit: blocks under every policy today ----
+{
+  const person = mkUser({ maxConsecutiveNights: 2 });
+  const twoNights = [A('b', '2099-01-08', 'night'), A('b', '2099-01-09', 'night')];
+  for (const [name, policy] of POLICIES) {
+    assert.deepStrictEqual(
+      check({ policy, person, date: '2099-01-10', shiftType: night, assignments: twoNights }),
+      { eligible: false, reason: 'Ben would exceed their 2-night limit on consecutive overnight shifts.' }, name
+    );
+    assert.strictEqual(check({ policy, person, date: '2099-01-11', shiftType: night, assignments: twoNights }).eligible, true, `${name}: a gap day resets the run`);
+    assert.strictEqual(check({ policy, date: '2099-01-10', shiftType: night, assignments: twoNights }).eligible, true, `${name}: no limit set`);
+  }
+}
+
+// ---- shift maximum: the generator and admin block, trades ignore it ----
+{
+  const person = mkUser({ maxShiftsOverride: 2 });
+  const standby: ShiftType = { ...day, id: 'standby', name: 'Standby', weight: 0 };
+  shiftTypes.standby = standby;
+  const two = [A('b', '2099-01-05', 'day'), A('b', '2099-01-06', 'day'), A('b', '2099-01-07', 'standby')];
+  const atMax = { eligible: false, reason: 'Ben is already at their maximum of 2 shifts for this schedule.' };
+  assert.deepStrictEqual(check({ policy: GENERATOR_POLICY, person, assignments: two }), atMax, 'generator');
+  assert.deepStrictEqual(check({ policy: ADMIN_REASSIGN_POLICY, person, assignments: two }), atMax, 'admin');
+  assert.deepStrictEqual(check({ policy: TRADE_POLICY, person, assignments: two }), { eligible: true, warnings: [] }, 'trade');
+  for (const [name, policy] of POLICIES) {
+    assert.strictEqual(check({ policy, person, assignments: two, shiftType: standby }).eligible, true, `${name}: standby never counts`);
+    assert.strictEqual(check({ policy, person, assignments: two.slice(1) }).eligible, true, `${name}: under the maximum`);
+    const held = scheduleHeldShifts(two, 'b', shiftTypes, [two[0]]);
+    assert.strictEqual(check({ policy, person, held }).eligible, true, `${name}: the shift given up doesn't count`);
+  }
+}
+
+// ---- when several rules break, the blocking reason is the first, in a fixed
+// order: role, must-off, started, away, one shift a day, rest, nights, maximum ----
+{
+  const facts: DayFacts = { mustOff: () => ({ affordable: true }), isAway: () => true };
+  const everything = {
+    person: mkUser({ roles: [], startDate: '2099-02-01', maxConsecutiveNights: 1, maxShiftsOverride: 1 }),
+    shiftType: { ...night, allowedRoles: ['role-mgr'] }, facts,
+    assignments: [A('b', '2099-01-09', 'night'), A('b', '2099-01-10', 'eve')],
+  };
+  const reasons: string[] = [];
+  const peel = [
+    () => { everything.person.roles = ['role-mgr']; },
+    () => { everything.facts = { mustOff: () => null, isAway: () => true }; },
+    () => { everything.person.startDate = null; },
+    () => { everything.facts = noFacts; },
+    () => { everything.assignments = [A('b', '2099-01-09', 'night'), A('b', '2099-01-11', 'day')]; },
+    () => { everything.assignments = [A('b', '2099-01-09', 'night')]; },
+    () => { everything.person.maxConsecutiveNights = null; },
+  ];
+  for (const step of [() => {}, ...peel]) {
+    step();
+    for (const [, policy] of POLICIES.slice(0, 2)) {
+      const r = check({ ...everything, policy });
+      if (policy === GENERATOR_POLICY) reasons.push(r.eligible ? 'eligible' : r.reason);
+      else assert.deepStrictEqual(r, check({ ...everything, policy: GENERATOR_POLICY }), 'admin and generator agree here');
+    }
+  }
+  assert.deepStrictEqual(reasons, [
+    "Ben doesn't have a role allowed for that shift.",
+    'Ben is on vacation that day.',
+    "Ben hasn't started yet (starts 2099-02-01).",
+    'Ben is on away time that day.',
+    'Ben already works a shift that day.',
+    'Ben would have less than 8 hours of rest around that shift.',
+    'Ben would exceed their 1-night limit on consecutive overnight shifts.',
+    'Ben is already at their maximum of 1 shifts for this schedule.',
+  ]);
+}
+
+// ---- a limit set to warn makes the person eligible, listing every warning ----
+{
+  const warnAll: EligibilityPolicy = {
+    name: 'warn all', affordableMustOff: 'warn', unaffordableMustOff: 'warn', consecutiveNightLimit: 'warn', shiftMaximum: 'warn',
+  };
+  const r = check({
+    policy: warnAll, person: mkUser({ maxConsecutiveNights: 1, maxShiftsOverride: 1 }), shiftType: night,
+    facts: mustOffOn(true), assignments: [A('b', '2099-01-09', 'night')],
+  });
+  assert.deepStrictEqual(r, {
+    eligible: true,
+    warnings: [
+      { kind: 'must-off day', message: 'Ben is on vacation that day.' },
+      { kind: 'consecutive-night limit', message: 'Ben would exceed their 1-night limit on consecutive overnight shifts.' },
+      { kind: 'shift maximum', message: 'Ben is already at their maximum of 1 shifts for this schedule.' },
+    ],
+  });
+}
+
+// ---- both held-shifts adapters give the same answers on the same assignments ----
+{
+  const assignments = [
+    A('b', '2099-01-03', 'night'), A('b', '2099-01-04', 'night'), A('b', '2099-01-06', 'day'),
+    A('b', '2099-01-07', 'standby'), A('b', '2099-01-09', 'eve'), A('a', '2099-01-05', 'day'),
+  ];
+  // The generator's live per-person indexes, built the way it builds them.
+  const list = new Map<string, Assignment[]>();
+  const byDate = new Map<string, Map<string, Assignment>>();
+  const counts = new Map<string, number>();
+  for (const a of assignments) {
+    if (!list.has(a.userId)) { list.set(a.userId, []); byDate.set(a.userId, new Map()); counts.set(a.userId, 0); }
+    list.get(a.userId)!.push(a);
+    byDate.get(a.userId)!.set(a.date, a);
+    if (a.shiftTypeId !== 'standby') counts.set(a.userId, counts.get(a.userId)! + 1);
+  }
+  const indexed = indexedHeldShifts('b', { list, byDate, counts });
+  const plain = scheduleHeldShifts(assignments, 'b', shiftTypes);
+  const person = mkUser({ maxConsecutiveNights: 2, maxShiftsOverride: 4 });
+  let compared = 0;
+  for (let d = 1; d <= 12; d++) {
+    const date = `2099-01-${String(d).padStart(2, '0')}`;
+    for (const shiftType of Object.values(shiftTypes)) {
+      for (const [name, policy] of POLICIES) {
+        const viaIndex = check({ person, date, shiftType, policy, held: indexed });
+        assert.deepStrictEqual(viaIndex, check({ person, date, shiftType, policy, held: plain }), `${name} ${date} ${shiftType.id}`);
+        compared++;
+      }
+    }
+  }
+  // Sanity: the grid exercised blocks and eligibles alike.
+  assert.ok(compared > 100);
+  // The index adapter reads live: a shift added after it was made counts.
+  const added = A('b', '2099-01-11', 'day');
+  list.get('b')!.push(added); byDate.get('b')!.set(added.date, added); counts.set('b', counts.get('b')! + 1);
+  assert.strictEqual(check({ person, date: '2099-01-11', held: indexed }).eligible, false);
+}
+
+console.log('All eligibility tests passed.');

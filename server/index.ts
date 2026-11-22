@@ -8,9 +8,9 @@ import type { CollectionKey } from './mysql.js';
 import {
   generateSchedule, summarizeSchedule, preferenceStandings,
 } from './scheduler.js';
-import { countingShifts, isCountingShiftType, shiftMaximum } from '../shared/settlement.js';
+import { ADMIN_REASSIGN_POLICY, scheduleEligibility } from './eligibility.js';
 import {
-  canTakeShift, createTrade, respondToOpenTrade, withdrawResponse,
+  createTrade, respondToOpenTrade, withdrawResponse,
   acceptOpenResponse, acceptDirect, rejectDirect, claimGiveaway, cancelTrade,
   setExtraElection, tradeOptions, swapPartners,
 } from './trades.js';
@@ -821,17 +821,12 @@ app.post('/api/schedules/:id/reassign', handle(async (req, res) => {
             (a) => a.date === date && a.shiftTypeId === shiftTypeId && a.userId === fromUserId
           )
         : null;
-      // Safety rules (vacation, one-shift-per-day, rest, night cap) are shared
-      // with shift trading; admin reassignment additionally enforces the cap.
-      const err = canTakeShift(db, schedule, { date, shiftTypeId }, to, moving ? [moving] : []);
-      if (err) throw new HttpError(400, err);
-      // Only counting shifts (standby excluded) count toward the shift maximum.
-      const maxAllowed = shiftMaximum(to);
-      const countingHeld = countingShifts(
-        db, { assignments: schedule.assignments.filter((a) => a !== moving) }, to.id
+      // Admin reassign policy: hard rules, must-off days, the consecutive-night
+      // limit and the shift maximum all block (ADR 0001).
+      const r = scheduleEligibility(
+        db, schedule, { date, shiftTypeId }, to, ADMIN_REASSIGN_POLICY, moving ? [moving] : []
       );
-      if (isCountingShiftType(st) && countingHeld + 1 > maxAllowed)
-        throw new HttpError(400, `${to.name} is already at their maximum of ${maxAllowed} shifts for this schedule.`);
+      if (!r.eligible) throw new HttpError(400, r.reason);
     }
 
     if (!fromUserId) {
