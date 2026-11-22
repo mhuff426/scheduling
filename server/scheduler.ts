@@ -27,7 +27,7 @@ import type {
   Assignment, Db, PreferenceStats, ScheduleDraft, ShiftType, Slot, TimeOff, User, VacationCharge,
 } from '../shared/types.js';
 import {
-  checkEligibility, GENERATOR_POLICY, indexedHeldShifts, isAway, isBeforeStart, isOvernight,
+  checkEligibility, GENERATOR_POLICY, indexedHeldShifts, isAway, isBeforeStart, isOvernight, unaffordableMustOffDays,
 } from './eligibility.js';
 import type { DayFacts, HeldShifts } from './eligibility.js';
 
@@ -478,10 +478,8 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
   // Downgraded must-off days, keyed `userId|date`.
   const softOff = new Set<string>();
   for (const u of employees) {
-    for (const y of blockYears) {
-      const inYear = mustOffDates.get(u.id).filter((d) => vacationYearOf(d) === y);
-      if (inYear.length > yearBalanceOf(u.id)(y)) for (const d of inYear) softOff.add(`${u.id}|${d}`);
-    }
+    for (const d of unaffordableMustOffDays(mustOffDates.get(u.id), { startDate, endDate }, yearBalanceOf(u.id)))
+      softOff.add(`${u.id}|${d}`);
   }
 
   const mustOffKeys = new Set(

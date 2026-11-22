@@ -2,7 +2,7 @@
 // generator, admin reassign and trades, each passing its own policy (ADR 0001).
 // Terms follow GLOSSARY.md, "Eligibility".
 
-import { isCountingShiftType, shiftMaximum } from '../shared/settlement.js';
+import { isCountingShiftType, shiftMaximum, vacationYearOf, vacationYearsOf, yearBalance } from '../shared/settlement.js';
 import type { Assignment, Db, Schedule, ShiftType, Slot, User } from '../shared/types.js';
 
 export type LimitAction = 'block' | 'warn' | 'ignore';
@@ -26,10 +26,12 @@ export const GENERATOR_POLICY: EligibilityPolicy = {
   consecutiveNightLimit: 'block',
   shiftMaximum: 'block',
 };
+// An admin may do anything the generator could have done: an unaffordable
+// must-off day is open to them. An affordable one stays the person's own.
 export const ADMIN_REASSIGN_POLICY: EligibilityPolicy = {
   name: 'admin reassign',
   affordableMustOff: 'block',
-  unaffordableMustOff: 'block',
+  unaffordableMustOff: 'ignore',
   consecutiveNightLimit: 'block',
   shiftMaximum: 'block',
 };
@@ -237,23 +239,47 @@ export function indexedHeldShifts(userId: string, { list, byDate, counts }: Held
   };
 }
 
+// Unaffordable must-off days: in each vacation year the schedule spans, when
+// the person's must-off days in the schedule falling in that year outnumber
+// their year balance for it, all of that year's must-off days are
+// unaffordable. The generator and the live check below share this rule.
+export function unaffordableMustOffDays(
+  mustOffDates: string[], schedule: { startDate: string; endDate: string }, yearBalanceOf: (year: number) => number
+): Set<string> {
+  const out = new Set<string>();
+  for (const y of vacationYearsOf(schedule)) {
+    const inYear = mustOffDates.filter((d) => vacationYearOf(d) === y);
+    if (inYear.length > yearBalanceOf(y)) for (const d of inYear) out.add(d);
+  }
+  return out;
+}
+
+type FactsSchedule = Pick<Schedule, 'startDate' | 'endDate'> & Partial<Pick<Schedule, 'id' | 'vacationCharges'>>;
+
 // Day facts read straight from the db, for trades and reassign. Affordability
-// isn't worked out here yet: both of their policies block every must-off day,
-// so it doesn't change the answer.
-export function dbDayFacts(db: Pick<Db, 'timeOff' | 'awayTime'>, userId: string): DayFacts {
+// is recomputed live: year balances from every schedule as they stand now,
+// leaving out `schedule`'s own vacation charges (so settling a schedule
+// doesn't change which of its must-off days are protected).
+export function dbDayFacts(
+  db: Pick<Db, 'timeOff' | 'awayTime' | 'schedules'>, person: Pick<User, 'id' | 'vacationDays'>, schedule: FactsSchedule
+): DayFacts {
+  const mustOff = new Set(
+    db.timeOff.filter((t) => t.userId === person.id && t.type === 'vacation').map((t) => t.date)
+  );
+  const inSchedule = [...mustOff].filter((d) => schedule.startDate <= d && d <= schedule.endDate);
+  const isThis = (s: (typeof db.schedules)[number]) => s === schedule || (schedule.id !== undefined && s.id === schedule.id);
+  const others = { schedules: db.schedules.map((s) => (isThis(s) ? { ...s, vacationCharges: [] } : s)) };
+  const unaffordable = unaffordableMustOffDays(inSchedule, schedule, (y) => yearBalance(others, person, y).balance);
   return {
-    mustOff: (date) =>
-      db.timeOff.some((t) => t.userId === userId && t.date === date && t.type === 'vacation')
-        ? { affordable: true }
-        : null,
-    isAway: (date) => isAway(db, userId, date),
+    mustOff: (date) => (mustOff.has(date) ? { affordable: !unaffordable.has(date) } : null),
+    isAway: (date) => isAway(db, person.id, date),
   };
 }
 
 // May `person` take `slot` in `schedule`, judged as if the shifts in
 // `givingUp` were already handed over?
 export function scheduleEligibility(
-  db: Db, schedule: Pick<Schedule, 'assignments'>, slot: Slot, person: User,
+  db: Db, schedule: FactsSchedule & Pick<Schedule, 'assignments'>, slot: Slot, person: User,
   policy: EligibilityPolicy, givingUp: Assignment[] = []
 ): Eligibility {
   const shiftTypes: Record<string, ShiftType> = Object.fromEntries(db.shiftTypes.map((s) => [s.id, s]));
@@ -262,6 +288,6 @@ export function scheduleEligibility(
   return checkEligibility({
     person, date: slot.date, shiftType, shiftTypes, policy,
     held: scheduleHeldShifts(schedule.assignments, person.id, shiftTypes, givingUp),
-    facts: dbDayFacts(db, person.id),
+    facts: dbDayFacts(db, person, schedule),
   });
 }
