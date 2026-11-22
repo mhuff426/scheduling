@@ -7,12 +7,18 @@ import type { Act } from '../App';
 
 interface Props { db: AppState; currentUser: User; act: Act; }
 
+// `warnings`: what taking that option would ask the viewer to confirm (their
+// own must-off day); the server sends them, the client never works them out.
+type Warning = { kind: string; message: string };
+type SwapOption = Slot & { warnings?: Warning[] };
 type TradeOptions = {
-  respond: Record<string, Slot[]>;
-  // `warnings`: what claiming would ask the viewer to confirm (their own
-  // must-off day); the server sends them, the client never works them out.
-  claim: Record<string, { ok: boolean; reason: string | null; warnings?: { kind: string; message: string }[] }>;
+  respond: Record<string, SwapOption[]>;
+  claim: Record<string, { ok: boolean; reason: string | null; warnings?: Warning[] }>;
 };
+
+// An option's label, with its warnings appended so a picker shows them.
+const withWarnings = (label: string, warnings?: Warning[]) =>
+  warnings?.length ? `${label} — ⚠ ${warnings.map((w) => w.message).join(' ')}` : label;
 
 export default function Trades({ db, currentUser, act }: Props) {
   const schedules = [...db.schedules].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -289,7 +295,7 @@ export default function Trades({ db, currentUser, act }: Props) {
 }
 
 interface OfferPickerProps {
-  shifts: Slot[];
+  shifts: SwapOption[];
   slotLabel: (s: Slot) => string;
   slotKey: (s: Slot) => string;
   busy?: boolean;
@@ -304,7 +310,7 @@ function OfferPicker({ shifts, slotLabel, slotKey, busy, onOffer }: OfferPickerP
       <select value={key} onChange={(e) => setKey(e.target.value)}>
         <option value="">— offer one of your shifts —</option>
         {shifts.map((s) => (
-          <option key={slotKey(s)} value={slotKey(s)}>{slotLabel(s)}</option>
+          <option key={slotKey(s)} value={slotKey(s)}>{withWarnings(slotLabel(s), s.warnings)}</option>
         ))}
       </select>
       <button className="btn sm" disabled={!key || busy} onClick={() => key && onOffer(key)}>Offer</button>
@@ -331,7 +337,7 @@ function StartTrade({ db, act, me, schedule, futureShiftsOf, slotLabel, slotKey,
   const [targetShiftKey, setTargetShiftKey] = useState('');
   // Feasible direct-swap partners for the chosen offered shift, from the
   // server (only employees who can take it, with the shifts I can take back).
-  const [partners, setPartners] = useState<{ userId: string; shifts: Slot[] }[]>([]);
+  const [partners, setPartners] = useState<{ userId: string; shifts: SwapOption[] }[]>([]);
 
   const myShifts = futureShiftsOf(me.id);
   const userById = Object.fromEntries(db.users.map((u) => [u.id, u]));
@@ -429,7 +435,7 @@ function StartTrade({ db, act, me, schedule, futureShiftsOf, slotLabel, slotKey,
                 <select value={targetShiftKey} onChange={(e) => setTargetShiftKey(e.target.value)}>
                   <option value="">— for their shift… —</option>
                   {targetShifts.map((s) => (
-                    <option key={slotKey(s)} value={slotKey(s)}>{slotLabel(s)}</option>
+                    <option key={slotKey(s)} value={slotKey(s)}>{withWarnings(slotLabel(s), s.warnings)}</option>
                   ))}
                 </select>
               )}
