@@ -53,10 +53,15 @@ export const api = {
   reassign: (scheduleId: string, move: any) =>
     withConfirmedWarnings((confirmedWarnings) =>
       request('POST', `/api/schedules/${scheduleId}/reassign`, { ...move, confirmedWarnings })),
-  createTrade: (t: any) => request('POST', '/api/trades', t),
-  respondTrade: (id: string, body: any) => request('POST', `/api/trades/${id}/respond`, body),
+  createTrade: (t: any) =>
+    withConfirmedWarnings((confirmedWarnings) => request('POST', '/api/trades', { ...t, confirmedWarnings })),
+  respondTrade: (id: string, body: any) =>
+    withConfirmedWarnings((confirmedWarnings) =>
+      request('POST', `/api/trades/${id}/respond`, { ...body, confirmedWarnings })),
   withdrawResponse: (id: string, body: any) => request('POST', `/api/trades/${id}/withdraw`, body),
-  acceptTrade: (id: string, body: any) => request('POST', `/api/trades/${id}/accept`, body),
+  acceptTrade: (id: string, body: any) =>
+    withConfirmedWarnings((confirmedWarnings) =>
+      request('POST', `/api/trades/${id}/accept`, { ...body, confirmedWarnings })),
   rejectTrade: (id: string, body: any) => request('POST', `/api/trades/${id}/reject`, body),
   claimTrade: (id: string, body: any) =>
     withConfirmedWarnings((confirmedWarnings) =>
