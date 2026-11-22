@@ -27,7 +27,8 @@ import type {
   Assignment, Db, PreferenceStats, ScheduleDraft, ShiftType, Slot, TimeOff, User, VacationCharge,
 } from '../shared/types.js';
 import {
-  checkEligibility, GENERATOR_POLICY, indexedHeldShifts, isAway, isBeforeStart, isOvernight, unaffordableMustOffDays,
+  checkEligibility, dbDayFacts, GENERATOR_POLICY, indexedHeldShifts, isAway, isOvernight, isSchedulableDay,
+  unaffordableMustOffDays,
 } from './eligibility.js';
 import type { DayFacts, HeldShifts } from './eligibility.js';
 
@@ -158,6 +159,16 @@ export function buildSlots(shiftTypes: ShiftType[], startDate: string, endDate: 
     }
   }
   return slots;
+}
+
+// The slots a schedule over this range has: every due shift, except on
+// non-workable holidays (the org is closed: no shifts that day). Holidays
+// recur, so each rule resolves to concrete dates within the range.
+export function scheduleSlots(db: Pick<Db, 'shiftTypes' | 'holidays'>, startDate: string, endDate: string): Slot[] {
+  const closedHolidays = new Set(
+    holidayDatesInRange((db.holidays || []).filter((h) => !h.workable), startDate, endDate).map((o) => o.date)
+  );
+  return buildSlots(db.shiftTypes, startDate, endDate).filter((s) => !closedHolidays.has(s.date));
 }
 
 // Users the admin marked as schedulable for this block (older schedules
@@ -349,6 +360,7 @@ export function summarizeSchedule(db: Db, schedule: ScheduleDraft) {
       `Open shift: ${st ? st.name : slot.shiftTypeId} on ${slot.date} — no one available. Consider outside help or reassigning.`
     );
   }
+  const shiftDates = new Set(scheduleSlots(db, schedule.startDate, schedule.endDate).map((s) => s.date));
   for (const u of includedUsers(db, schedule)) {
     // A shift ceiling below someone's minimum lowers their minimum — the cap
     // is a hard rule, so don't warn about a floor they aren't allowed to reach.
@@ -367,19 +379,14 @@ export function summarizeSchedule(db: Db, schedule: ScheduleDraft) {
     // (not enough schedulable days at all to reach the requirement) versus
     // unresolved for other reasons (most notably, protected preferred-off
     // days the generator wouldn't override). This doesn't affect the charge
-    // itself — the charges are untouched — it only explains it. Uses raw
-    // must-off entries (summarizeSchedule has no softOff context to know
-    // which were downgraded this block), which is an approximation.
+    // itself — the charges are untouched — it only explains it. Schedulable
+    // days are counted the way the generator's look-ahead counts them, with
+    // affordability recomputed live (without this schedule's own charges).
     if (charge > 0) {
-      const offDates = new Set(
-        mustOffInRange(db, u.id, { startDate: schedule.startDate, endDate: schedule.endDate }).map((t) => t.date)
-      );
+      const facts = dbDayFacts(db, u, schedule);
       let schedulableDays = 0;
       for (const d of eachDate(schedule.startDate, schedule.endDate)) {
-        if (offDates.has(d)) continue;
-        if (isAway(db, u.id, d)) continue;
-        if (isBeforeStart(u, d)) continue;
-        schedulableDays++;
+        if (isSchedulableDay(u, d, facts, shiftDates.has(d))) schedulableDays++;
       }
       const unavoidable = clamp(required - schedulableDays, 0, charge);
       const unresolved = charge - unavoidable;
@@ -442,12 +449,7 @@ export function summarizeSchedule(db: Db, schedule: ScheduleDraft) {
 export function generateSchedule(db: Db, { startDate, endDate, userIds }: { startDate: string; endDate: string; userIds?: string[] }) {
   const employees = includedUsers(db, { userIds });
   const shiftById = Object.fromEntries(db.shiftTypes.map((s) => [s.id, s]));
-  // Non-workable holidays mean the org is closed: no shifts that day. Holidays
-  // recur, so resolve each rule to concrete dates within the run's range.
-  const closedHolidays = new Set(
-    holidayDatesInRange((db.holidays || []).filter((h) => !h.workable), startDate, endDate).map((o) => o.date)
-  );
-  const slots = buildSlots(db.shiftTypes, startDate, endDate).filter((s) => !closedHolidays.has(s.date));
+  const slots = scheduleSlots(db, startDate, endDate);
 
   // Slots are processed one day at a time; the order *within* each day is
   // decided per-day, by run urgency, just before that day is filled (see the
@@ -485,8 +487,6 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
   const mustOffKeys = new Set(
     db.timeOff.filter((t) => t.type === 'vacation').map((t) => `${t.userId}|${t.date}`)
   );
-  // Must-off days that still block (the affordable ones).
-  const vacation = new Set([...mustOffKeys].filter((key) => !softOff.has(key)));
 
   // Preference claims: outlier caps for this block plus standing earned from
   // past blocks (db.schedules holds only prior schedules at this point).
@@ -625,11 +625,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
       const arr = new Int32Array(blockDates.length + 1);
       for (let i = blockDates.length - 1; i >= 0; i--) {
         const d = blockDates[i];
-        const ok =
-          !vacation.has(`${u.id}|${d}`) &&
-          !isAway(db, u.id, d) &&
-          !isBeforeStart(u, d) &&
-          slotsByDate.has(d);
+        const ok = isSchedulableDay(u, d, factsView.get(u.id), slotsByDate.has(d));
         arr[i] = arr[i + 1] + (ok ? 1 : 0);
       }
       return [u.id, arr];
