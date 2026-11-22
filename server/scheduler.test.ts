@@ -607,6 +607,31 @@ assert.strictEqual(recoveryNeed(9), 2);
   assert.strictEqual(r.unfilled.length, 0, 'nothing goes open');
 }
 
+// ---- a downgraded must-off day the person ends up working is never charged
+{
+  const timeOff: TimeOff[] = [
+    { id: 'm1', userId: 'a', date: '2026-12-30', type: 'vacation' },
+    { id: 'm2', userId: 'a', date: '2026-12-31', type: 'vacation' },
+    { id: 'm3', userId: 'a', date: '2027-01-01', type: 'vacation' },
+    { id: 'mb', userId: 'b', date: '2026-12-30', type: 'vacation' }, // b is hard-off the 30th
+  ];
+  // 2 must-offs in 2026 against a 1-day 2026 balance -> all of a's go soft.
+  // a starts on the 30th, so at most 4 of their 5 required are workable and
+  // they're scheduled over every downgraded day: still 1 short, but no day
+  // they took off caused it, so nothing is charged (it warns instead).
+  const db = mkDb([
+    mkUser('a', 'A', { vacationDays: 1, requiredShifts: 5, startDate: '2026-12-30' }),
+    mkUser('b', 'B', { requiredShifts: 2 }),
+  ], [day], timeOff);
+  const r = generateSchedule(db, { startDate: '2026-12-29', endDate: '2027-01-02' });
+  const worked = new Set(r.assignments.filter((x) => x.userId === 'a').map((x) => x.date));
+  for (const d of ['2026-12-30', '2026-12-31', '2027-01-01'])
+    assert.ok(worked.has(d), `a is scheduled over the downgraded ${d}`);
+  const dates = (r.vacationCharges || []).filter((c) => c.userId === 'a').map((c) => c.date);
+  assert.deepStrictEqual(dates, [], `no charge on a day a worked: ${dates}`);
+  assert.ok(r.warnings.some((w) => w.startsWith('A has 4 of 5')), `the shortfall warns instead: ${JSON.stringify(r.warnings)}`);
+}
+
 // ===== per-employee required & max shifts (new feature) =====
 
 // ---- (1) per-user requiredShifts drives each person's floor independently

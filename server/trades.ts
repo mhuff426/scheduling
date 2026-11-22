@@ -449,9 +449,12 @@ export function setExtraElection(
   for (const [year, n] of Object.entries(vacationByYear || {})) {
     const days = Math.max(0, Math.floor(Number(n) || 0));
     if (!days) continue;
-    if (!years.includes(Number(year)))
+    const y = Number(year);
+    if (!Number.isInteger(y) || !years.includes(y))
       return { error: `This schedule doesn't cover vacation year ${year}.`, code: 400 };
-    byYear[year] = days;
+    // Keyed by the canonical year, so "02026" and "2026" are one year (and
+    // one schedule_election_vacation row), not two.
+    byYear[y] = (byYear[y] || 0) + days;
   }
   const inc = Math.max(0, Math.floor(Number(incentive) || 0));
   const next: ExtraElection = { vacationByYear: byYear, incentive: inc };
