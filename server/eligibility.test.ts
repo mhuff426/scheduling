@@ -2,7 +2,7 @@
 import assert from 'assert';
 import {
   checkEligibility, GENERATOR_POLICY, ADMIN_REASSIGN_POLICY, TRADE_POLICY,
-  scheduleHeldShifts, indexedHeldShifts, scheduleEligibility,
+  scheduleHeldShifts, indexedHeldShifts, scheduleEligibility, needsConfirmation,
 } from './eligibility.js';
 import type { DayFacts, EligibilityPolicy, HeldShifts } from './eligibility.js';
 import type { Assignment, Db, Schedule, ShiftType, User, VacationCharge } from '../shared/types.js';
@@ -102,21 +102,28 @@ for (const [name, policy] of POLICIES) {
   assert.strictEqual(check({ held: held2 }).eligible, true, 'a same-day swap is judged without the shift given up');
 }
 
-// ---- consecutive-night limit: blocks under every policy today ----
+// ---- consecutive-night limit: the generator and trades block, admin is warned ----
 {
   const person = mkUser({ maxConsecutiveNights: 2 });
   const twoNights = [A('b', '2099-01-08', 'night'), A('b', '2099-01-09', 'night')];
-  for (const [name, policy] of POLICIES) {
+  const pastLimit = 'Ben would exceed their 2-night limit on consecutive overnight shifts.';
+  for (const policy of [GENERATOR_POLICY, TRADE_POLICY]) {
     assert.deepStrictEqual(
       check({ policy, person, date: '2099-01-10', shiftType: night, assignments: twoNights }),
-      { eligible: false, reason: 'Ben would exceed their 2-night limit on consecutive overnight shifts.' }, name
+      { eligible: false, reason: pastLimit }, policy.name
     );
+  }
+  assert.deepStrictEqual(
+    check({ policy: ADMIN_REASSIGN_POLICY, person, date: '2099-01-10', shiftType: night, assignments: twoNights }),
+    { eligible: true, warnings: [{ kind: 'consecutive-night limit', message: pastLimit }] }, 'admin'
+  );
+  for (const [name, policy] of POLICIES) {
     assert.strictEqual(check({ policy, person, date: '2099-01-11', shiftType: night, assignments: twoNights }).eligible, true, `${name}: a gap day resets the run`);
     assert.strictEqual(check({ policy, date: '2099-01-10', shiftType: night, assignments: twoNights }).eligible, true, `${name}: no limit set`);
   }
 }
 
-// ---- shift maximum: the generator and admin block, trades ignore it ----
+// ---- shift maximum: the generator blocks, admin is warned, trades ignore it ----
 {
   const person = mkUser({ maxShiftsOverride: 2 });
   const standby: ShiftType = { ...day, id: 'standby', name: 'Standby', weight: 0 };
@@ -124,7 +131,10 @@ for (const [name, policy] of POLICIES) {
   const two = [A('b', '2099-01-05', 'day'), A('b', '2099-01-06', 'day'), A('b', '2099-01-07', 'standby')];
   const atMax = { eligible: false, reason: 'Ben is already at their maximum of 2 shifts for this schedule.' };
   assert.deepStrictEqual(check({ policy: GENERATOR_POLICY, person, assignments: two }), atMax, 'generator');
-  assert.deepStrictEqual(check({ policy: ADMIN_REASSIGN_POLICY, person, assignments: two }), atMax, 'admin');
+  assert.deepStrictEqual(
+    check({ policy: ADMIN_REASSIGN_POLICY, person, assignments: two }),
+    { eligible: true, warnings: [{ kind: 'shift maximum', message: atMax.reason }] }, 'admin'
+  );
   assert.deepStrictEqual(check({ policy: TRADE_POLICY, person, assignments: two }), { eligible: true, warnings: [] }, 'trade');
   for (const [name, policy] of POLICIES) {
     assert.strictEqual(check({ policy, person, assignments: two, shiftType: standby }).eligible, true, `${name}: standby never counts`);
@@ -153,13 +163,13 @@ for (const [name, policy] of POLICIES) {
     () => { everything.assignments = [A('b', '2099-01-09', 'night')]; },
     () => { everything.person.maxConsecutiveNights = null; },
   ];
-  for (const step of [() => {}, ...peel]) {
+  for (const [i, step] of [() => {}, ...peel].entries()) {
     step();
-    for (const [, policy] of POLICIES.slice(0, 2)) {
-      const r = check({ ...everything, policy });
-      if (policy === GENERATOR_POLICY) reasons.push(r.eligible ? 'eligible' : r.reason);
-      else assert.deepStrictEqual(r, check({ ...everything, policy: GENERATOR_POLICY }), 'admin and generator agree here');
-    }
+    const r = check({ ...everything, policy: GENERATOR_POLICY });
+    reasons.push(r.eligible ? 'eligible' : r.reason);
+    // Admin reassign blocks on the same hard rules and must-off day; it only
+    // warns on the last two (nights, maximum).
+    if (i < 6) assert.deepStrictEqual(check({ ...everything, policy: ADMIN_REASSIGN_POLICY }), r, 'admin and generator agree on hard rules');
   }
   assert.deepStrictEqual(reasons, [
     "Ben doesn't have a role allowed for that shift.",
@@ -190,6 +200,35 @@ for (const [name, policy] of POLICIES) {
       { kind: 'shift maximum', message: 'Ben is already at their maximum of 1 shifts for this schedule.' },
     ],
   });
+}
+
+// ---- admin reassign past both limits gets both warnings in one answer ----
+{
+  const r = check({
+    policy: ADMIN_REASSIGN_POLICY, person: mkUser({ maxConsecutiveNights: 1, maxShiftsOverride: 1 }),
+    shiftType: night, assignments: [A('b', '2099-01-09', 'night')],
+  });
+  assert.deepStrictEqual(r, {
+    eligible: true,
+    warnings: [
+      { kind: 'consecutive-night limit', message: 'Ben would exceed their 1-night limit on consecutive overnight shifts.' },
+      { kind: 'shift maximum', message: 'Ben is already at their maximum of 1 shifts for this schedule.' },
+    ],
+  });
+}
+
+// ---- confirmation contract: a request needs confirming unless it confirmed
+// every warning kind it now triggers ----
+{
+  const max = { kind: 'shift maximum' as const, message: 'm' };
+  const nights = { kind: 'consecutive-night limit' as const, message: 'n' };
+  assert.strictEqual(needsConfirmation([], undefined), false, 'no warnings, no step');
+  assert.strictEqual(needsConfirmation([max], undefined), true, 'not confirmed');
+  assert.strictEqual(needsConfirmation([max], []), true, 'confirmed nothing');
+  assert.strictEqual(needsConfirmation([max], ['shift maximum']), false, 'confirmed');
+  assert.strictEqual(needsConfirmation([max, nights], ['shift maximum']), true, 'a new warning appeared');
+  assert.strictEqual(needsConfirmation([max], ['shift maximum', 'consecutive-night limit']), false, 'a confirmed warning went away');
+  assert.strictEqual(needsConfirmation([max], 'shift maximum'), true, 'only a list confirms');
 }
 
 // ---- both held-shifts adapters give the same answers on the same assignments ----
