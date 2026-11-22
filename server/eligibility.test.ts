@@ -43,19 +43,33 @@ for (const [name, policy] of POLICIES) {
   assert.deepStrictEqual(check({ policy, shiftType: mgr, person: mkUser({ roles: ['role-mgr'] }) }), { eligible: true, warnings: [] }, name);
 }
 
-// ---- must-off days: every caller blocks an affordable one; the generator and
-// admin reassign may schedule over an unaffordable one, with no warning ----
+// ---- must-off days: the generator and admin reassign block an affordable one
+// and may schedule over an unaffordable one, with no warning; trades warn the
+// person taking the shift about either, naming the day ----
 const mustOffOn = (affordable: boolean): DayFacts => ({
   mustOff: (d) => (d === '2099-01-10' ? { affordable } : null), isAway: () => false,
 });
 const onVacation = { eligible: false, reason: 'Ben is on vacation that day.' };
+for (const policy of [GENERATOR_POLICY, ADMIN_REASSIGN_POLICY]) {
+  assert.deepStrictEqual(check({ policy, facts: mustOffOn(true) }), onVacation, `${policy.name}: affordable must-off blocks`);
+}
 for (const [name, policy] of POLICIES) {
-  assert.deepStrictEqual(check({ policy, facts: mustOffOn(true) }), onVacation, `${name}: affordable must-off blocks`);
-  assert.deepStrictEqual(check({ policy, facts: mustOffOn(true), date: '2099-01-11' }).eligible, true, `${name}: other days are fine`);
+  assert.deepStrictEqual(check({ policy, facts: mustOffOn(true), date: '2099-01-11' }), { eligible: true, warnings: [] }, `${name}: other days are fine`);
 }
 assert.deepStrictEqual(check({ policy: GENERATOR_POLICY, facts: mustOffOn(false) }), { eligible: true, warnings: [] }, 'generator: unaffordable must-off allowed');
 assert.deepStrictEqual(check({ policy: ADMIN_REASSIGN_POLICY, facts: mustOffOn(false) }), { eligible: true, warnings: [] }, 'admin: unaffordable must-off allowed');
-assert.deepStrictEqual(check({ policy: TRADE_POLICY, facts: mustOffOn(false) }), onVacation, 'trade: unaffordable must-off blocks (today)');
+for (const affordable of [true, false]) {
+  assert.deepStrictEqual(
+    check({ policy: TRADE_POLICY, facts: mustOffOn(affordable) }),
+    { eligible: true, warnings: [{ kind: 'must-off day', message: "2099-01-10 is one of Ben's must-off days." }] },
+    `trade: ${affordable ? 'affordable' : 'unaffordable'} must-off warns`
+  );
+}
+// A must-off warning doesn't hide a hard rule that also breaks.
+assert.deepStrictEqual(
+  check({ policy: TRADE_POLICY, facts: { ...mustOffOn(true), isAway: () => true } }),
+  { eligible: false, reason: 'Ben is on away time that day.' }, 'trade: hard rule still blocks on a must-off day'
+);
 
 // ---- started: the start date itself is workable, the day before isn't ----
 for (const [name, policy] of POLICIES) {
@@ -102,17 +116,19 @@ for (const [name, policy] of POLICIES) {
   assert.strictEqual(check({ held: held2 }).eligible, true, 'a same-day swap is judged without the shift given up');
 }
 
-// ---- consecutive-night limit: the generator and trades block, admin is warned ----
+// ---- consecutive-night limit: the generator blocks, admin is warned, trades ignore it ----
 {
   const person = mkUser({ maxConsecutiveNights: 2 });
   const twoNights = [A('b', '2099-01-08', 'night'), A('b', '2099-01-09', 'night')];
   const pastLimit = 'Ben would exceed their 2-night limit on consecutive overnight shifts.';
-  for (const policy of [GENERATOR_POLICY, TRADE_POLICY]) {
-    assert.deepStrictEqual(
-      check({ policy, person, date: '2099-01-10', shiftType: night, assignments: twoNights }),
-      { eligible: false, reason: pastLimit }, policy.name
-    );
-  }
+  assert.deepStrictEqual(
+    check({ policy: GENERATOR_POLICY, person, date: '2099-01-10', shiftType: night, assignments: twoNights }),
+    { eligible: false, reason: pastLimit }, 'generator'
+  );
+  assert.deepStrictEqual(
+    check({ policy: TRADE_POLICY, person, date: '2099-01-10', shiftType: night, assignments: twoNights }),
+    { eligible: true, warnings: [] }, 'trade'
+  );
   assert.deepStrictEqual(
     check({ policy: ADMIN_REASSIGN_POLICY, person, date: '2099-01-10', shiftType: night, assignments: twoNights }),
     { eligible: true, warnings: [{ kind: 'consecutive-night limit', message: pastLimit }] }, 'admin'
@@ -195,7 +211,7 @@ for (const [name, policy] of POLICIES) {
   assert.deepStrictEqual(r, {
     eligible: true,
     warnings: [
-      { kind: 'must-off day', message: 'Ben is on vacation that day.' },
+      { kind: 'must-off day', message: "2099-01-10 is one of Ben's must-off days." },
       { kind: 'consecutive-night limit', message: 'Ben would exceed their 1-night limit on consecutive overnight shifts.' },
       { kind: 'shift maximum', message: 'Ben is already at their maximum of 1 shifts for this schedule.' },
     ],

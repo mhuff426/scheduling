@@ -885,8 +885,12 @@ app.delete('/api/schedules/:id', handle(async (req, res) => {
 // Trade functions mutate the db and return { trade } or { error, code }.
 // withMutation persists whatever changed even when the outcome is an error —
 // some failures (like expiring a stale trade) legitimately change state.
+// A failure with `warnings` is the confirmation contract's refusal (same body
+// as requireConfirmed).
 const sendTradeResult = (res: Response, r: any) =>
-  r.error
+  r.warnings
+    ? res.status(409).json({ error: r.error, code: CONFIRM_WARNINGS_CODE, warnings: r.warnings })
+    : r.error
     ? res.status(r.code || 400).json({ error: r.error, ...(r.code === 409 ? { code: 'conflict' } : {}) })
     : res.json(r.trade);
 
