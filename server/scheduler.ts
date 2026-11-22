@@ -19,8 +19,11 @@
 // All dates are wall-clock dates at the scheduled location; the server is
 // assumed to run in (or be configured for) that location's timezone.
 
-import { vacationAvailable } from './db.js';
 import { holidayDatesInRange } from '../shared/holidays.js';
+import {
+  shiftWeight, isCountingShiftType, shiftMaximum, requiredShifts, shortfall, vacationChargedIn,
+  vacationYearOf, yearBalance, vacationCharge,
+} from '../shared/settlement.js';
 import type {
   Assignment, Db, PreferenceStats, ScheduleDraft, ShiftType, Slot, TimeOff, User,
 } from '../shared/types.js';
@@ -89,22 +92,6 @@ function dayOfWeek(date: string) {
 // ending exactly at midnight (e.g. 16:00–00:00) is late, but not overnight.
 export function isOvernight(st: ShiftType) {
   return st.endTime <= st.startTime && st.endTime !== '00:00';
-}
-
-// Fairness weight of a shift type. An explicit per-type weight (0 allowed)
-// wins; otherwise the weight is 1 — to make a shift (overnight or not) count
-// for more, set its weight in the shift type. Weight 0 = standby/backup duty:
-// the shift is still assigned, blocks the day, and obeys rest rules, but adds
-// nothing to load and does not count toward minimums or maximums.
-export function weightOf(st: ShiftType) {
-  // null/undefined/'' mean "automatic" (resolves to 1) — only an explicit
-  // number (0 allowed) overrides. Number(null) is 0, so check raw first.
-  const raw: unknown = st?.weight;
-  if (raw !== null && raw !== undefined && raw !== '') {
-    const w = Number(raw);
-    if (Number.isFinite(w) && w >= 0) return w;
-  }
-  return 1;
 }
 
 // Concrete start/end of one occurrence, in epoch minutes (local clock).
@@ -404,35 +391,8 @@ export function effectiveMinimums(db: Db, { startDate, endDate }: { startDate: s
 // exclude someone from the block for that.)
 export function effectiveMaximums(db: Db): Map<string, number> {
   const maxs = new Map<string, number>();
-  for (const u of db.users) {
-    const o = Number(u.maxShiftsOverride);
-    maxs.set(u.id, Number.isFinite(o) && o > 0 ? o : Infinity);
-  }
+  for (const u of db.users) maxs.set(u.id, shiftMaximum(u));
   return maxs;
-}
-
-// What a schedule requires of one person: their per-user requiredShifts,
-// capped by their effective maximum. Never reduced by must-off days —
-// vacation charges cover that gap instead.
-export function requiredFor(db: Db, schedule: unknown, userId: string): number {
-  const user = db.users.find((u) => u.id === userId);
-  if (!user) return 0;
-  return Math.min(Number(user.requiredShifts) || 0, effectiveMaximums(db).get(userId) ?? Infinity);
-}
-
-// Counting shifts a user holds in a schedule (weight-0 standby excluded).
-export function countingShifts(db: Db, schedule: ScheduleDraft, userId: string): number {
-  const stById = Object.fromEntries(db.shiftTypes.map((s) => [s.id, s]));
-  return schedule.assignments.filter(
-    (a) => a.userId === userId && stById[a.shiftTypeId] && weightOf(stById[a.shiftTypeId]) > 0
-  ).length;
-}
-
-// Days worked (or charged) beyond what the schedule required — the currency
-// an employee can elect into extra vacation or incentive pay.
-export function extraDays(db: Db, schedule: ScheduleDraft, userId: string): number {
-  const charge = schedule.vacationCharged?.[userId] || 0;
-  return Math.max(0, countingShifts(db, schedule, userId) + charge - requiredFor(db, schedule, userId));
 }
 
 // Recomputes counts and warnings from a schedule's current assignments. Used
@@ -445,7 +405,7 @@ export function summarizeSchedule(db: Db, schedule: ScheduleDraft) {
   const counts: Record<string, number> = Object.fromEntries(db.users.map((u) => [u.id, 0]));
   for (const a of schedule.assignments) {
     const st = stById[a.shiftTypeId];
-    if (a.userId in counts && st && weightOf(st) > 0) counts[a.userId]++;
+    if (a.userId in counts && isCountingShiftType(st)) counts[a.userId]++;
   }
 
   const warnings: string[] = [];
@@ -455,16 +415,14 @@ export function summarizeSchedule(db: Db, schedule: ScheduleDraft) {
       `Open shift: ${st ? st.name : slot.shiftTypeId} on ${slot.date} — no one available. Consider outside help or reassigning.`
     );
   }
-  const effMax = effectiveMaximums(db) as unknown as Get<number>;
-  const charged = schedule.vacationCharged || {};
   for (const u of includedUsers(db, schedule)) {
     // A shift ceiling below someone's minimum lowers their minimum — the cap
     // is a hard rule, so don't warn about a floor they aren't allowed to reach.
     // Vacation days charged for this schedule cover shortfall; warn only on
     // the uncovered remainder.
-    const required = Math.min(Number(u.requiredShifts) || 0, effMax.get(u.id));
-    const charge = charged[u.id] || 0;
-    const residual = required - (counts[u.id] || 0) - charge;
+    const required = requiredShifts(u);
+    const charge = vacationChargedIn(schedule, u.id);
+    const residual = shortfall(db, schedule, u) - charge;
     if (residual > 0) {
       const covered = charge > 0 ? `, ${charge} covered by vacation day${charge === 1 ? '' : 's'}` : '';
       warnings.push(
@@ -572,14 +530,16 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
   // than they have vacation days left gets ALL their must-offs downgraded to
   // soft "strongly prefer off" claims — honored when possible, schedulable
   // over when coverage requires it.
+  // Holiday fairness counts per calendar year; vacation per vacation year.
   const blockYear = Number(startDate.slice(0, 4));
+  const vacationYear = vacationYearOf({ startDate });
+  const yearBalanceOf = (u: User) => Math.max(0, yearBalance(db, u, vacationYear).balance);
   const range = { startDate, endDate, userIds };
   const softOff = new Set(
     employees
       .filter(
         (u) =>
-          mustOffInRange(db, u.id, range).length >
-          Math.max(0, vacationAvailable(db, u, blockYear))
+          mustOffInRange(db, u.id, range).length > yearBalanceOf(u)
       )
       .map((u) => u.id)
   );
@@ -652,7 +612,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
   const available = (u: User, date: string, st: ShiftType) =>
     // The shift maximum only gates counting shifts; weight-0 standby duty is
     // always assignable capacity-wise.
-    (weightOf(st) === 0 || counts.get(u.id) < effMax.get(u.id)) &&
+    (shiftWeight(st) === 0 || counts.get(u.id) < effMax.get(u.id)) &&
     !vacation.has(`${u.id}|${date}`) &&
     !isBeforeStart(u, date) &&
     !isAway(db, u.id, date) &&
@@ -664,7 +624,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
   const give = (a: Assignment, u: User) => {
     a.userId = u.id;
     const st = shiftById[a.shiftTypeId];
-    const w = weightOf(st);
+    const w = shiftWeight(st);
     if (w > 0) counts.set(u.id, counts.get(u.id) + 1); // weight 0 doesn't count
     loads.set(u.id, loads.get(u.id) + w);
     if (isOvernight(st)) overnights.set(u.id, overnights.get(u.id) + 1);
@@ -679,7 +639,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
   const take = (a: Assignment) => {
     const u = a.userId;
     const st = shiftById[a.shiftTypeId];
-    const w = weightOf(st);
+    const w = shiftWeight(st);
     if (w > 0) counts.set(u, counts.get(u) - 1);
     loads.set(u, loads.get(u) - w);
     if (isOvernight(st)) overnights.set(u, overnights.get(u) - 1);
@@ -694,21 +654,23 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
   // --- Charge-risk model -----------------------------------------------
   // Predicts vacation charges as generation proceeds, so the greedy fill and
   // repair pass can steer toward AVOIDABLE-charge-free outcomes without
-  // touching the settlement formula itself (below) — predictedCharge mirrors
-  // it exactly so "predicted" and "actual" never disagree.
+  // touching the settlement itself (below) — predictedCharge and the final
+  // settle step both call settlement's vacationCharge, so "predicted" and
+  // "actual" never disagree.
   const employeeById = gmap<User>(employees.map((u) => [u.id, u]));
   const heavy = heavyAskers(db, range);
   const mustOffCount = gmap<number>(employees.map((u) => [u.id, mustOffInRange(db, u.id, range).length]));
-  const vacAvail = gmap<number>(employees.map((u) => [u.id, Math.max(0, vacationAvailable(db, u, blockYear))]));
-  const fullRequired = gmap<number>(employees.map((u) => [u.id, Math.min(Number(u.requiredShifts) || 0, effMax.get(u.id))]));
+  const vacAvail = gmap<number>(employees.map((u) => [u.id, yearBalanceOf(u)]));
+  const fullRequired = gmap<number>(employees.map((u) => [u.id, requiredShifts(u)]));
 
   // Live: reads current `counts`, so it tracks the schedule as it fills in.
   const predictedCharge = (uid: string) =>
-    Math.min(
-      Math.max(0, fullRequired.get(uid) - counts.get(uid)),
-      mustOffCount.get(uid),
-      vacAvail.get(uid)
-    );
+    vacationCharge({
+      required: fullRequired.get(uid),
+      counting: counts.get(uid),
+      mustOffDays: mustOffCount.get(uid),
+      yearBalance: vacAvail.get(uid),
+    });
   const atRiskNow = (uid: string) =>
     mustOffCount.get(uid) > 0 && vacAvail.get(uid) > 0 && counts.get(uid) < fullRequired.get(uid);
 
@@ -812,7 +774,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
     // Weight-0 (standby) slots invert the need-based tiers: people who still
     // need counting shifts are *reserved* (standby would burn their day), and
     // standby duty rotates by who has done it least.
-    const slotCounts = weightOf(st) > 0;
+    const slotCounts = shiftWeight(st) > 0;
     const needDir = slotCounts ? 1 : -1;
     const { min: minRun, max: maxRun } = runBounds(st);
     // Per-candidate run signals. `sticky` = mid-run below the target (continue
@@ -958,7 +920,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
         (a) =>
           a.userId !== u.id &&
           // Moving a weight-0 (standby) shift can't raise anyone's count.
-          weightOf(shiftById[a.shiftTypeId]) > 0 &&
+          shiftWeight(shiftById[a.shiftTypeId]) > 0 &&
           counts.get(a.userId) > effMin.get(a.userId) &&
           available(u, a.date, shiftById[a.shiftTypeId])
       )
@@ -1029,7 +991,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
       .filter(
         (a) =>
           a.userId !== p.id &&
-          weightOf(shiftById[a.shiftTypeId]) > 0 &&
+          shiftWeight(shiftById[a.shiftTypeId]) > 0 &&
           !visited.has(`${a.date}|${a.shiftTypeId}`) &&
           !isProtected(a.userId, a.date)
       )
@@ -1155,14 +1117,12 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
   // by what the person has left this year (never negative).
   const vacationCharged: Record<string, number> = {};
   for (const u of employees) {
-    const required = Math.min(Number(u.requiredShifts) || 0, effMax.get(u.id));
-    const shortfall = Math.max(0, required - counts.get(u.id));
-    if (!shortfall) continue;
-    const charge = Math.min(
-      shortfall,
-      mustOffInRange(db, u.id, range).length,
-      Math.max(0, vacationAvailable(db, u, blockYear))
-    );
+    const charge = vacationCharge({
+      required: requiredShifts(u),
+      counting: counts.get(u.id),
+      mustOffDays: mustOffInRange(db, u.id, range).length,
+      yearBalance: yearBalanceOf(u),
+    });
     if (charge > 0) vacationCharged[u.id] = charge;
   }
 

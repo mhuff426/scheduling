@@ -212,30 +212,6 @@ export function newId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}${Math.random().toString(36).slice(2, 7)}`;
 }
 
-// Vacation accounting is settled from schedule outcomes, not at request time:
-// each schedule carries a vacationCharged ledger (must-off days that kept the
-// person under their required shifts, plus giveaway charges). A schedule's
-// charges and elections belong to the calendar year of its start date.
-export function vacationUsed(db: Db, userId: string, year: number): number {
-  let used = 0;
-  for (const s of db.schedules || []) {
-    if (!s.startDate?.startsWith(String(year))) continue;
-    used += s.vacationCharged?.[userId] || 0;
-  }
-  return used;
-}
-
-// Allowance for the year: the base grant, plus extra days the user elected to
-// convert into vacation, minus what schedules have charged.
-export function vacationAvailable(db: Db, user: User, year: number): number {
-  let earned = 0;
-  for (const s of db.schedules || []) {
-    if (!s.startDate?.startsWith(String(year))) continue;
-    earned += s.extraElections?.[user.id]?.vacation || 0;
-  }
-  return user.vacationDays + earned - vacationUsed(db, user.id, year);
-}
-
 export function vacationCountForDate(db: Db, date: string): number {
   return db.timeOff.filter((t) => t.date === date && t.type === 'vacation').length;
 }

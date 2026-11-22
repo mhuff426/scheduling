@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { prettyDate, formatTime, todayYmd } from '../dates';
-import { settlementFor, vacationSummary, shiftWeight } from '../shiftMath';
+import { giveaway, vacationYearOf, yearBalance } from '../../../shared/settlement.js';
 import type { AppState, Assignment, Schedule, Slot, User } from '../../../shared/types.js';
 import type { Act } from '../App';
 
@@ -344,18 +344,14 @@ function StartTrade({ db, act, me, schedule, futureShiftsOf, slotLabel, slotKey,
   const targetShifts = partners.find((p) => p.userId === targetUserId)?.shifts || [];
 
   // A giveaway only costs a vacation day when losing the shift would drop you
-  // below your required shifts for this block (mirrors the server's check).
-  const year = Number(schedule.startDate.slice(0, 4));
-  const { available } = vacationSummary(db, me, year);
-  const settle = settlementFor(db, schedule, me);
-  const stById = Object.fromEntries(db.shiftTypes.map((s) => [s.id, s]));
+  // below your required shifts for this block — the same settlement
+  // calculation the server runs when you post and when it's claimed.
+  const year = vacationYearOf(schedule);
+  const available = yearBalance(db, me, year).balance;
   const offeredSlot = shiftKey ? slotFromKey(shiftKey) : null;
-  const losesCount =
-    offeredSlot && stById[offeredSlot.shiftTypeId] &&
-    shiftWeight(stById[offeredSlot.shiftTypeId]) > 0 ? 1 : 0;
-  const needsDay = offeredSlot
-    ? settle.count - losesCount + settle.charged < settle.required
-    : false;
+  const cost = offeredSlot ? giveaway(db, schedule, me, offeredSlot) : null;
+  const needsDay = !!cost?.needsDay;
+  const cannotPost = !!cost && !cost.canPost;
 
   const submit = async () => {
     if (!shiftKey || busy) return;
@@ -437,7 +433,7 @@ function StartTrade({ db, act, me, schedule, futureShiftsOf, slotLabel, slotKey,
               {offeredSlot && needsDay && (
                 <>⚠️ Giving up this shift would put you below your required shifts — it will use{' '}
                   <strong>1 vacation day</strong> when claimed ({available} left for {year}).
-                  {available <= 0 && <strong> You have none left — you must switch instead.</strong>}
+                  {cannotPost && <strong> You have none left — you must switch instead.</strong>}
                 </>
               )}
               {offeredSlot && !needsDay && (
@@ -448,7 +444,7 @@ function StartTrade({ db, act, me, schedule, futureShiftsOf, slotLabel, slotKey,
           )}
           <button
             className="btn primary"
-            disabled={busy || !shiftKey || (mode === 'direct' && (!targetUserId || !targetShiftKey)) || (mode === 'giveaway' && needsDay && available <= 0)}
+            disabled={busy || !shiftKey || (mode === 'direct' && (!targetUserId || !targetShiftKey)) || (mode === 'giveaway' && cannotPost)}
             onClick={submit}
           >
             {mode === 'open' ? 'Post open swap' : mode === 'direct' ? 'Send proposal' : 'Give up shift'}

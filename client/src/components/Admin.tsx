@@ -4,7 +4,7 @@ import { DOW, MONTHS, formatTime, todayYmd, prettyDate } from '../dates';
 import { UNITS, upcomingBlocks, isValidCadence } from '../../../shared/blocks.js';
 import RoleMultiSelect from './RoleMultiSelect';
 import { safeBg } from '../contrast';
-import { vacationSummary } from '../shiftMath';
+import { yearBalance } from '../../../shared/settlement.js';
 import { versionOf, settingsVersion } from '../versions';
 import type { AppState, ShiftType, User, HolidayRecurrence } from '../../../shared/types.js';
 import type { Act } from '../App';
@@ -225,7 +225,7 @@ function Roster({ db, act }: Props) {
   // outcome charges them, so this derives from schedules' vacationCharged
   // ledgers (same source as the Preferences stats and the server), and
   // automatically recalculates when schedules change or are deleted.
-  const usedFor = (u: User) => vacationSummary(db, u, yearNow).used;
+  const usedFor = (u: User) => yearBalance(db, u, yearNow).used;
 
   return (
     <section className="card">

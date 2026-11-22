@@ -3,12 +3,12 @@ import assert from 'assert';
 import {
   generateSchedule, buildSlots, isOvernight, restOk,
   computeCaps, preferenceStandings, DEMOTED_CLAIM,
-  isGrouped, runBounds, nightCapOk, effectiveMaximums, weightOf,
-  recoveryNeed, effectiveMinimums, requiredFor,
+  isGrouped, runBounds, nightCapOk, effectiveMaximums,
+  recoveryNeed, effectiveMinimums,
   isAway, isBeforeStart, hasRequiredRole,
   heavyAskers, HEAVY_ASKER_STDDEV, summarizeSchedule,
 } from './scheduler.js';
-import { vacationAvailable } from './db.js';
+import { yearBalance } from '../shared/settlement.js';
 import type { Assignment, Db, ScheduleDraft, ShiftType, TimeOff, User } from '../shared/types.js';
 
 const mkUser = (id: string, name: string, extra: Record<string, any> = {}): User => ({
@@ -405,19 +405,6 @@ assert.deepStrictEqual(runBounds({ minRun: 5, maxRun: null }), { min: 5, max: In
 
 // ===== per-shift-type weights =====
 
-// ---- weight resolution: explicit (incl. 0) wins; otherwise 1 (no overnight default)
-{
-  assert.strictEqual(weightOf({ ...night, weight: 2 }), 2, 'explicit weight wins');
-  assert.strictEqual(weightOf({ ...day, weight: 0 }), 0, 'explicit 0 allowed');
-  assert.strictEqual(weightOf(night), 1, 'overnight has no special default — plain 1');
-  assert.strictEqual(weightOf(day), 1, 'plain shift defaults to 1');
-  // Regression: a stored weight of null (the edit form's "automatic") must NOT
-  // be read as 0 — Number(null) is 0.
-  assert.strictEqual(weightOf({ ...day, weight: null }), 1, 'null weight = automatic, not standby');
-  assert.strictEqual(weightOf({ ...night, weight: null }), 1, 'null weight on overnight is automatic (1)');
-  assert.strictEqual(weightOf({ ...day, weight: '' as any }), 1, 'empty-string weight = automatic');
-}
-
 // ---- weight-0 shifts don't count toward minimums (but are still assigned)
 {
   const standby: ShiftType = { id: 'sb', name: 'Standby', startTime: '08:00', endTime: '16:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1, weight: 0 };
@@ -723,20 +710,6 @@ assert.strictEqual(recoveryNeed(9), 2);
   assert.strictEqual(minsSoft.get('a'), 3, 'a soft-off user does not subtract must-off days');
 }
 
-// ---- (7) requiredFor computes from the user, not the schedule; 0 if unknown
-{
-  const db = mkDb(
-    [mkUser('a', 'A', { requiredShifts: 3 }),
-     mkUser('b', 'B', { requiredShifts: 9, maxShiftsOverride: 4 })],
-    [day]
-  );
-  // Pass a deliberately empty/irrelevant schedule to prove it is ignored.
-  const schedule = { assignments: [], unfilled: [], userIds: ['a', 'b'] };
-  assert.strictEqual(requiredFor(db, schedule, 'a'), 3, 'plain required read from the user');
-  assert.strictEqual(requiredFor(db, schedule, 'b'), 4, 'required clamped to the per-user max');
-  assert.strictEqual(requiredFor(db, schedule, 'nobody'), 0, 'unknown user id returns 0');
-}
-
 // ---- (8) regression: desiredShifts is no longer consulted
 {
   // The removed soft target must not raise a floor or produce a warning. A has
@@ -750,8 +723,6 @@ assert.strictEqual(recoveryNeed(9), 2);
     !r.warnings.some((w) => w.startsWith('A has') || w.includes('requested')),
     `desiredShifts must not create any floor/target warning: ${JSON.stringify(r.warnings)}`
   );
-  // A has no guaranteed shifts: floor 0 means A may end up with as few as 0.
-  assert.strictEqual(requiredFor(db, { assignments: [] }, 'a'), 0, 'desiredShifts does not raise the required floor');
 }
 
 // ===== start date & away time (new feature) =====
@@ -804,7 +775,7 @@ assert.strictEqual(recoveryNeed(9), 2);
   }
   assert.strictEqual(r.vacationCharged['a'], undefined, 'away time must NOT charge any vacation');
   assert.strictEqual(
-    vacationAvailable(db, db.users[0], 2026), 10,
+    yearBalance(db, db.users[0], 2026).balance, 10,
     'away time must NOT reduce vacation available (stays at the base vacationDays)'
   );
   assert.strictEqual(r.unfilled.length, 0, 'away days are covered by the available teammate');
