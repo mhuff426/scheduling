@@ -346,10 +346,11 @@ function StartTrade({ db, act, me, schedule, futureShiftsOf, slotLabel, slotKey,
   // A giveaway only costs a vacation day when losing the shift would drop you
   // below your required shifts for this block — the same settlement
   // calculation the server runs when you post and when it's claimed.
-  const year = vacationYearOf(schedule);
-  const available = yearBalance(db, me, year).balance;
+  // The day would be charged to the vacation year of the shift given away.
   const offeredSlot = shiftKey ? slotFromKey(shiftKey) : null;
   const cost = offeredSlot ? giveaway(db, schedule, me, offeredSlot) : null;
+  const year = cost ? cost.chargeYear : vacationYearOf(schedule.startDate);
+  const available = yearBalance(db, me, year).balance;
   const needsDay = !!cost?.needsDay;
   const cannotPost = !!cost && !cost.canPost;
 

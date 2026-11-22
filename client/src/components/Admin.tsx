@@ -222,8 +222,8 @@ function Roster({ db, act }: Props) {
 
   const yearNow = new Date().getFullYear();
   // Settled charges only — must-off REQUESTS are free until a schedule
-  // outcome charges them, so this derives from schedules' vacationCharged
-  // ledgers (same source as the Preferences stats and the server), and
+  // outcome charges them, so this derives from schedules' dated vacation
+  // charges (same source as the Preferences stats and the server), and
   // automatically recalculates when schedules change or are deleted.
   const usedFor = (u: User) => yearBalance(db, u, yearNow).used;
 
