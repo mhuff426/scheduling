@@ -373,14 +373,13 @@ export function mustOffInRange(db: Db, userId: string, { startDate, endDate }: {
 
 // Per-user minimum for this block, for scheduler-internal pressure: the
 // per-user required shifts reduced by hard must-off days inside the range.
-// Users in `softOff` had their must-offs downgraded to soft claims, so theirs
-// don't reduce anything — they might still work those days.
+// Must-off days in `softOff` (keyed `userId|date`) were downgraded to soft
+// claims, so they don't reduce anything — the person might still work them.
 export function effectiveMinimums(db: Db, { startDate, endDate }: { startDate: string; endDate: string }, softOff: Set<string> = new Set()): Map<string, number> {
   const mins = new Map<string, number>();
   for (const u of db.users) {
-    const offDays = softOff.has(u.id)
-      ? 0
-      : mustOffInRange(db, u.id, { startDate, endDate }).length;
+    const offDays = mustOffInRange(db, u.id, { startDate, endDate })
+      .filter((t) => !softOff.has(`${u.id}|${t.date}`)).length;
     mins.set(u.id, Math.max(0, (Number(u.requiredShifts) || 0) - offDays));
   }
   return mins;
@@ -526,11 +525,11 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
   }
   const typeIndex: Record<string, number> = Object.fromEntries(db.shiftTypes.map((s, i) => [s.id, i]));
 
-  // Affordability check, per vacation year: someone whose must-off days in
-  // this block falling in one vacation year outnumber that year's balance
-  // gets ALL their must-offs in the block downgraded to soft "strongly prefer
+  // Affordability check, per vacation year: when someone's must-off days in
+  // this block falling in one vacation year outnumber that year's balance,
+  // ALL their must-offs in THAT year are downgraded to soft "strongly prefer
   // off" claims — honored when possible, schedulable over when coverage
-  // requires it.
+  // requires it. Must-offs in a year they can afford stay hard.
   // Holiday fairness counts per calendar year; vacation per vacation year.
   const blockYear = Number(startDate.slice(0, 4));
   const blockYears = vacationYearsOf({ startDate, endDate });
@@ -541,20 +540,20 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
   const yearBalanceOf = (uid: string) => (year: number) => balances.get(uid).get(year) ?? 0;
   const range = { startDate, endDate, userIds };
   const mustOffDates = gmap<string[]>(employees.map((u) => [u.id, mustOffInRange(db, u.id, range).map((t) => t.date)]));
-  const softOff = new Set(
-    employees
-      .filter((u) =>
-        blockYears.some(
-          (y) => mustOffDates.get(u.id).filter((d) => vacationYearOf(d) === y).length > yearBalanceOf(u.id)(y)
-        )
-      )
-      .map((u) => u.id)
-  );
+  // Downgraded must-off days, keyed `userId|date`.
+  const softOff = new Set<string>();
+  for (const u of employees) {
+    for (const y of blockYears) {
+      const inYear = mustOffDates.get(u.id).filter((d) => vacationYearOf(d) === y);
+      if (inYear.length > yearBalanceOf(u.id)(y)) for (const d of inYear) softOff.add(`${u.id}|${d}`);
+    }
+  }
 
   const vacation = new Set(
     db.timeOff
-      .filter((t) => t.type === 'vacation' && !softOff.has(t.userId))
+      .filter((t) => t.type === 'vacation')
       .map((t) => `${t.userId}|${t.date}`)
+      .filter((key) => !softOff.has(key))
   );
 
   // Preference claims: outlier caps for this block plus standing earned from
@@ -562,11 +561,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
   const { stats, caps } = computeCaps(db, range);
   const standings = preferenceStandings(db);
   const claims = preferenceClaims(db, range, caps, standings);
-  for (const uid of softOff) {
-    for (const t of mustOffInRange(db, uid, range)) {
-      claims.set(`${uid}|${t.date}`, STRONG_CLAIM);
-    }
-  }
+  for (const key of softOff) claims.set(key, STRONG_CLAIM);
   const claimOf = (userId: string, date: string) => claims.get(`${userId}|${date}`) ?? 0;
 
   const effMin = effectiveMinimums(db, { startDate, endDate }, softOff) as unknown as Get<number>;
