@@ -456,10 +456,11 @@ const otherSchedule = (id: string, chargeDates: string[]) => ({
   assert.strictEqual(trade!.responses.length, 0, 'still no responses');
 }
 
-// ---- tradeOptions: a must-off coworker can't respond/claim; free one can ----
+// ---- tradeOptions: a must-off coworker can't respond (swaps, until #51) but
+// may claim, marked with the warning; a free one can do both ----
 {
-  // Ben has a must-have-off on the 7th, so he can't take Ann's 7th shift no
-  // matter which of his shifts he offers (vacation isn't freed by a swap).
+  // Ben has a must-have-off on the 7th, so he can't swap into Ann's 7th shift
+  // no matter which of his shifts he offers (vacation isn't freed by a swap).
   const db = mkDb(
     [mkUser('a', 'Ann'), mkUser('b', 'Ben'), mkUser('c', 'Cy')],
     [
@@ -480,13 +481,93 @@ const otherSchedule = (id: string, chargeDates: string[]) => ({
 
   const optsBen = tradeOptions(db, 'sch1', 'b');
   assert.deepStrictEqual(optsBen.respond[open.id], [], 'Ben is off the 7th -> no offerable shift');
-  assert.strictEqual(optsBen.claim[give.id].ok, false, 'Ben cannot claim the 7th');
-  assert.ok(optsBen.claim[give.id].reason!.includes('vacation'), 'reason surfaced');
+  assert.deepStrictEqual(
+    optsBen.claim[give.id],
+    { ok: true, reason: null, warnings: [{ kind: 'must-off day', message: "2099-01-07 is one of Ben's must-off days." }] },
+    'Ben may claim the 7th, marked with his must-off warning'
+  );
 
   const optsCy = tradeOptions(db, 'sch1', 'c');
   assert.strictEqual(optsCy.respond[open.id].length, 1, 'Cy can offer her 18th for the 7th');
   assert.strictEqual(optsCy.respond[open.id][0].date, '2099-01-18');
-  assert.strictEqual(optsCy.claim[give.id].ok, true, 'Cy can claim the 7th');
+  assert.deepStrictEqual(optsCy.claim[give.id], { ok: true, reason: null, warnings: [] }, 'Cy can claim the 7th, no warning');
+}
+
+// ---- tradeOptions: a giveaway with a blocking reason stays not-ok ----
+{
+  const db = mkDb(
+    [mkUser('a', 'Ann'), mkUser('b', 'Ben')],
+    [A('a', '2099-01-07', 'day'), A('b', '2099-01-07', 'eve')]
+  );
+  const give = createTrade(db, { scheduleId: 'sch1', fromUserId: 'a', type: 'giveaway', offered: { date: '2099-01-07', shiftTypeId: 'day' } }).trade!;
+  assert.deepStrictEqual(
+    tradeOptions(db, 'sch1', 'b').claim[give.id],
+    { ok: false, reason: 'Ben already works a shift that day.', warnings: [] }
+  );
+}
+
+// ===== claiming a giveaway on your own must-off day (confirmation contract) =====
+
+// ---- refused with the warning until confirmed, then succeeds ----
+for (const vacationDays of [10, 0]) {
+  // 10: the must-off day is affordable; 0: it's unaffordable. Both warn.
+  const db = mkDb(
+    [mkUser('a', 'Ann'), mkUser('b', 'Ben', { vacationDays })],
+    [A('a', '2099-01-07', 'day')],
+    [{ id: 'm1', userId: 'b', date: '2099-01-07', type: 'vacation' }]
+  );
+  const give = createTrade(db, { scheduleId: 'sch1', fromUserId: 'a', type: 'giveaway', offered: { date: '2099-01-07', shiftTypeId: 'day' } }).trade!;
+  const warning = { kind: 'must-off day', message: "2099-01-07 is one of Ben's must-off days." };
+
+  const first = claimGiveaway(db, give.id, { userId: 'b' });
+  assert.strictEqual(first.code, 409, `vacationDays ${vacationDays}: unconfirmed claim refused`);
+  assert.deepStrictEqual(first.warnings, [warning], 'refusal carries the warning');
+  assert.strictEqual(first.error, warning.message);
+  assert.strictEqual(owner(db, '2099-01-07', 'day'), 'a', 'shift not transferred');
+  assert.strictEqual(give.status, 'open', 'giveaway stays open');
+
+  const wrong = claimGiveaway(db, give.id, { userId: 'b', confirmedWarnings: ['shift maximum'] });
+  assert.strictEqual(wrong.code, 409, 'confirming some other kind does not count');
+
+  const ok = claimGiveaway(db, give.id, { userId: 'b', confirmedWarnings: ['must-off day'] });
+  assert.ok(!ok.error, `confirmed claim failed: ${ok.error}`);
+  assert.strictEqual(owner(db, '2099-01-07', 'day'), 'b', 'Ben now works his must-off day');
+  assert.strictEqual(give.status, 'completed');
+}
+
+// ---- a claim with no warning needs no confirmation ----
+{
+  const db = mkDb([mkUser('a', 'Ann'), mkUser('b', 'Ben')], [A('a', '2099-01-07', 'day')]);
+  const give = createTrade(db, { scheduleId: 'sch1', fromUserId: 'a', type: 'giveaway', offered: { date: '2099-01-07', shiftTypeId: 'day' } }).trade!;
+  const r = claimGiveaway(db, give.id, { userId: 'b' });
+  assert.ok(!r.error, `plain claim failed: ${r.error}`);
+}
+
+// ---- past the consecutive-night limit: claimed with no warning ----
+{
+  const db = mkDb(
+    [mkUser('a', 'Ann'), mkUser('b', 'Ben', { maxConsecutiveNights: 2 })],
+    [A('a', '2099-01-07', 'night'), A('b', '2099-01-05', 'night'), A('b', '2099-01-06', 'night')]
+  );
+  const give = createTrade(db, { scheduleId: 'sch1', fromUserId: 'a', type: 'giveaway', offered: { date: '2099-01-07', shiftTypeId: 'night' } }).trade!;
+  assert.deepStrictEqual(tradeOptions(db, 'sch1', 'b').claim[give.id], { ok: true, reason: null, warnings: [] });
+  const r = claimGiveaway(db, give.id, { userId: 'b' });
+  assert.ok(!r.error, `night limit must not block or warn a claim: ${r.error}`);
+  assert.strictEqual(owner(db, '2099-01-07', 'night'), 'b');
+}
+
+// ---- a hard rule still refuses a confirmed claim on a must-off day ----
+{
+  const db = mkDb(
+    [mkUser('a', 'Ann'), mkUser('b', 'Ben')],
+    [A('a', '2099-01-07', 'day')],
+    [{ id: 'm1', userId: 'b', date: '2099-01-07', type: 'vacation' }]
+  );
+  db.awayTime.push({ id: 'aw1', userId: 'b', start: '2099-01-07', end: '2099-01-07' });
+  const give = createTrade(db, { scheduleId: 'sch1', fromUserId: 'a', type: 'giveaway', offered: { date: '2099-01-07', shiftTypeId: 'day' } }).trade!;
+  const r = claimGiveaway(db, give.id, { userId: 'b', confirmedWarnings: ['must-off day'] });
+  assert.deepStrictEqual([r.code, r.error, r.warnings], [400, 'Ben is on away time that day.', undefined]);
+  assert.strictEqual(owner(db, '2099-01-07', 'day'), 'a');
 }
 
 // ---- swapPartners: only feasible partners + their valid shifts, never self ----

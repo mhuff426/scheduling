@@ -9,7 +9,9 @@ interface Props { db: AppState; currentUser: User; act: Act; }
 
 type TradeOptions = {
   respond: Record<string, Slot[]>;
-  claim: Record<string, { ok: boolean; reason: string | null }>;
+  // `warnings`: what claiming would ask the viewer to confirm (their own
+  // must-off day); the server sends them, the client never works them out.
+  claim: Record<string, { ok: boolean; reason: string | null; warnings?: { kind: string; message: string }[] }>;
 };
 
 export default function Trades({ db, currentUser, act }: Props) {
@@ -187,9 +189,14 @@ export default function Trades({ db, currentUser, act }: Props) {
                   {options.claim[t.id] && !options.claim[t.id].ok ? (
                     <span className="muted small">{options.claim[t.id].reason}</span>
                   ) : (
-                    <button className="btn primary sm" disabled={busy} onClick={() => run(() => api.claimTrade(t.id, { userId: me }))}>
-                      Take this shift
-                    </button>
+                    <div className="row">
+                      {(options.claim[t.id]?.warnings || []).map((w) => (
+                        <span key={w.kind} className="muted small">⚠ {w.message}</span>
+                      ))}
+                      <button className="btn primary sm" disabled={busy} onClick={() => run(() => api.claimTrade(t.id, { userId: me }))}>
+                        Take this shift
+                      </button>
+                    </div>
                   )}
                 </div>
               ))}

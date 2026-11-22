@@ -36,13 +36,14 @@ export const ADMIN_REASSIGN_POLICY: EligibilityPolicy = {
   consecutiveNightLimit: 'warn',
   shiftMaximum: 'warn',
 };
+// In a trade the person taking the shift decides: their own must-off day only
+// warns them (they confirm), and the generator's limits don't apply. Picked-up
+// shifts are "extra" by design.
 export const TRADE_POLICY: EligibilityPolicy = {
   name: 'trade',
-  affordableMustOff: 'block',
-  unaffordableMustOff: 'block',
-  consecutiveNightLimit: 'block',
-  // Picked-up shifts are "extra" by design: trading past the maximum is the
-  // person's own choice.
+  affordableMustOff: 'warn',
+  unaffordableMustOff: 'warn',
+  consecutiveNightLimit: 'ignore',
   shiftMaximum: 'ignore',
 };
 
@@ -193,7 +194,10 @@ export function checkEligibility({ person, date, shiftType, held, facts, shiftTy
   const off = facts.mustOff(date);
   if (off) {
     const action = off.affordable ? policy.affordableMustOff : policy.unaffordableMustOff;
-    const r = limit(action, 'must-off day', `${person.name} is on vacation that day.`);
+    // Blocked: the person is on vacation. Warned: name the day they'd give up.
+    const r = action === 'block'
+      ? blocked(`${person.name} is on vacation that day.`)
+      : limit(action, 'must-off day', `${date} is one of ${person.name}'s must-off days.`);
     if (r) return r;
   }
   if (isBeforeStart(person, date))

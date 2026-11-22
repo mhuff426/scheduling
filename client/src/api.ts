@@ -58,7 +58,9 @@ export const api = {
   withdrawResponse: (id: string, body: any) => request('POST', `/api/trades/${id}/withdraw`, body),
   acceptTrade: (id: string, body: any) => request('POST', `/api/trades/${id}/accept`, body),
   rejectTrade: (id: string, body: any) => request('POST', `/api/trades/${id}/reject`, body),
-  claimTrade: (id: string, body: any) => request('POST', `/api/trades/${id}/claim`, body),
+  claimTrade: (id: string, body: any) =>
+    withConfirmedWarnings((confirmedWarnings) =>
+      request('POST', `/api/trades/${id}/claim`, { ...body, confirmedWarnings })),
   cancelTrade: (id: string, body: any) => request('POST', `/api/trades/${id}/cancel`, body),
   // Auth
   me: () => request('GET', '/api/auth/me').catch(() => null),

@@ -3,8 +3,10 @@
 // day; the shift stays yours until someone claims it).
 //
 // Trades check eligibility with the trade policy (./eligibility.ts): hard
-// rules, must-off days and the consecutive-night limit block; the shift
-// maximum is ignored, since picked-up shifts are "extra" by design.
+// rules block; the person taking a shift is warned about their own must-off
+// day and confirms (`confirmedWarnings`); the consecutive-night limit and the
+// shift maximum are ignored. Swaps don't have the confirm step yet (#51), so
+// they still block on must-off days (SWAP_POLICY).
 //
 // Every function returns { trade } on success or { error, code } on failure.
 // Functions mutate the passed db object but never persist — the API routes
@@ -13,7 +15,8 @@
 
 import { newId } from './db.js';
 import { summarizeSchedule, includedUsers } from './scheduler.js';
-import { scheduleEligibility, TRADE_POLICY } from './eligibility.js';
+import { needsConfirmation, scheduleEligibility, TRADE_POLICY } from './eligibility.js';
+import type { EligibilityPolicy, EligibilityWarning } from './eligibility.js';
 import {
   applyElectionCut, electedVacation, electedVacationInYear, electedYears, extraDays, giveaway, vacationYearOf,
   vacationYearsOf, yearBalance,
@@ -23,9 +26,17 @@ import type {
 } from '../shared/types.js';
 
 // Functions return a success or failure shape; the routes pull these fields off.
+// A failure carrying `warnings` is the confirmation contract's refusal: resend
+// with `confirmedWarnings` listing their kinds.
 type TradeOutcome =
-  | { trade: Trade; error?: undefined; code?: undefined }
-  | { error: string; code: number; trade?: undefined };
+  | { trade: Trade; error?: undefined; code?: undefined; warnings?: undefined }
+  | { error: string; code: number; trade?: undefined; warnings?: EligibilityWarning[] };
+
+// The refusal for warnings the person hasn't confirmed, or null to go ahead.
+function unconfirmed(warnings: EligibilityWarning[], confirmedWarnings: unknown): TradeOutcome | null {
+  if (!needsConfirmation(warnings, confirmedWarnings)) return null;
+  return { error: warnings.map((w) => w.message).join(' '), code: 409, warnings };
+}
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const todayYmd = () => {
@@ -64,10 +75,17 @@ function refreshSchedule(db: Db, schedule: Schedule) {
   schedule.warnings = warnings;
 }
 
+// Until swaps get the confirm step (#51), a must-off day still blocks them.
+const SWAP_POLICY: EligibilityPolicy = {
+  ...TRADE_POLICY, name: 'swap (pending #51)', affordableMustOff: 'block', unaffordableMustOff: 'block',
+};
+
 // Can `user` take `slot` in a trade, pretending the assignments in `ignore`
 // don't exist (i.e. shifts they are giving away)? The blocking reason, or null.
-export function canTakeShift(db: Db, schedule: Schedule, slot: Slot, user: User, ignore: Assignment[] = []): string | null {
-  const r = scheduleEligibility(db, schedule, slot, user, TRADE_POLICY, ignore);
+export function canTakeShift(
+  db: Db, schedule: Schedule, slot: Slot, user: User, ignore: Assignment[] = [], policy: EligibilityPolicy = TRADE_POLICY
+): string | null {
+  const r = scheduleEligibility(db, schedule, slot, user, policy, ignore);
   return r.eligible ? null : r.reason;
 }
 
@@ -78,8 +96,8 @@ export function swapValid(db: Db, schedule: Schedule, aAssign: Assignment, bAssi
   const bUser = db.users.find((u) => u.id === bAssign.userId);
   if (!aUser || !bUser) return 'One of the employees no longer exists.';
   return (
-    canTakeShift(db, schedule, bAssign, aUser, [aAssign]) ||
-    canTakeShift(db, schedule, aAssign, bUser, [bAssign])
+    canTakeShift(db, schedule, bAssign, aUser, [aAssign], SWAP_POLICY) ||
+    canTakeShift(db, schedule, aAssign, bUser, [bAssign], SWAP_POLICY)
   );
 }
 
@@ -113,15 +131,19 @@ export function tradeOptions(db: Db, scheduleId: string, userId: string) {
   const schedule = db.schedules.find((s) => s.id === scheduleId);
   if (!schedule) return { respond: {}, claim: {} };
   const respond: Record<string, Slot[]> = {};
-  const claim: Record<string, { ok: boolean; reason: string | null }> = {};
+  // A giveaway the viewer may claim only after confirming warnings is ok, and
+  // carries them; one with a blocking reason isn't.
+  const claim: Record<string, { ok: boolean; reason: string | null; warnings: EligibilityWarning[] }> = {};
   for (const t of db.trades || []) {
     if (t.scheduleId !== scheduleId || t.status !== 'open') continue;
     if (t.type === 'open' && t.fromUserId !== userId) {
       respond[t.id] = eligibleSwapShifts(db, schedule, t.offered, t.fromUserId, userId);
     } else if (t.type === 'giveaway' && t.fromUserId !== userId) {
       const claimer = db.users.find((u) => u.id === userId);
-      const reason = claimer ? canTakeShift(db, schedule, t.offered, claimer) : 'User not found.';
-      claim[t.id] = { ok: !reason, reason: reason || null };
+      const r = claimer ? scheduleEligibility(db, schedule, t.offered, claimer, TRADE_POLICY) : null;
+      claim[t.id] = !r ? { ok: false, reason: 'User not found.', warnings: [] }
+        : r.eligible ? { ok: true, reason: null, warnings: r.warnings }
+        : { ok: false, reason: r.reason, warnings: [] };
     }
   }
   return { respond, claim };
@@ -331,7 +353,9 @@ export function rejectDirect(db: Db, tradeId: string, { userId }: { userId: stri
   return { trade };
 }
 
-export function claimGiveaway(db: Db, tradeId: string, { userId }: { userId: string }) {
+export function claimGiveaway(
+  db: Db, tradeId: string, { userId, confirmedWarnings }: { userId: string; confirmedWarnings?: unknown }
+): TradeOutcome {
   const trade = db.trades.find((t) => t.id === tradeId);
   if (!trade) return { error: 'Trade not found.', code: 404 };
   if (trade.type !== 'giveaway' || trade.status !== 'open')
@@ -350,8 +374,12 @@ export function claimGiveaway(db: Db, tradeId: string, { userId }: { userId: str
     return { error: 'That shift is no longer available — giveaway expired.', code: 409 };
   }
 
-  const err = canTakeShift(db, schedule, trade.offered, claimer);
-  if (err) return { error: err, code: 400 };
+  // Hard rules first, so a confirmed resend still fails if one now blocks;
+  // then the claimer confirms warnings about their own must-off day.
+  const elig = scheduleEligibility(db, schedule, trade.offered, claimer, TRADE_POLICY);
+  if (!elig.eligible) return { error: elig.reason, code: 400 };
+  const refusal = unconfirmed(elig.warnings, confirmedWarnings);
+  if (refusal) return refusal;
 
   // Settle the giver's side before transferring: charge a vacation day if the
   // loss drops them below required, and trim their extra-day election if
