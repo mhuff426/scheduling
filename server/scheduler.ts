@@ -1,11 +1,10 @@
 // Schedule generation: expands shift types into concrete slots over the date
 // range, then fills them greedily with a repair pass for minimum-shift floors.
 //
-// Hard constraints:
-//   - A user on vacation that day is never assigned.
-//   - A user works at most one shift per day.
-//   - At least REST_MINUTES between the end of one shift and the start of the
-//     next (no "clopening").
+// Who may take a slot is decided by the eligibility module (./eligibility.ts)
+// with the generator's policy: hard rules (role, started, away time, one shift
+// a day, 8h rest), affordable must-off days, the consecutive-night limit and
+// the shift maximum all block.
 // Soft goals (in priority order):
 //   1. Every slot is filled.
 //   2. Every employee reaches their personal minimum: the schedule's minimum
@@ -27,8 +26,16 @@ import {
 import type {
   Assignment, Db, PreferenceStats, ScheduleDraft, ShiftType, Slot, TimeOff, User, VacationCharge,
 } from '../shared/types.js';
+import {
+  checkEligibility, GENERATOR_POLICY, indexedHeldShifts, isAway, isBeforeStart, isOvernight,
+} from './eligibility.js';
+import type { DayFacts, HeldShifts } from './eligibility.js';
 
-const REST_MINUTES = 8 * 60;
+// The eligibility rules live in ./eligibility.ts; these are re-exported for
+// existing callers.
+export {
+  isOvernight, shiftBounds, restOk, nightCapOk, isBeforeStart, isAway, hasRequiredRole,
+} from './eligibility.js';
 
 // --- preference anti-gaming constants ---
 // Claim strength of a preferred day demoted by the outlier cap: below the
@@ -88,33 +95,6 @@ function dayOfWeek(date: string) {
   return new Date(date + 'T00:00:00').getDay();
 }
 
-// A shift is "overnight" when it crosses midnight into sleeping hours. A shift
-// ending exactly at midnight (e.g. 16:00–00:00) is late, but not overnight.
-export function isOvernight(st: ShiftType) {
-  return st.endTime <= st.startTime && st.endTime !== '00:00';
-}
-
-// Concrete start/end of one occurrence, in epoch minutes (local clock).
-export function shiftBounds(date: string, st: ShiftType): number[] {
-  const start = new Date(`${date}T${st.startTime}:00`).getTime() / 60000;
-  let end = new Date(`${date}T${st.endTime}:00`).getTime() / 60000;
-  if (st.endTime <= st.startTime) end += 24 * 60;
-  return [start, end];
-}
-
-// True when a new occurrence of `st` on `date` leaves at least REST_MINUTES
-// on both sides of every shift the user already holds.
-export function restOk(heldAssignments: Assignment[], shiftById: Record<string, ShiftType>, date: string, st: ShiftType): boolean {
-  const [s, e] = shiftBounds(date, st);
-  for (const a of heldAssignments) {
-    const held = shiftById[a.shiftTypeId];
-    if (!held) continue;
-    const [s2, e2] = shiftBounds(a.date, held);
-    if (!(s >= e2 + REST_MINUTES || e + REST_MINUTES <= s2)) return false;
-  }
-  return true;
-}
-
 function prevDay(date: string) {
   const d = new Date(date + 'T00:00:00');
   d.setDate(d.getDate() - 1);
@@ -154,21 +134,6 @@ function runLengthBefore(byDate: Map<string, Assignment>, shiftTypeId: string, d
   return len;
 }
 
-// Consecutive days the user worked ANY overnight shift ending before `date`.
-function overnightRunBefore(byDate: Map<string, Assignment>, shiftById: Record<string, ShiftType>, date: string) {
-  let len = 0;
-  let cur = prevDay(date);
-  for (;;) {
-    const a = byDate.get(cur);
-    if (!a) break;
-    const st = shiftById[a.shiftTypeId];
-    if (!st || !isOvernight(st)) break;
-    len++;
-    cur = prevDay(cur);
-  }
-  return len;
-}
-
 // Recovery days owed after a stretch of consecutive worked days: a short run
 // (2-4 days) earns 1 full day off, a long run (5+) earns 2. Soft — coverage
 // still wins when nobody rested can take the slot.
@@ -176,17 +141,6 @@ export function recoveryNeed(streakLen: number) {
   if (streakLen >= 5) return 2;
   if (streakLen >= 2) return 1;
   return 0;
-}
-
-// Would assigning `st` on `date` keep the user within their personal
-// consecutive-night cap (counting all overnight types together)? Exported for
-// the manual-reassign endpoint.
-export function nightCapOk(user: User, userAssignments: Assignment[], shiftById: Record<string, ShiftType>, date: string, st: ShiftType) {
-  if (!isOvernight(st)) return true;
-  const cap = Number(user.maxConsecutiveNights);
-  if (!Number.isFinite(cap) || cap <= 0) return true;
-  const byDate = new Map(userAssignments.map((a) => [a.date, a]));
-  return overnightRunBefore(byDate, shiftById, date) + 1 <= cap;
 }
 
 export function buildSlots(shiftTypes: ShiftType[], startDate: string, endDate: string): Slot[] {
@@ -339,25 +293,6 @@ export function preferenceClaims(db: Db, { startDate, endDate, userIds }: { star
     });
   }
   return claims;
-}
-
-// True if the user has a start date and `date` is before it (not yet onboarded).
-export function isBeforeStart(user: User, date: string): boolean {
-  return !!user.startDate && date < user.startDate;
-}
-
-// True if `date` falls inside any of the user's admin-set away ranges
-// (inclusive). Away time blocks scheduling but never costs vacation.
-export function isAway(db: Db, userId: string, date: string): boolean {
-  return db.awayTime.some((a) => a.userId === userId && a.start <= date && date <= a.end);
-}
-
-// True if the user holds a role allowed to fill this shift type. A shift with
-// no allowedRoles (empty/absent) is open to everyone.
-export function hasRequiredRole(user: User, st: { allowedRoles?: string[] }): boolean {
-  if (!st.allowedRoles || st.allowedRoles.length === 0) return true;
-  const roles = user.roles || [];
-  return st.allowedRoles.some((r) => roles.includes(r));
 }
 
 // Must-have-off entries a user filed inside the block.
@@ -549,12 +484,11 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
     }
   }
 
-  const vacation = new Set(
-    db.timeOff
-      .filter((t) => t.type === 'vacation')
-      .map((t) => `${t.userId}|${t.date}`)
-      .filter((key) => !softOff.has(key))
+  const mustOffKeys = new Set(
+    db.timeOff.filter((t) => t.type === 'vacation').map((t) => `${t.userId}|${t.date}`)
   );
+  // Must-off days that still block (the affordable ones).
+  const vacation = new Set([...mustOffKeys].filter((key) => !softOff.has(key)));
 
   // Preference claims: outlier caps for this block plus standing earned from
   // past blocks (db.schedules holds only prior schedules at this point).
@@ -599,29 +533,28 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
   const held = gmap<Assignment[]>(employees.map((u) => [u.id, []])); // assignments per user
   const heldByDate = gmap<Get<Assignment>>(employees.map((u) => [u.id, gmap<Assignment>()])); // date -> assignment
   const typeCount = gmap<Map<string, number>>(employees.map((u) => [u.id, new Map()])); // shiftTypeId -> n
-  const workingDay = new Set<string>(); // `${userId}|${date}` — one shift per person per day
   const assignments: Assignment[] = [];
   const unfilled: Slot[] = [];
 
-  // Personal consecutive-night cap (all overnight types counted together).
-  const nightCapOkLocal = (u: User, date: string, st: ShiftType) => {
-    if (!isOvernight(st)) return true;
-    const cap = Number(u.maxConsecutiveNights);
-    if (!Number.isFinite(cap) || cap <= 0) return true;
-    return overnightRunBefore(heldByDate.get(u.id), shiftById, date) + 1 <= cap;
-  };
-
+  // Eligibility goes through the shared module with the generator's policy,
+  // reading each person's shifts from the live indexes above.
+  const heldView = gmap<HeldShifts>(
+    employees.map((u) => [u.id, indexedHeldShifts(u.id, { list: held, byDate: heldByDate, counts })])
+  );
+  const factsView = gmap<DayFacts>(
+    employees.map((u) => [u.id, {
+      mustOff: (date: string) => {
+        const key = `${u.id}|${date}`;
+        return mustOffKeys.has(key) ? { affordable: !softOff.has(key) } : null;
+      },
+      isAway: (date: string) => isAway(db, u.id, date),
+    }])
+  );
   const available = (u: User, date: string, st: ShiftType) =>
-    // The shift maximum only gates counting shifts; weight-0 standby duty is
-    // always assignable capacity-wise.
-    (shiftWeight(st) === 0 || counts.get(u.id) < effMax.get(u.id)) &&
-    !vacation.has(`${u.id}|${date}`) &&
-    !isBeforeStart(u, date) &&
-    !isAway(db, u.id, date) &&
-    hasRequiredRole(u, st) &&
-    !workingDay.has(`${u.id}|${date}`) &&
-    restOk(held.get(u.id), shiftById, date, st) &&
-    nightCapOkLocal(u, date, st);
+    checkEligibility({
+      person: u, date, shiftType: st, held: heldView.get(u.id), facts: factsView.get(u.id),
+      shiftTypes: shiftById, policy: GENERATOR_POLICY,
+    }).eligible;
 
   const give = (a: Assignment, u: User) => {
     a.userId = u.id;
@@ -634,7 +567,6 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
     heldByDate.get(u.id).set(a.date, a);
     const tc = typeCount.get(u.id);
     tc.set(a.shiftTypeId, (tc.get(a.shiftTypeId) || 0) + 1);
-    workingDay.add(`${u.id}|${a.date}`);
     if (holidayDates.has(a.date)) holWorked.set(u.id, holWorked.get(u.id) + 1);
   };
 
@@ -649,7 +581,6 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
     heldByDate.get(u).delete(a.date);
     const tc = typeCount.get(u);
     tc.set(a.shiftTypeId, (tc.get(a.shiftTypeId) || 0) - 1);
-    workingDay.delete(`${u}|${a.date}`);
     if (holidayDates.has(a.date)) holWorked.set(u, holWorked.get(u) - 1);
   };
 

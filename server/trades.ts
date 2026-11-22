@@ -2,9 +2,9 @@
 // one person's specific shift), and giveaways (drop a shift for a vacation
 // day; the shift stays yours until someone claims it).
 //
-// Trades enforce the safety rules only — vacation-day conflicts, one shift per
-// person per day, 8h rest, personal night caps. The max-shifts cap is NOT
-// enforced here: picked-up shifts are "extra" by design and tracked as such.
+// Trades check eligibility with the trade policy (./eligibility.ts): hard
+// rules, must-off days and the consecutive-night limit block; the shift
+// maximum is ignored, since picked-up shifts are "extra" by design.
 //
 // Every function returns { trade } on success or { error, code } on failure.
 // Functions mutate the passed db object but never persist — the API routes
@@ -12,16 +12,14 @@
 // fixture objects).
 
 import { newId } from './db.js';
-import {
-  restOk, nightCapOk, summarizeSchedule, includedUsers,
-  isBeforeStart, isAway, hasRequiredRole,
-} from './scheduler.js';
+import { summarizeSchedule, includedUsers } from './scheduler.js';
+import { scheduleEligibility, TRADE_POLICY } from './eligibility.js';
 import {
   applyElectionCut, electedVacation, electedVacationInYear, electedYears, extraDays, giveaway, vacationYearOf,
   vacationYearsOf, yearBalance,
 } from '../shared/settlement.js';
 import type {
-  Assignment, Db, ExtraElection, Schedule, ShiftType, Slot, Trade, TradeType, User,
+  Assignment, Db, ExtraElection, Schedule, Slot, Trade, TradeType, User,
 } from '../shared/types.js';
 
 // Functions return a success or failure shape; the routes pull these fields off.
@@ -36,7 +34,6 @@ const todayYmd = () => {
 };
 const isFuture = (date: string) => date > todayYmd();
 
-const shiftById = (db: Db): Record<string, ShiftType> => Object.fromEntries(db.shiftTypes.map((s) => [s.id, s]));
 const userName = (db: Db, id: string) => db.users.find((u) => u.id === id)?.name || 'Someone';
 
 function slotLabel(db: Db, slot: Slot) {
@@ -67,34 +64,11 @@ function refreshSchedule(db: Db, schedule: Schedule) {
   schedule.warnings = warnings;
 }
 
-// Safety-rules check (no max-shifts cap): can `user` work `slot`, pretending
-// the assignments in `ignore` don't exist (i.e. shifts they are giving away)?
+// Can `user` take `slot` in a trade, pretending the assignments in `ignore`
+// don't exist (i.e. shifts they are giving away)? The blocking reason, or null.
 export function canTakeShift(db: Db, schedule: Schedule, slot: Slot, user: User, ignore: Assignment[] = []): string | null {
-  const stMap = shiftById(db);
-  const st = stMap[slot.shiftTypeId];
-  if (!st) return 'That shift type no longer exists.';
-  if (!hasRequiredRole(user, st))
-    return `${user.name} doesn't have a role allowed for that shift.`;
-  if (
-    db.timeOff.some(
-      (t) => t.userId === user.id && t.date === slot.date && t.type === 'vacation'
-    )
-  )
-    return `${user.name} is on vacation that day.`;
-  if (isBeforeStart(user, slot.date))
-    return `${user.name} hasn't started yet (starts ${user.startDate}).`;
-  if (isAway(db, user.id, slot.date))
-    return `${user.name} is on away time that day.`;
-  const held = schedule.assignments.filter(
-    (a) => a.userId === user.id && !ignore.includes(a)
-  );
-  if (held.some((a) => a.date === slot.date))
-    return `${user.name} already works a shift that day.`;
-  if (!restOk(held, stMap, slot.date, st))
-    return `${user.name} would have less than 8 hours of rest around that shift.`;
-  if (!nightCapOk(user, held, stMap, slot.date, st))
-    return `${user.name} would exceed their ${user.maxConsecutiveNights}-night limit on consecutive overnight shifts.`;
-  return null;
+  const r = scheduleEligibility(db, schedule, slot, user, TRADE_POLICY, ignore);
+  return r.eligible ? null : r.reason;
 }
 
 // A swap is valid when both people can take the other's shift, each ignoring
