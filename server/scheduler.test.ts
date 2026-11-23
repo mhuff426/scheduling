@@ -1,13 +1,15 @@
 // Smoke test: tsx server/scheduler.test.ts
 import assert from 'assert';
 import {
-  generateSchedule, buildSlots, isOvernight, restOk,
+  generateSchedule, buildSlots,
   computeCaps, preferenceStandings, DEMOTED_CLAIM,
-  isGrouped, runBounds, nightCapOk, effectiveMaximums,
+  isGrouped, runBounds, effectiveMaximums,
   recoveryNeed, effectiveMinimums,
-  isAway, isBeforeStart, hasRequiredRole,
   heavyAskers, HEAVY_ASKER_STDDEV, summarizeSchedule,
 } from './scheduler.js';
+import {
+  isOvernight, restOk, assignmentsWithinConsecutiveNightLimit, isAway, isBeforeStart, hasRequiredRole,
+} from './eligibility.js';
 import { yearBalance } from '../shared/settlement.js';
 import type { Assignment, Db, ScheduleDraft, ShiftType, TimeOff, User, VacationCharge } from '../shared/types.js';
 
@@ -340,11 +342,11 @@ assert.deepStrictEqual(runBounds({ minRun: 5, maxRun: null }), { min: 5, max: In
     { date: '2026-08-01', shiftTypeId: 'n1' },
     { date: '2026-08-02', shiftTypeId: 'n1' },
   ] as Assignment[];
-  assert.ok(!nightCapOk(u, held, shiftById, '2026-08-03', n2), 'a different overnight type must still hit the cap');
-  assert.ok(!nightCapOk(u, held, shiftById, '2026-08-03', n1), 'same overnight type hits the cap');
-  assert.ok(nightCapOk(u, held, shiftById, '2026-08-03', dayShift), 'a day shift is never capped');
-  assert.ok(nightCapOk(u, held, shiftById, '2026-08-04', n2), 'a gap day resets the streak');
-  assert.ok(nightCapOk(mkUser('b', 'B'), held, shiftById, '2026-08-03', n1), 'no cap set = always ok');
+  assert.ok(!assignmentsWithinConsecutiveNightLimit(u, held, shiftById, '2026-08-03', n2), 'a different overnight type must still hit the cap');
+  assert.ok(!assignmentsWithinConsecutiveNightLimit(u, held, shiftById, '2026-08-03', n1), 'same overnight type hits the cap');
+  assert.ok(assignmentsWithinConsecutiveNightLimit(u, held, shiftById, '2026-08-03', dayShift), 'a day shift is never capped');
+  assert.ok(assignmentsWithinConsecutiveNightLimit(u, held, shiftById, '2026-08-04', n2), 'a gap day resets the streak');
+  assert.ok(assignmentsWithinConsecutiveNightLimit(mkUser('b', 'B'), held, shiftById, '2026-08-03', n1), 'no cap set = always ok');
 }
 
 // ---- night cap end to end: one capped worker leaves a slot open rather than over-work

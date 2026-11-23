@@ -3,21 +3,21 @@ import { api } from '../api';
 import { prettyDate, formatTime, todayYmd } from '../dates';
 import { giveaway, vacationYearOf, yearBalance } from '../../../shared/settlement.js';
 import type { AppState, Assignment, Schedule, Slot, User } from '../../../shared/types.js';
+import type { EligibilityWarning } from '../../../shared/confirmation.js';
 import type { Act } from '../App';
 
 interface Props { db: AppState; currentUser: User; act: Act; }
 
 // `warnings`: what taking that option would ask the viewer to confirm (their
 // own must-off day); the server sends them, the client never works them out.
-type Warning = { kind: string; message: string };
-type SwapOption = Slot & { warnings?: Warning[] };
+type SwapOption = Slot & { warnings?: EligibilityWarning[] };
 type TradeOptions = {
   respond: Record<string, SwapOption[]>;
-  claim: Record<string, { ok: boolean; reason: string | null; warnings?: Warning[] }>;
+  claim: Record<string, { ok: boolean; reason: string | null; warnings?: EligibilityWarning[] }>;
 };
 
 // An option's label, with its warnings appended so a picker shows them.
-const withWarnings = (label: string, warnings?: Warning[]) =>
+const withWarnings = (label: string, warnings?: EligibilityWarning[]) =>
   warnings?.length ? `${label} — ⚠ ${warnings.map((w) => w.message).join(' ')}` : label;
 
 export default function Trades({ db, currentUser, act }: Props) {

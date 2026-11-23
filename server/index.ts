@@ -8,8 +8,9 @@ import type { CollectionKey } from './mysql.js';
 import {
   generateSchedule, summarizeSchedule, preferenceStandings,
 } from './scheduler.js';
-import { ADMIN_REASSIGN_POLICY, CONFIRM_WARNINGS_CODE, needsConfirmation, scheduleEligibility } from './eligibility.js';
-import type { EligibilityWarning } from './eligibility.js';
+import { ADMIN_REASSIGN_POLICY, needsConfirmation, parseConfirmedWarnings, scheduleEligibility } from './eligibility.js';
+import { confirmationRefusal } from '../shared/confirmation.js';
+import type { ConfirmationRefusal, EligibilityWarning } from '../shared/confirmation.js';
 import {
   createTrade, respondToOpenTrade, withdrawResponse,
   acceptOpenResponse, acceptDirect, rejectDirect, claimGiveaway, cancelTrade,
@@ -40,17 +41,21 @@ app.use((req: Request, res: Response, next) => {
 // transaction back — they always happen before any mutation). Business
 // outcomes that must persist even on failure (trades) use return values.
 class HttpError extends Error {
-  constructor(public status: number, message: string, public code?: string, public extra?: object) {
+  constructor(public status: number, message: string, public code?: string) {
     super(message);
   }
 }
 
 // Confirmation contract (ADR 0001): refuse a mutation whose eligibility
 // warnings the request hasn't confirmed, carrying the warnings so the client
-// can ask and resend with `confirmedWarnings` (the warning kinds).
-function requireConfirmed(warnings: EligibilityWarning[], confirmedWarnings: unknown): void {
-  if (!needsConfirmation(warnings, confirmedWarnings)) return;
-  throw new HttpError(409, warnings.map((w) => w.message).join(' '), CONFIRM_WARNINGS_CODE, { warnings });
+// can ask and resend with `confirmedWarnings` (the warning messages).
+class ConfirmationRequired extends Error {
+  constructor(public refusal: ConfirmationRefusal) {
+    super(refusal.error);
+  }
+}
+function requireConfirmed(warnings: EligibilityWarning[], confirmedWarnings: string[]): void {
+  if (needsConfirmation(warnings, confirmedWarnings)) throw new ConfirmationRequired(confirmationRefusal(warnings));
 }
 
 // Express 4 doesn't catch rejected async handlers — every route goes through
@@ -58,8 +63,9 @@ function requireConfirmed(warnings: EligibilityWarning[], confirmedWarnings: unk
 const handle = (fn: (req: Request, res: Response) => Promise<unknown>) =>
   (req: Request, res: Response) => {
     fn(req, res).catch((e) => {
+      if (e instanceof ConfirmationRequired) return res.status(409).json(e.refusal);
       if (e instanceof HttpError) {
-        return res.status(e.status).json({ error: e.message, ...(e.code ? { code: e.code } : {}), ...e.extra });
+        return res.status(e.status).json({ error: e.message, ...(e.code ? { code: e.code } : {}) });
       }
       const code = (e as { code?: string })?.code;
       if (code === 'ER_LOCK_WAIT_TIMEOUT') {
@@ -811,15 +817,16 @@ app.post('/api/schedules', handle(async (req, res) => {
 }));
 
 // Manual assignment editing: fill an open slot, hand a shift to someone else,
-// or unassign a shift back to open. Hard rules (vacation, one shift per day,
-// 8h rest) still apply to the receiving employee; going past the shift
+// or unassign a shift back to open. Hard rules (one shift per day, 8h rest)
+// and affordable must-off days still block the receiving employee; going past the shift
 // maximum or consecutive-night limit needs `confirmedWarnings`.
 app.post('/api/schedules/:id/reassign', handle(async (req, res) => {
   const schedule = await withMutation((db) => {
     requireAdmin(db, req);
     const schedule = db.schedules.find((s) => s.id === req.params.id);
     if (!schedule) throw new HttpError(404, 'Schedule not found.');
-    const { date, shiftTypeId, fromUserId, toUserId, confirmedWarnings } = req.body;
+    const { date, shiftTypeId, fromUserId, toUserId } = req.body;
+    const confirmedWarnings = parseConfirmedWarnings(req.body.confirmedWarnings);
     const st = db.shiftTypes.find((s) => s.id === shiftTypeId);
     if (!st) throw new HttpError(400, 'Shift type no longer exists.');
 
@@ -889,21 +896,26 @@ app.delete('/api/schedules/:id', handle(async (req, res) => {
 // as requireConfirmed).
 const sendTradeResult = (res: Response, r: any) =>
   r.warnings
-    ? res.status(409).json({ error: r.error, code: CONFIRM_WARNINGS_CODE, warnings: r.warnings })
+    ? res.status(409).json(confirmationRefusal(r.warnings))
     : r.error
     ? res.status(r.code || 400).json({ error: r.error, ...(r.code === 409 ? { code: 'conflict' } : {}) })
     : res.json(r.trade);
 
+// A trade request's body with its `confirmedWarnings` read into messages.
+const confirmableBody = (req: Request) => ({
+  ...req.body, confirmedWarnings: parseConfirmedWarnings(req.body?.confirmedWarnings),
+});
+
 app.post('/api/trades', handle(async (req, res) =>
   sendTradeResult(res, await withMutation((db) => {
     const authed = authedUser(db, req);
-    return createTrade(db, { ...req.body, fromUserId: authed.id });
+    return createTrade(db, { ...confirmableBody(req), fromUserId: authed.id });
   }))));
 
 app.post('/api/trades/:id/respond', handle(async (req, res) =>
   sendTradeResult(res, await withMutation((db) => {
     const authed = authedUser(db, req);
-    return respondToOpenTrade(db, req.params.id, { ...req.body, userId: authed.id });
+    return respondToOpenTrade(db, req.params.id, { ...confirmableBody(req), userId: authed.id });
   }))));
 
 app.post('/api/trades/:id/withdraw', handle(async (req, res) =>
@@ -917,7 +929,7 @@ app.post('/api/trades/:id/accept', handle(async (req, res) =>
     const authed = authedUser(db, req);
     const trade = db.trades.find((t) => t.id === req.params.id);
     if (!trade) return { error: 'Trade not found.', code: 404 };
-    const body = { ...req.body, userId: authed.id };
+    const body = { ...confirmableBody(req), userId: authed.id };
     return trade.type === 'open'
       ? acceptOpenResponse(db, req.params.id, body)
       : acceptDirect(db, req.params.id, body);
@@ -932,7 +944,7 @@ app.post('/api/trades/:id/reject', handle(async (req, res) =>
 app.post('/api/trades/:id/claim', handle(async (req, res) =>
   sendTradeResult(res, await withMutation((db) => {
     const authed = authedUser(db, req);
-    return claimGiveaway(db, req.params.id, { ...req.body, userId: authed.id });
+    return claimGiveaway(db, req.params.id, { ...confirmableBody(req), userId: authed.id });
   }))));
 
 app.post('/api/trades/:id/cancel', handle(async (req, res) =>

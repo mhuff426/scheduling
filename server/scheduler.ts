@@ -32,20 +32,14 @@ import {
 } from './eligibility.js';
 import type { DayFacts, HeldShifts } from './eligibility.js';
 
-// The eligibility rules live in ./eligibility.ts; these are re-exported for
-// existing callers.
-export {
-  isOvernight, shiftBounds, restOk, nightCapOk, isBeforeStart, isAway, hasRequiredRole,
-} from './eligibility.js';
-
 // --- preference anti-gaming constants ---
 // Claim strength of a preferred day demoted by the outlier cap: below the
 // lowest possible standing (0.5) but above "no preference" (0).
 export const DEMOTED_CLAIM = 0.25;
-// Claim strength of a must-have-off day that was downgraded because the user
-// requested more must-offs in the block than they have vacation days left:
-// stronger than any normal preference (standings cap at 1.25), but soft —
-// schedulable over when coverage truly requires it.
+// Claim strength of an unaffordable must-off day (the person asked for more
+// must-off days in the block than their year balance covers): stronger than
+// any normal preference (standings cap at 1.25), but schedulable over when
+// coverage truly requires it.
 export const STRONG_CLAIM = 2.0;
 const STANDING_MIN = 0.5;
 const STANDING_MAX = 1.25;
@@ -319,13 +313,13 @@ export function mustOffInRange(db: Db, userId: string, { startDate, endDate }: {
 
 // Per-user minimum for this block, for scheduler-internal pressure: the
 // per-user required shifts reduced by hard must-off days inside the range.
-// Must-off days in `softOff` (keyed `userId|date`) were downgraded to soft
-// claims, so they don't reduce anything — the person might still work them.
-export function effectiveMinimums(db: Db, { startDate, endDate }: { startDate: string; endDate: string }, softOff: Set<string> = new Set()): Map<string, number> {
+// Unaffordable must-off days in `unaffordable` (keyed `userId|date`) don't
+// reduce anything — the person might still work them.
+export function effectiveMinimums(db: Db, { startDate, endDate }: { startDate: string; endDate: string }, unaffordable: Set<string> = new Set()): Map<string, number> {
   const mins = new Map<string, number>();
   for (const u of db.users) {
     const offDays = mustOffInRange(db, u.id, { startDate, endDate })
-      .filter((t) => !softOff.has(`${u.id}|${t.date}`)).length;
+      .filter((t) => !unaffordable.has(`${u.id}|${t.date}`)).length;
     mins.set(u.id, Math.max(0, (Number(u.requiredShifts) || 0) - offDays));
   }
   return mins;
@@ -464,9 +458,9 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
 
   // Affordability check, per vacation year: when someone's must-off days in
   // this block falling in one vacation year outnumber that year's balance,
-  // ALL their must-offs in THAT year are downgraded to soft "strongly prefer
-  // off" claims — honored when possible, schedulable over when coverage
-  // requires it. Must-offs in a year they can afford stay hard.
+  // ALL their must-offs in THAT year are unaffordable: strong claims, honored
+  // when possible, schedulable over when coverage requires it. Must-offs in a
+  // year they can afford stay hard.
   // Holiday fairness counts per calendar year; vacation per vacation year.
   const blockYear = Number(startDate.slice(0, 4));
   const blockYears = vacationYearsOf({ startDate, endDate });
@@ -477,11 +471,11 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
   const yearBalanceOf = (uid: string) => (year: number) => balances.get(uid).get(year) ?? 0;
   const range = { startDate, endDate, userIds };
   const mustOffDates = gmap<string[]>(employees.map((u) => [u.id, mustOffInRange(db, u.id, range).map((t) => t.date)]));
-  // Downgraded must-off days, keyed `userId|date`.
-  const softOff = new Set<string>();
+  // Unaffordable must-off days, keyed `userId|date`.
+  const unaffordable = new Set<string>();
   for (const u of employees) {
     for (const d of unaffordableMustOffDays(mustOffDates.get(u.id), { startDate, endDate }, yearBalanceOf(u.id)))
-      softOff.add(`${u.id}|${d}`);
+      unaffordable.add(`${u.id}|${d}`);
   }
 
   const mustOffKeys = new Set(
@@ -493,10 +487,10 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
   const { stats, caps } = computeCaps(db, range);
   const standings = preferenceStandings(db);
   const claims = preferenceClaims(db, range, caps, standings);
-  for (const key of softOff) claims.set(key, STRONG_CLAIM);
+  for (const key of unaffordable) claims.set(key, STRONG_CLAIM);
   const claimOf = (userId: string, date: string) => claims.get(`${userId}|${date}`) ?? 0;
 
-  const effMin = effectiveMinimums(db, { startDate, endDate }, softOff) as unknown as Get<number>;
+  const effMin = effectiveMinimums(db, { startDate, endDate }, unaffordable) as unknown as Get<number>;
   const effMax = effectiveMaximums(db) as unknown as Get<number>;
   // A ceiling below the floor wins: the cap is hard, the minimum is a goal.
   for (const u of employees) {
@@ -543,7 +537,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
     employees.map((u) => [u.id, {
       mustOff: (date: string) => {
         const key = `${u.id}|${date}`;
-        return mustOffKeys.has(key) ? { affordable: !softOff.has(key) } : null;
+        return mustOffKeys.has(key) ? { affordable: !unaffordable.has(key) } : null;
       },
       isAway: (date: string) => isAway(db, u.id, date),
     }])
@@ -648,7 +642,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
 
   // A person's own predicted charge outranks their own preference — never
   // anyone else's. Used ONLY in the greedy comparator's tier-1 claim check;
-  // `claimOf` itself (donation sorting, softOff strong claims, etc.) is
+  // `claimOf` itself (donation sorting, unaffordable must-off claims, etc.) is
   // untouched.
   const effectiveClaim = (uid: string, date: string) => {
     const c = claimOf(uid, date);
@@ -1047,7 +1041,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
   // covered by vacation charges on the must-off days that caused it, earliest
   // first, each dated on its day and limited by that day's vacation-year
   // balance (never negative). A must-off day the person ended up working
-  // (possible once their must-offs were downgraded to soft claims) didn't
+  // (possible once their must-off days were unaffordable) didn't
   // cause any shortfall, so it is never charged — otherwise the charge could
   // land in a different vacation year from the day actually taken off.
   const vacationCharges: VacationCharge[] = [];

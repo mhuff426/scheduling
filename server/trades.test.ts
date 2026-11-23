@@ -2,9 +2,10 @@
 import assert from 'assert';
 import {
   createTrade, respondToOpenTrade, withdrawResponse, acceptOpenResponse,
-  acceptDirect, rejectDirect, claimGiveaway, cancelTrade, extraShifts, canTakeShift,
+  acceptDirect, rejectDirect, claimGiveaway, cancelTrade, extraShifts,
   setExtraElection, tradeOptions, swapPartners,
 } from './trades.js';
+import { scheduleEligibility, TRADE_POLICY } from './eligibility.js';
 import { yearBalance } from '../shared/settlement.js';
 import type { Assignment, Db, Schedule, ShiftType, TimeOff, User } from '../shared/types.js';
 
@@ -533,10 +534,13 @@ for (const vacationDays of [10, 0]) {
   assert.strictEqual(owner(db, '2099-01-07', 'day'), 'a', 'shift not transferred');
   assert.strictEqual(give.status, 'open', 'giveaway stays open');
 
-  const wrong = claimGiveaway(db, give.id, { userId: 'b', confirmedWarnings: ['shift maximum'] });
-  assert.strictEqual(wrong.code, 409, 'confirming some other kind does not count');
+  const wrong = claimGiveaway(db, give.id, { userId: 'b', confirmedWarnings: ['must-off day'] });
+  assert.strictEqual(wrong.code, 409, 'confirming the kind alone does not count');
+  // A must-off warning confirmed for another day is a different warning.
+  const otherDay = claimGiveaway(db, give.id, { userId: 'b', confirmedWarnings: ["2099-01-08 is one of Ben's must-off days."] });
+  assert.deepStrictEqual([otherDay.code, otherDay.warnings], [409, [warning]], 'a new warning of a confirmed kind refuses again');
 
-  const ok = claimGiveaway(db, give.id, { userId: 'b', confirmedWarnings: ['must-off day'] });
+  const ok = claimGiveaway(db, give.id, { userId: 'b', confirmedWarnings: [warning.message] });
   assert.ok(!ok.error, `confirmed claim failed: ${ok.error}`);
   assert.strictEqual(owner(db, '2099-01-07', 'day'), 'b', 'Ben now works his must-off day');
   assert.strictEqual(give.status, 'completed');
@@ -572,7 +576,7 @@ for (const vacationDays of [10, 0]) {
   );
   db.awayTime.push({ id: 'aw1', userId: 'b', start: '2099-01-07', end: '2099-01-07' });
   const give = createTrade(db, { scheduleId: 'sch1', fromUserId: 'a', type: 'giveaway', offered: { date: '2099-01-07', shiftTypeId: 'day' } }).trade!;
-  const r = claimGiveaway(db, give.id, { userId: 'b', confirmedWarnings: ['must-off day'] });
+  const r = claimGiveaway(db, give.id, { userId: 'b', confirmedWarnings: ["2099-01-07 is one of Ben's must-off days."] });
   assert.deepStrictEqual([r.code, r.error, r.warnings], [400, 'Ben is on away time that day.', undefined]);
   assert.strictEqual(owner(db, '2099-01-07', 'day'), 'a');
 }
@@ -643,7 +647,7 @@ const swapDb = (timeOff: TimeOff[]) => mkDb(
   assert.deepStrictEqual([first.code, first.warnings], [409, [offMsg('2099-01-05', 'Ben')]], 'Ben warned at accept');
   assert.strictEqual(owner(db, '2099-01-05', 'day'), 'a', 'nothing swapped yet');
   assert.strictEqual(trade!.status, 'open');
-  const ok = acceptDirect(db, trade!.id, { userId: 'b', confirmedWarnings: ['must-off day'] });
+  const ok = acceptDirect(db, trade!.id, { userId: 'b', confirmedWarnings: [offMsg('2099-01-05', 'Ben').message] });
   assert.ok(!ok.error, `confirmed accept failed: ${ok.error}`);
   assert.strictEqual(owner(db, '2099-01-05', 'day'), 'b');
   assert.strictEqual(owner(db, '2099-01-10', 'day'), 'a');
@@ -657,7 +661,7 @@ const swapDb = (timeOff: TimeOff[]) => mkDb(
   assert.deepStrictEqual([first.code, first.warnings], [409, [offMsg('2099-01-10', 'Ann')]], 'Ann warned before offering');
   assert.strictEqual(db.trades.length, 0, 'no trade posted until confirmed');
   assert.deepStrictEqual(notesFor(db, 'b'), [], 'Ben not notified of an unsent offer');
-  const { trade, error } = direct(db, ['must-off day']);
+  const { trade, error } = direct(db, [offMsg('2099-01-10', 'Ann').message]);
   assert.ok(trade, `confirmed offer failed: ${error}`);
   const r = acceptDirect(db, trade!.id, { userId: 'b' });
   assert.ok(!r.error, `Ben is not warned about Ann's must-off day: ${r.error}`);
@@ -669,10 +673,12 @@ const swapDb = (timeOff: TimeOff[]) => mkDb(
   const db = swapDb([mustOff('m1', 'a', '2099-01-10'), mustOff('m2', 'b', '2099-01-05')]);
   const offer = direct(db);
   assert.deepStrictEqual(offer.warnings, [offMsg('2099-01-10', 'Ann')], 'Ann sees only her own warning');
-  const { trade } = direct(db, ['must-off day']);
+  const { trade } = direct(db, [offMsg('2099-01-10', 'Ann').message]);
   const accept = acceptDirect(db, trade!.id, { userId: 'b' });
   assert.deepStrictEqual(accept.warnings, [offMsg('2099-01-05', 'Ben')], 'Ben sees only his own warning');
-  assert.ok(!acceptDirect(db, trade!.id, { userId: 'b', confirmedWarnings: ['must-off day'] }).error);
+  // Ann's confirmation doesn't carry over to Ben's step.
+  assert.strictEqual(acceptDirect(db, trade!.id, { userId: 'b', confirmedWarnings: [offMsg('2099-01-10', 'Ann').message] }).code, 409);
+  assert.ok(!acceptDirect(db, trade!.id, { userId: 'b', confirmedWarnings: [offMsg('2099-01-05', 'Ben').message] }).error);
   assert.strictEqual(trade!.status, 'completed');
 }
 
@@ -700,13 +706,13 @@ const swapDb = (timeOff: TimeOff[]) => mkDb(
   const ben = respondToOpenTrade(db, trade!.id, { userId: 'b', date: '2099-01-10', shiftTypeId: 'day' });
   assert.deepStrictEqual([ben.code, ben.warnings], [409, [offMsg('2099-01-05', 'Ben')]], "Ben warned about his own day, not Ann's");
   assert.strictEqual(trade!.responses.length, 0, 'no response recorded until confirmed');
-  assert.ok(!respondToOpenTrade(db, trade!.id, { userId: 'b', date: '2099-01-10', shiftTypeId: 'day', confirmedWarnings: ['must-off day'] }).error);
+  assert.ok(!respondToOpenTrade(db, trade!.id, { userId: 'b', date: '2099-01-10', shiftTypeId: 'day', confirmedWarnings: [offMsg('2099-01-05', 'Ben').message] }).error);
   assert.ok(!respondToOpenTrade(db, trade!.id, { userId: 'c', date: '2099-01-12', shiftTypeId: 'day' }).error, 'Cy responds with no warning');
 
   const accept = acceptOpenResponse(db, trade!.id, { userId: 'a', responseUserId: 'b' });
   assert.deepStrictEqual([accept.code, accept.warnings], [409, [offMsg('2099-01-10', 'Ann')]], 'Ann warned when accepting');
   assert.strictEqual(trade!.status, 'open');
-  const ok = acceptOpenResponse(db, trade!.id, { userId: 'a', responseUserId: 'b', confirmedWarnings: ['must-off day'] });
+  const ok = acceptOpenResponse(db, trade!.id, { userId: 'a', responseUserId: 'b', confirmedWarnings: [offMsg('2099-01-10', 'Ann').message] });
   assert.ok(!ok.error, `confirmed accept failed: ${ok.error}`);
   assert.strictEqual(owner(db, '2099-01-05', 'day'), 'b');
   assert.strictEqual(owner(db, '2099-01-10', 'day'), 'a');
@@ -741,7 +747,7 @@ const swapDb = (timeOff: TimeOff[]) => mkDb(
   };
   const first = createTrade(db, body);
   assert.deepStrictEqual([first.code, first.warnings], [409, [offMsg('2099-01-07', 'Ann')]]);
-  const { trade, error } = createTrade(db, { ...body, confirmedWarnings: ['must-off day'] });
+  const { trade, error } = createTrade(db, { ...body, confirmedWarnings: [offMsg('2099-01-07', 'Ann').message] });
   assert.ok(trade, `confirmed same-day offer failed: ${error}`);
   assert.ok(!acceptDirect(db, trade!.id, { userId: 'b' }).error);
   assert.strictEqual(owner(db, '2099-01-07', 'eve'), 'a');
@@ -776,7 +782,7 @@ const swapDb = (timeOff: TimeOff[]) => mkDb(
     scheduleId: 'sch1', fromUserId: 'a', type: 'direct',
     offered: { date: '2099-01-20', shiftTypeId: 'eve' },
     toUserId: 'b', requested: { date: '2099-01-07', shiftTypeId: 'day' },
-    confirmedWarnings: ['must-off day'],
+    confirmedWarnings: [offMsg('2099-01-07', 'Ann').message],
   });
   assert.strictEqual(r.code, 400, 'rest block at offer time');
   assert.ok(r.error!.includes('rest'), r.error);
@@ -788,13 +794,19 @@ const swapDb = (timeOff: TimeOff[]) => mkDb(
   const db = swapDb([mustOff('m1', 'b', '2099-01-05')]);
   const { trade } = direct(db);
   db.schedules[0].assignments.push(A('b', '2099-01-04', 'night'));
-  const r = acceptDirect(db, trade!.id, { userId: 'b', confirmedWarnings: ['must-off day'] });
+  const r = acceptDirect(db, trade!.id, { userId: 'b', confirmedWarnings: [offMsg('2099-01-05', 'Ben').message] });
   assert.strictEqual(r.code, 400);
   assert.ok(r.error!.includes('rest'), r.error);
   assert.strictEqual(owner(db, '2099-01-05', 'day'), 'a', 'nothing swapped');
 }
 
-// ===== start date & away time gates on canTakeShift (new feature) =====
+// ===== start date & away time gate taking a shift in a trade =====
+
+// Why `user` can't take `slot` in a trade, or null.
+const tradeBlockingReason = (db: Db, slot: { date: string; shiftTypeId: string }, user: User) => {
+  const r = scheduleEligibility(db, db.schedules[0], slot, user, TRADE_POLICY);
+  return r.eligible ? null : r.reason;
+};
 
 // ---- (8) a start date after the offered shift blocks the taker ----
 {
@@ -803,7 +815,7 @@ const swapDb = (timeOff: TimeOff[]) => mkDb(
     [A('a', '2099-01-10', 'day')]
   );
   // Ben hasn't started by the 10th, so he can't pick up Ann's shift.
-  const err = canTakeShift(db, db.schedules[0], { date: '2099-01-10', shiftTypeId: 'day' }, db.users[1]);
+  const err = tradeBlockingReason(db, { date: '2099-01-10', shiftTypeId: 'day' }, db.users[1]);
   assert.ok(err && err.includes("hasn't started"), `expected pre-start block, got: ${err}`);
 }
 
@@ -814,7 +826,7 @@ const swapDb = (timeOff: TimeOff[]) => mkDb(
     [A('a', '2099-01-10', 'day')]
   );
   db.awayTime.push({ id: 'aw1', userId: 'b', start: '2099-01-08', end: '2099-01-12' });
-  const err = canTakeShift(db, db.schedules[0], { date: '2099-01-10', shiftTypeId: 'day' }, db.users[1]);
+  const err = tradeBlockingReason(db, { date: '2099-01-10', shiftTypeId: 'day' }, db.users[1]);
   assert.ok(err && err.includes('away'), `expected away-time block, got: ${err}`);
 }
 
@@ -822,16 +834,16 @@ const swapDb = (timeOff: TimeOff[]) => mkDb(
 {
   // Ben started on the 10th (boundary: start date == shift date is OK) and has
   // no away range; he holds no other shift that day, so the new checks don't
-  // over-block — canTakeShift returns null.
+  // over-block.
   const db = mkDb(
     [mkUser('a', 'Ann'), mkUser('b', 'Ben', { startDate: '2099-01-10' })],
     [A('a', '2099-01-10', 'day')]
   );
-  const ok = canTakeShift(db, db.schedules[0], { date: '2099-01-10', shiftTypeId: 'day' }, db.users[1]);
+  const ok = tradeBlockingReason(db, { date: '2099-01-10', shiftTypeId: 'day' }, db.users[1]);
   assert.strictEqual(ok, null, `start-date-on-the-day with no away should be allowed, got: ${ok}`);
 }
 
-// ===== role eligibility gates canTakeShift (new feature) =====
+// ===== role eligibility gates taking a shift in a trade =====
 
 // ---- a shift's allowed roles block employees who don't hold one ----
 {
@@ -841,13 +853,13 @@ const swapDb = (timeOff: TimeOff[]) => mkDb(
   );
   db.shiftTypes.push({ id: 'mgr', name: 'Manager', startTime: '08:00', endTime: '16:00', frequency: 'daily', dayOfWeek: null, staffRequired: 1, allowedRoles: ['role-mgr'] });
   // Ben lacks role-mgr -> blocked from the manager shift.
-  const err = canTakeShift(db, db.schedules[0], { date: '2099-01-06', shiftTypeId: 'mgr' }, db.users[1]);
+  const err = tradeBlockingReason(db, { date: '2099-01-06', shiftTypeId: 'mgr' }, db.users[1]);
   assert.ok(err && err.includes('role'), `expected a role block, got: ${err}`);
   // Ann holds role-mgr and the day is free -> allowed.
-  const ok = canTakeShift(db, db.schedules[0], { date: '2099-01-07', shiftTypeId: 'mgr' }, db.users[0]);
+  const ok = tradeBlockingReason(db, { date: '2099-01-07', shiftTypeId: 'mgr' }, db.users[0]);
   assert.strictEqual(ok, null, `manager should be allowed: ${ok}`);
   // An unrestricted shift type is open to Ben.
-  const ok2 = canTakeShift(db, db.schedules[0], { date: '2099-01-08', shiftTypeId: 'day' }, db.users[1]);
+  const ok2 = tradeBlockingReason(db, { date: '2099-01-08', shiftTypeId: 'day' }, db.users[1]);
   assert.strictEqual(ok2, null, `unrestricted shift should be allowed: ${ok2}`);
 }
 

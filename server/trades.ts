@@ -4,8 +4,8 @@
 //
 // Trades check eligibility with the trade policy (./eligibility.ts): hard
 // rules block; the person taking a shift is warned about their own must-off
-// day and confirms (`confirmedWarnings`); the consecutive-night limit and the
-// shift maximum are ignored. In a swap each person confirms only warnings
+// day and confirms (`confirmedWarnings`, the warning messages, read once by
+// the route); the consecutive-night limit and the shift maximum are ignored. In a swap each person confirms only warnings
 // about the shift they'd take, at their own step.
 //
 // Every function returns { trade } on success or { error, code } on failure.
@@ -16,7 +16,8 @@
 import { newId } from './db.js';
 import { summarizeSchedule, includedUsers } from './scheduler.js';
 import { needsConfirmation, scheduleEligibility, TRADE_POLICY } from './eligibility.js';
-import type { EligibilityPolicy, EligibilityWarning } from './eligibility.js';
+import { confirmationRefusal } from '../shared/confirmation.js';
+import type { EligibilityWarning } from '../shared/confirmation.js';
 import {
   applyElectionCut, electedVacation, electedVacationInYear, electedYears, extraDays, giveaway, vacationYearOf,
   vacationYearsOf, yearBalance,
@@ -27,15 +28,15 @@ import type {
 
 // Functions return a success or failure shape; the routes pull these fields off.
 // A failure carrying `warnings` is the confirmation contract's refusal: resend
-// with `confirmedWarnings` listing their kinds.
+// with `confirmedWarnings` listing their messages.
 type TradeOutcome =
   | { trade: Trade; error?: undefined; code?: undefined; warnings?: undefined }
   | { error: string; code: number; trade?: undefined; warnings?: EligibilityWarning[] };
 
 // The refusal for warnings the person hasn't confirmed, or null to go ahead.
-function unconfirmed(warnings: EligibilityWarning[], confirmedWarnings: unknown): TradeOutcome | null {
+function unconfirmed(warnings: EligibilityWarning[], confirmedWarnings: string[]): TradeOutcome | null {
   if (!needsConfirmation(warnings, confirmedWarnings)) return null;
-  return { error: warnings.map((w) => w.message).join(' '), code: 409, warnings };
+  return { error: confirmationRefusal(warnings).error, code: 409, warnings };
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -75,32 +76,40 @@ function refreshSchedule(db: Db, schedule: Schedule) {
   schedule.warnings = warnings;
 }
 
-// Can `user` take `slot` in a trade, pretending the assignments in `ignore`
-// don't exist (i.e. shifts they are giving away)? The blocking reason, or null.
-export function canTakeShift(
-  db: Db, schedule: Schedule, slot: Slot, user: User, ignore: Assignment[] = [], policy: EligibilityPolicy = TRADE_POLICY
-): string | null {
-  const r = scheduleEligibility(db, schedule, slot, user, policy, ignore);
-  return r.eligible ? null : r.reason;
-}
+// The two people in a swap: the offerer owns the offered shift (the trade's
+// poster); the taker would take it, giving up their own shift in return (an
+// open swap's responder, or a direct swap's target).
+type SwapParty = 'offerer' | 'taker';
 
-// A swap of aAssign for bAssign, judged on the state after it: each person
-// takes the other's shift, ignoring the one they give up. Blocked with the
-// first blocking reason, or eligible with each side's own warnings (`a` =
-// warnings for aAssign's owner, about the shift they'd take).
+// A swap of the offered shift for the taker's, judged on the state after it:
+// each person takes the other's shift, ignoring the one they give up. Blocked
+// with the first blocking reason, or eligible with each party's own warnings
+// (about the shift they'd take).
 type SwapCheck =
   | { reason: string }
-  | { reason: null; a: EligibilityWarning[]; b: EligibilityWarning[] };
+  | { reason: null; warnings: Record<SwapParty, EligibilityWarning[]> };
 
-function swapEligibility(db: Db, schedule: Schedule, aAssign: Assignment, bAssign: Assignment): SwapCheck {
-  const aUser = db.users.find((u) => u.id === aAssign.userId);
-  const bUser = db.users.find((u) => u.id === bAssign.userId);
-  if (!aUser || !bUser) return { reason: 'One of the employees no longer exists.' };
-  const a = scheduleEligibility(db, schedule, bAssign, aUser, TRADE_POLICY, [aAssign]);
-  if (!a.eligible) return { reason: a.reason };
-  const b = scheduleEligibility(db, schedule, aAssign, bUser, TRADE_POLICY, [bAssign]);
-  if (!b.eligible) return { reason: b.reason };
-  return { reason: null, a: a.warnings, b: b.warnings };
+function swapEligibility(db: Db, schedule: Schedule, offeredAssign: Assignment, takerAssign: Assignment): SwapCheck {
+  const offerer = db.users.find((u) => u.id === offeredAssign.userId);
+  const taker = db.users.find((u) => u.id === takerAssign.userId);
+  if (!offerer || !taker) return { reason: 'One of the employees no longer exists.' };
+  const forOfferer = scheduleEligibility(db, schedule, takerAssign, offerer, TRADE_POLICY, [offeredAssign]);
+  if (!forOfferer.eligible) return { reason: forOfferer.reason };
+  const forTaker = scheduleEligibility(db, schedule, offeredAssign, taker, TRADE_POLICY, [takerAssign]);
+  if (!forTaker.eligible) return { reason: forTaker.reason };
+  return { reason: null, warnings: { offerer: forOfferer.warnings, taker: forTaker.warnings } };
+}
+
+// One party's step in a swap: hard rules first (so a confirmed resend still
+// fails if one now blocks), then `party` confirms the warnings about the
+// shift they'd take. The refusal, or null to go ahead.
+function swapStepRefusal(
+  db: Db, schedule: Schedule, offeredAssign: Assignment, takerAssign: Assignment,
+  party: SwapParty, confirmedWarnings: string[], blockedSuffix = ''
+): TradeOutcome | null {
+  const swap = swapEligibility(db, schedule, offeredAssign, takerAssign);
+  if (swap.reason !== null) return { error: swap.reason + blockedSuffix, code: 400 };
+  return unconfirmed(swap.warnings[party], confirmedWarnings);
 }
 
 // Swap the two assignments' owners and refresh the schedule's summary.
@@ -115,29 +124,29 @@ function executeSwap(db: Db, schedule: Schedule, aAssign: Assignment, bAssign: A
 // warnings (what they'd be asked to confirm).
 type SwapOption = Slot & { warnings: EligibilityWarning[] };
 
-// The candidate's future shifts that would form a swap against `offered`
-// (owned by offeredUserId) with no blocking reason, each marked with the
-// warnings of `viewer`: 'candidate' (responding to an open swap) or 'offerer'
-// (picking a direct-swap partner). The other side's warnings aren't shown.
+// The taker's future shifts that would form a swap against `offered` (owned
+// by offererUserId) with no blocking reason, each marked with the warnings of
+// `viewer`: the taker (responding to an open swap) or the offerer (picking a
+// direct-swap partner). The other party's warnings aren't shown.
 function swapOptions(
-  db: Db, schedule: Schedule, offered: Slot, offeredUserId: string, candidateUserId: string, viewer: 'candidate' | 'offerer'
+  db: Db, schedule: Schedule, offered: Slot, offererUserId: string, takerUserId: string, viewer: SwapParty
 ): SwapOption[] {
-  const offeredAssign = findAssignment(schedule, offeredUserId, offered);
+  const offeredAssign = findAssignment(schedule, offererUserId, offered);
   if (!offeredAssign) return [];
   const out: SwapOption[] = [];
   for (const a of schedule.assignments) {
-    if (a.userId !== candidateUserId || !isFuture(a.date)) continue;
+    if (a.userId !== takerUserId || !isFuture(a.date)) continue;
     const r = swapEligibility(db, schedule, offeredAssign, a);
     if (r.reason !== null) continue;
-    out.push({ date: a.date, shiftTypeId: a.shiftTypeId, warnings: viewer === 'offerer' ? r.a : r.b });
+    out.push({ date: a.date, shiftTypeId: a.shiftTypeId, warnings: r.warnings[viewer] });
   }
   return out;
 }
 
-// The candidate's shifts that can answer an open swap of `offered`, marked
-// with the candidate's own warnings.
-export function eligibleSwapShifts(db: Db, schedule: Schedule, offered: Slot, offeredUserId: string, candidateUserId: string): SwapOption[] {
-  return swapOptions(db, schedule, offered, offeredUserId, candidateUserId, 'candidate');
+// The responder's shifts that can answer an open swap of `offered`, marked
+// with the responder's own warnings.
+export function eligibleSwapShifts(db: Db, schedule: Schedule, offered: Slot, offererUserId: string, responderUserId: string): SwapOption[] {
+  return swapOptions(db, schedule, offered, offererUserId, responderUserId, 'taker');
 }
 
 // Everything the Trades screen needs to gate its actions for one viewer, in a
@@ -190,9 +199,9 @@ function expire(db: Db, trade: Trade, reason: string) {
 
 export function createTrade(
   db: Db,
-  { scheduleId, fromUserId, type, offered, toUserId, requested, confirmedWarnings }: {
+  { scheduleId, fromUserId, type, offered, toUserId, requested, confirmedWarnings = [] }: {
     scheduleId: string; fromUserId: string; type: TradeType; offered: Slot;
-    toUserId?: string | null; requested?: Slot | null; confirmedWarnings?: unknown;
+    toUserId?: string | null; requested?: Slot | null; confirmedWarnings?: string[];
   }
 ): TradeOutcome {
   const schedule = db.schedules.find((s) => s.id === scheduleId);
@@ -243,9 +252,10 @@ export function createTrade(
       return { error: 'Only future shifts can be traded.', code: 400 };
     // The offerer confirms warnings about the shift they'd take now; the
     // target confirms their own when accepting.
-    const swap = swapEligibility(db, schedule, findAssignment(schedule, fromUserId, offered)!, findAssignment(schedule, to.id, requested)!);
-    if (swap.reason !== null) return { error: swap.reason, code: 400 };
-    const refusal = unconfirmed(swap.a, confirmedWarnings);
+    const refusal = swapStepRefusal(
+      db, schedule, findAssignment(schedule, fromUserId, offered)!, findAssignment(schedule, to.id, requested)!,
+      'offerer', confirmedWarnings
+    );
     if (refusal) return refusal;
     trade.toUserId = to.id;
     trade.requested = { date: requested.date, shiftTypeId: requested.shiftTypeId };
@@ -275,7 +285,7 @@ export function createTrade(
 
 export function respondToOpenTrade(
   db: Db, tradeId: string,
-  { userId, date, shiftTypeId, confirmedWarnings }: { userId: string; date: string; shiftTypeId: string; confirmedWarnings?: unknown }
+  { userId, date, shiftTypeId, confirmedWarnings = [] }: { userId: string; date: string; shiftTypeId: string; confirmedWarnings?: string[] }
 ): TradeOutcome {
   const trade = db.trades.find((t) => t.id === tradeId);
   if (!trade) return { error: 'Trade not found.', code: 404 };
@@ -297,9 +307,7 @@ export function respondToOpenTrade(
   }
   // The responder confirms warnings about the shift they'd take; the poster
   // confirms their own when accepting.
-  const swap = swapEligibility(db, schedule, offeredAssign, myAssign);
-  if (swap.reason !== null) return { error: `${swap.reason} — you can't cover that shift.`, code: 400 };
-  const refusal = unconfirmed(swap.b, confirmedWarnings);
+  const refusal = swapStepRefusal(db, schedule, offeredAssign, myAssign, 'taker', confirmedWarnings, " — you can't cover that shift.");
   if (refusal) return refusal;
 
   trade.responses = trade.responses.filter((r) => r.userId !== userId);
@@ -317,7 +325,7 @@ export function withdrawResponse(db: Db, tradeId: string, { userId }: { userId: 
 
 export function acceptOpenResponse(
   db: Db, tradeId: string,
-  { userId, responseUserId, confirmedWarnings }: { userId: string; responseUserId: string; confirmedWarnings?: unknown }
+  { userId, responseUserId, confirmedWarnings = [] }: { userId: string; responseUserId: string; confirmedWarnings?: string[] }
 ): TradeOutcome {
   const trade = db.trades.find((t) => t.id === tradeId);
   if (!trade) return { error: 'Trade not found.', code: 404 };
@@ -341,11 +349,8 @@ export function acceptOpenResponse(
     return { error: `${userName(db, resp.userId)}'s offered shift is no longer valid.`, code: 409 };
   }
 
-  // Hard rules first (a confirmed resend still fails if one now blocks), then
-  // the poster confirms warnings about the shift they'd take.
-  const swap = swapEligibility(db, schedule, myAssign, theirAssign);
-  if (swap.reason !== null) return { error: swap.reason, code: 400 };
-  const refusal = unconfirmed(swap.a, confirmedWarnings);
+  // The poster confirms warnings about the shift they'd take.
+  const refusal = swapStepRefusal(db, schedule, myAssign, theirAssign, 'offerer', confirmedWarnings);
   if (refusal) return refusal;
   executeSwap(db, schedule, myAssign, theirAssign);
 
@@ -360,7 +365,7 @@ export function acceptOpenResponse(
 }
 
 export function acceptDirect(
-  db: Db, tradeId: string, { userId, confirmedWarnings }: { userId: string; confirmedWarnings?: unknown }
+  db: Db, tradeId: string, { userId, confirmedWarnings = [] }: { userId: string; confirmedWarnings?: string[] }
 ): TradeOutcome {
   const trade = db.trades.find((t) => t.id === tradeId);
   if (!trade) return { error: 'Trade not found.', code: 404 };
@@ -378,11 +383,9 @@ export function acceptDirect(
     return { error: 'One of the shifts is no longer valid — proposal expired.', code: 409 };
   }
 
-  // Hard rules first, then the target confirms warnings about the shift
-  // they'd take (the offerer confirmed theirs when sending the offer).
-  const swap = swapEligibility(db, schedule, fromAssign, toAssign);
-  if (swap.reason !== null) return { error: swap.reason, code: 400 };
-  const refusal = unconfirmed(swap.b, confirmedWarnings);
+  // The target confirms warnings about the shift they'd take (the offerer
+  // confirmed theirs when sending the offer).
+  const refusal = swapStepRefusal(db, schedule, fromAssign, toAssign, 'taker', confirmedWarnings);
   if (refusal) return refusal;
   executeSwap(db, schedule, fromAssign, toAssign);
 
@@ -406,7 +409,7 @@ export function rejectDirect(db: Db, tradeId: string, { userId }: { userId: stri
 }
 
 export function claimGiveaway(
-  db: Db, tradeId: string, { userId, confirmedWarnings }: { userId: string; confirmedWarnings?: unknown }
+  db: Db, tradeId: string, { userId, confirmedWarnings = [] }: { userId: string; confirmedWarnings?: string[] }
 ): TradeOutcome {
   const trade = db.trades.find((t) => t.id === tradeId);
   if (!trade) return { error: 'Trade not found.', code: 404 };
