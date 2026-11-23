@@ -2,8 +2,8 @@ import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
 // Admin reassign under the admin reassign policy (ADR 0001): hard rules and
-// affordable must-off days block; an unaffordable must-off day is allowed; the
-// shift maximum and consecutive-night limit are eligibility warnings the admin
+// affordable must-off days block; an unaffordable must-off day, the shift
+// maximum and the consecutive-night limit are eligibility warnings the admin
 // confirms. Confirmation contract: a request that triggers warnings is refused
 // with code `eligibility_warnings` carrying the warnings, until it is resent
 // with `confirmedWarnings` listing their messages.
@@ -118,7 +118,7 @@ test('reassigning onto a must-off day the person can afford is refused', async (
   expect(await refused.json()).toEqual({ error: mustOff });
 });
 
-test('reassigning onto a must-off day the person can\'t afford goes through', async ({ request }) => {
+test('reassigning onto a must-off day the person can\'t afford is refused until confirmed', async ({ request }) => {
   // Two must-off days in 2099 against a year balance of one: both unaffordable.
   await reset(request, { vacationDays: 1 }, {
     timeOff: [
@@ -126,7 +126,14 @@ test('reassigning onto a must-off day the person can\'t afford goes through', as
       { id: 't-2', userId: 'u-bea', date: '2099-01-13', type: 'vacation' },
     ],
   });
-  const ok = await reassign(request, dayShift);
+  const mustOff = "2099-01-12 is one of Bea's must-off days.";
+  const refused = await reassign(request, dayShift);
+  expect(refused.status()).toBe(409);
+  expect(await refused.json()).toEqual({
+    error: mustOff, code: 'eligibility_warnings', warnings: [{ kind: 'must-off day', message: mustOff }],
+  });
+
+  const ok = await reassign(request, dayShift, [mustOff]);
   expect(ok.ok()).toBeTruthy();
   const saved = await ok.json();
   expect(saved.assignments).toContainEqual(A('u-bea', '2099-01-12', 's-day'));

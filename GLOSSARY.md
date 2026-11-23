@@ -77,7 +77,7 @@ The most counting shifts the generator will assign a person in one schedule. A p
 _Avoid_: Max cap, ceiling
 
 **Unaffordable must-off day**:
-A must-off day in a vacation year where the person's must-off days in the schedule outnumber their year balance without that schedule's own vacation charges. The generator and admins may schedule the person on it, while honouring it where coverage allows.
+A must-off day in a vacation year where the person's must-off days in the schedule outnumber their year balance without that schedule's own vacation charges. The generator may schedule the person on it, while honouring it where coverage allows; an admin may reassign the person onto it after an eligibility warning.
 _Avoid_: Soft off, downgraded must-off
 
 **Schedulable day**:

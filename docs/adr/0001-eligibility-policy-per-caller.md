@@ -6,7 +6,7 @@ One eligibility module decides whether a person may take a shift. It is used by 
 |---|---|---|---|
 | Hard rules (role, started, away time, one shift a day, 8h rest) | block | block | block |
 | Affordable must-off day | block | block | warn the person, who confirms |
-| Unaffordable must-off day (recomputed live) | allowed, honoured where it can be | allowed | warn the person, who confirms |
+| Unaffordable must-off day (recomputed live) | allowed, honoured where it can be | warn the admin, who confirms | warn the person, who confirms |
 | Consecutive-night limit | block | warn the admin, who confirms | ignored |
 | Shift maximum | block | warn the admin, who confirms | ignored |
 

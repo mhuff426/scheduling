@@ -26,11 +26,12 @@ export const GENERATOR_POLICY: EligibilityPolicy = {
   shiftMaximum: 'block',
 };
 // An admin may do anything the generator could have done: an unaffordable
-// must-off day is open to them. An affordable one stays the person's own. An
-// admin overriding the generator may go past its limits, after confirming.
+// must-off day is open to them, after confirming. An affordable one stays the
+// person's own. An admin overriding the generator may go past its limits,
+// after confirming.
 export const ADMIN_REASSIGN_POLICY: EligibilityPolicy = {
   affordableMustOff: 'block',
-  unaffordableMustOff: 'ignore',
+  unaffordableMustOff: 'warn',
   consecutiveNightLimit: 'warn',
   shiftMaximum: 'warn',
 };
