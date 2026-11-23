@@ -838,9 +838,9 @@ app.post('/api/schedules/:id/reassign', handle(async (req, res) => {
             (a) => a.date === date && a.shiftTypeId === shiftTypeId && a.userId === fromUserId
           )
         : null;
-      // Admin reassign policy (ADR 0001): an unaffordable must-off day is
-      // allowed; hard rules and affordable must-off days block; the
-      // consecutive-night limit and shift maximum warn the admin.
+      // Admin reassign policy (ADR 0001): hard rules and affordable must-off
+      // days block; an unaffordable must-off day, the consecutive-night limit
+      // and the shift maximum warn the admin, who confirms.
       const r = scheduleEligibility(
         db, schedule, { date, shiftTypeId }, to, ADMIN_REASSIGN_POLICY, moving ? [moving] : []
       );

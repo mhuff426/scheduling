@@ -58,7 +58,11 @@ for (const [name, policy] of POLICIES) {
   assert.deepStrictEqual(check({ policy, facts: mustOffOn(true), date: '2099-01-11' }), { eligible: true, warnings: [] }, `${name}: other days are fine`);
 }
 assert.deepStrictEqual(check({ policy: GENERATOR_POLICY, facts: mustOffOn(false) }), { eligible: true, warnings: [] }, 'generator: unaffordable must-off allowed');
-assert.deepStrictEqual(check({ policy: ADMIN_REASSIGN_POLICY, facts: mustOffOn(false) }), { eligible: true, warnings: [] }, 'admin: unaffordable must-off allowed');
+assert.deepStrictEqual(
+  check({ policy: ADMIN_REASSIGN_POLICY, facts: mustOffOn(false) }),
+  { eligible: true, warnings: [{ kind: 'must-off day', message: "2099-01-10 is one of Ben's must-off days." }] },
+  'admin: unaffordable must-off warns the admin'
+);
 for (const affordable of [true, false]) {
   assert.deepStrictEqual(
     check({ policy: TRADE_POLICY, facts: mustOffOn(affordable) }),
@@ -314,9 +318,11 @@ assert.deepStrictEqual(parseConfirmedWarnings(['a', 2, null, 'b']), ['a', 'b'], 
 
   // 3 balance, 3 must-off days: affordable, so the admin is blocked.
   assert.deepStrictEqual(reassign(mkDb(3, mustOffs, [sched('s1', '2099-01-01', '2099-01-31')]), '2099-01-05'), mustOffBlocks('2099-01-05'), 'affordable blocks admin');
-  // 2 balance, 3 must-off days: unaffordable, so the admin may reassign onto any of them.
+  // 2 balance, 3 must-off days: unaffordable, so the admin may reassign onto
+  // any of them after confirming the must-off warning.
+  const mustOffWarns = (date: string) => ({ eligible: true, warnings: [{ kind: 'must-off day', message: `${date} is one of Ben's must-off days.` }] });
   for (const d of mustOffs)
-    assert.deepStrictEqual(reassign(mkDb(2, mustOffs, [sched('s1', '2099-01-01', '2099-01-31')]), d), { eligible: true, warnings: [] }, `unaffordable ${d}`);
+    assert.deepStrictEqual(reassign(mkDb(2, mustOffs, [sched('s1', '2099-01-01', '2099-01-31')]), d), mustOffWarns(d), `unaffordable ${d}`);
 
   // The schedule's own charges don't make its must-off days unaffordable:
   // 3 balance, 3 must-off days, all 3 charged by this schedule -> all affordable.
