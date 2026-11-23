@@ -12,7 +12,7 @@ One eligibility module decides whether a person may take a shift. It is used by 
 
 ## Consequences
 
-- In a trade, the only warning is for a must-off day, and it goes only to the person who would end up working on their own must-off day. They confirm when they take part: the person offering confirms before offering, and the person accepting confirms before accepting. If neither ends up on a must-off day, nobody is warned. If both do, both are.
+- In a trade, the only warning is for a must-off day, and it goes only to the person who would end up working on their own must-off day. They confirm when they take part: the person offering confirms before offering, and the person accepting confirms before accepting. If neither ends up on a must-off day, nobody is warned. If both do, both are. A party's warnings are checked only at their own step: if they add a must-off day for that date after taking part, the swap still completes, and it is theirs to resolve. Hard rules are still re-checked for both parties at the final step.
 - Warnings are worked out on the server and returned with the eligibility answer. The reassign and trade endpoints refuse until the request says the warning was confirmed, so the client never keeps its own copy of the rules.
 - "Unaffordable" is recomputed from the year balance without the schedule's own vacation charges, so a schedule's settlement doesn't change which of its must-off days count as protected.
 - A person can now end up working a must-off day after the schedule was generated, through a trade or an admin reassign, so that schedule's settlement has to cope with it.
