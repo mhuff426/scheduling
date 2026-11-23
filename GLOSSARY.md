@@ -54,7 +54,7 @@ The year a vacation charge or election counts toward. Currently the calendar yea
 ## Eligibility
 
 **Eligible**:
-A person is eligible for a shift when taking it breaks no hard rule.
+A person is eligible for a shift when taking it breaks no hard rule and nothing the caller's policy blocks on (a must-off day, the consecutive-night limit or the shift maximum).
 _Avoid_: Available, can take
 
 **Hard rule**:
@@ -62,10 +62,10 @@ A rule no assignment may break: the person has a role the shift allows, has star
 _Avoid_: Safety rule
 
 **Blocking reason**:
-The first hard rule a shift would break for a person, worded for that person.
+Why a person isn't eligible: the first hard rule broken, or the first limit the caller's policy blocks on, worded for that person.
 
 **Eligibility warning**:
-A limit a shift would take a person past without blocking it. Whoever accepts the assignment must confirm it first.
+A must-off day or limit the caller's policy lets the person past, which whoever accepts must confirm first.
 _Avoid_: Soft block
 
 **Consecutive-night limit**:
