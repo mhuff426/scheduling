@@ -818,8 +818,9 @@ app.post('/api/schedules', handle(async (req, res) => {
 
 // Manual assignment editing: fill an open slot, hand a shift to someone else,
 // or unassign a shift back to open. Hard rules (one shift per day, 8h rest)
-// and affordable must-off days still block the receiving employee; going past the shift
-// maximum or consecutive-night limit needs `confirmedWarnings`.
+// and affordable must-off days still block the receiving employee; an
+// unaffordable must-off day, or going past the shift maximum or
+// consecutive-night limit, needs `confirmedWarnings`.
 app.post('/api/schedules/:id/reassign', handle(async (req, res) => {
   const schedule = await withMutation((db) => {
     requireAdmin(db, req);
