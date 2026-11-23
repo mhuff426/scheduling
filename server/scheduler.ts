@@ -542,7 +542,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
       isAway: (date: string) => isAway(db, u.id, date),
     }])
   );
-  const available = (u: User, date: string, st: ShiftType) =>
+  const eligible = (u: User, date: string, st: ShiftType) =>
     checkEligibility({
       person: u, date, shiftType: st, held: heldView.get(u.id), facts: factsView.get(u.id),
       shiftTypes: shiftById, policy: GENERATOR_POLICY,
@@ -689,7 +689,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
   let rotation = db.meta?.rotationCursor || 0;
   const fillSlot = (slot: Slot) => {
     const st = shiftById[slot.shiftTypeId];
-    const candidates = employees.filter((u) => available(u, slot.date, st));
+    const candidates = employees.filter((u) => eligible(u, slot.date, st));
     if (candidates.length === 0) {
       unfilled.push(slot);
       return;
@@ -795,7 +795,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
       let best = 2; // no continuable run -> a new run starts today
       for (const u of employees) {
         const r = runLengthBefore(heldByDate.get(u.id), t.id, date);
-        if (r >= 1 && r < max && available(u, date, t)) {
+        if (r >= 1 && r < max && eligible(u, date, t)) {
           best = Math.min(best, r < min ? 0 : 1);
           if (best === 0) break;
         }
@@ -847,7 +847,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
           // Moving a weight-0 (standby) shift can't raise anyone's count.
           shiftWeight(shiftById[a.shiftTypeId]) > 0 &&
           counts.get(a.userId) > effMin.get(a.userId) &&
-          available(u, a.date, shiftById[a.shiftTypeId])
+          eligible(u, a.date, shiftById[a.shiftTypeId])
       )
       .sort((a, b) => {
         const claimA = claimOf(u.id, a.date);
@@ -906,10 +906,10 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
     // then donor load DESC.
     //
     // Cheap checks (identity/weight/visited/protection) and the sort run over
-    // the full assignment list first; `available` — which walks rest-rule
+    // the full assignment list first; `eligible` — which walks rest-rule
     // math per candidate — only runs against the already-best-ordered
     // prefix, stopping as soon as the fan-out cap is filled. Checking
-    // `available` before slicing (the naive order) would pay its cost for
+    // `eligible` before slicing (the naive order) would pay its cost for
     // every assignment in the schedule at every recursion node, which is
     // what made this quadratic-ish in practice.
     const ranked = assignments
@@ -928,7 +928,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
       });
     const candidates: Assignment[] = [];
     for (const a of ranked) {
-      if (available(p, a.date, shiftById[a.shiftTypeId])) {
+      if (eligible(p, a.date, shiftById[a.shiftTypeId])) {
         candidates.push(a);
         if (candidates.length >= 8) break; // cap fan-out
       }
@@ -954,7 +954,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
 
       // Donor is left short: find them a replacement — an open slot they can
       // take, or (recursively) a shift of their own to pull from someone else.
-      const unfilledIdx = unfilled.findIndex((sl) => available(donor, sl.date, shiftById[sl.shiftTypeId]));
+      const unfilledIdx = unfilled.findIndex((sl) => eligible(donor, sl.date, shiftById[sl.shiftTypeId]));
       if (unfilledIdx !== -1) {
         const sl = unfilled[unfilledIdx];
         const na: Assignment = { date: sl.date, shiftTypeId: sl.shiftTypeId, userId: '' };
