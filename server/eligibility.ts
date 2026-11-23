@@ -4,13 +4,13 @@
 
 import { isCountingShiftType, shiftMaximum, vacationYearOf, vacationYearsOf, yearBalance } from '../shared/settlement.js';
 import type { Assignment, Db, Schedule, ShiftType, Slot, User } from '../shared/types.js';
+import type { EligibilityWarning } from '../shared/confirmation.js';
 
 export type LimitAction = 'block' | 'warn' | 'ignore';
 
 // What a policy does with each limit. Hard rules always block and aren't
 // part of a policy.
 export interface EligibilityPolicy {
-  name: string;
   affordableMustOff: LimitAction;
   unaffordableMustOff: LimitAction;
   consecutiveNightLimit: LimitAction;
@@ -20,7 +20,6 @@ export interface EligibilityPolicy {
 // The generator may schedule over an unaffordable must-off day (and honours it
 // where coverage allows, through its own ranking).
 export const GENERATOR_POLICY: EligibilityPolicy = {
-  name: 'generator',
   affordableMustOff: 'block',
   unaffordableMustOff: 'ignore',
   consecutiveNightLimit: 'block',
@@ -30,7 +29,6 @@ export const GENERATOR_POLICY: EligibilityPolicy = {
 // must-off day is open to them. An affordable one stays the person's own. An
 // admin overriding the generator may go past its limits, after confirming.
 export const ADMIN_REASSIGN_POLICY: EligibilityPolicy = {
-  name: 'admin reassign',
   affordableMustOff: 'block',
   unaffordableMustOff: 'ignore',
   consecutiveNightLimit: 'warn',
@@ -40,7 +38,6 @@ export const ADMIN_REASSIGN_POLICY: EligibilityPolicy = {
 // warns them (they confirm), and the generator's limits don't apply. Picked-up
 // shifts are "extra" by design.
 export const TRADE_POLICY: EligibilityPolicy = {
-  name: 'trade',
   affordableMustOff: 'warn',
   unaffordableMustOff: 'warn',
   consecutiveNightLimit: 'ignore',
@@ -78,19 +75,18 @@ export type Eligibility =
   | { eligible: true; warnings: EligibilityWarning[] }
   | { eligible: false; reason: string };
 
-export interface EligibilityWarning {
-  kind: 'must-off day' | 'shift maximum' | 'consecutive-night limit';
-  message: string;
+// Confirmation contract (../shared/confirmation.ts): a mutation that produces
+// warnings is refused until the request confirms every warning it now
+// triggers, by message. Checked afresh on every request, so a warning that
+// appeared since (even one of a kind already confirmed) is refused again.
+export function needsConfirmation(warnings: EligibilityWarning[], confirmedWarnings: string[]): boolean {
+  return warnings.some((w) => !confirmedWarnings.includes(w.message));
 }
 
-// Confirmation contract: a mutation that produces warnings is refused with
-// CONFIRM_WARNINGS_CODE (carrying the warnings) until the request lists, in
-// `confirmedWarnings`, the kind of every warning it now triggers. Checked
-// afresh on every request, so a warning that appeared since is refused again.
-export const CONFIRM_WARNINGS_CODE = 'eligibility_warnings';
-export function needsConfirmation(warnings: EligibilityWarning[], confirmedWarnings: unknown): boolean {
-  const confirmed = Array.isArray(confirmedWarnings) ? confirmedWarnings : [];
-  return warnings.some((w) => !confirmed.includes(w.kind));
+// A request body's `confirmedWarnings`, read once at the route: the messages
+// it confirms (anything that isn't a list of strings confirms nothing).
+export function parseConfirmedWarnings(raw: unknown): string[] {
+  return Array.isArray(raw) ? raw.filter((m): m is string => typeof m === 'string') : [];
 }
 
 // True if the user holds a role allowed to fill this shift type. A shift with
@@ -165,17 +161,17 @@ function overnightRunBefore(held: Pick<HeldShifts, 'on'>, shiftById: Record<stri
 
 // Would `st` on `date` keep the person within their consecutive-night limit
 // (all overnight types counted together)?
-function withinNightLimit(person: User, held: Pick<HeldShifts, 'on'>, shiftById: Record<string, ShiftType>, date: string, st: ShiftType) {
+function withinConsecutiveNightLimit(person: User, held: Pick<HeldShifts, 'on'>, shiftById: Record<string, ShiftType>, date: string, st: ShiftType) {
   if (!isOvernight(st)) return true;
-  const cap = Number(person.maxConsecutiveNights);
-  if (!Number.isFinite(cap) || cap <= 0) return true;
-  return overnightRunBefore(held, shiftById, date) + 1 <= cap;
+  const limit = Number(person.maxConsecutiveNights);
+  if (!Number.isFinite(limit) || limit <= 0) return true;
+  return overnightRunBefore(held, shiftById, date) + 1 <= limit;
 }
 
 // Same check over a plain list of the person's assignments.
-export function nightCapOk(user: User, userAssignments: Assignment[], shiftById: Record<string, ShiftType>, date: string, st: ShiftType) {
+export function assignmentsWithinConsecutiveNightLimit(user: User, userAssignments: Assignment[], shiftById: Record<string, ShiftType>, date: string, st: ShiftType) {
   const byDate = new Map(userAssignments.map((a) => [a.date, a]));
-  return withinNightLimit(user, { on: (d) => byDate.get(d) }, shiftById, date, st);
+  return withinConsecutiveNightLimit(user, { on: (d) => byDate.get(d) }, shiftById, date, st);
 }
 
 const blocked = (reason: string): Eligibility => ({ eligible: false, reason });
@@ -194,10 +190,8 @@ export function checkEligibility({ person, date, shiftType, held, facts, shiftTy
   const off = facts.mustOff(date);
   if (off) {
     const action = off.affordable ? policy.affordableMustOff : policy.unaffordableMustOff;
-    // Blocked: the person is on vacation. Warned: name the day they'd give up.
-    const r = action === 'block'
-      ? blocked(`${person.name} is on vacation that day.`)
-      : limit(action, 'must-off day', `${date} is one of ${person.name}'s must-off days.`);
+    // Blocked or warned, the message names the day.
+    const r = limit(action, 'must-off day', `${date} is one of ${person.name}'s must-off days.`);
     if (r) return r;
   }
   if (isBeforeStart(person, date))
@@ -206,7 +200,7 @@ export function checkEligibility({ person, date, shiftType, held, facts, shiftTy
   if (held.on(date)) return blocked(`${person.name} already works a shift that day.`);
   if (!restOk(held.near(date), shiftTypes, date, shiftType))
     return blocked(`${person.name} would have less than 8 hours of rest around that shift.`);
-  if (!withinNightLimit(person, held, shiftTypes, date, shiftType)) {
+  if (!withinConsecutiveNightLimit(person, held, shiftTypes, date, shiftType)) {
     const r = limit(policy.consecutiveNightLimit, 'consecutive-night limit',
       `${person.name} would exceed their ${person.maxConsecutiveNights}-night limit on consecutive overnight shifts.`);
     if (r) return r;

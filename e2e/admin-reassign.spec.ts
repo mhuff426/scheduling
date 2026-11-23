@@ -2,10 +2,11 @@ import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
 // Admin reassign under the admin reassign policy (ADR 0001): hard rules and
-// must-off days block; the shift maximum and consecutive-night limit are
-// eligibility warnings the admin confirms. Confirmation contract: a request
-// that triggers warnings is refused with code `eligibility_warnings` carrying
-// the warnings, until it is resent with `confirmedWarnings` listing their kinds.
+// affordable must-off days block; an unaffordable must-off day is allowed; the
+// shift maximum and consecutive-night limit are eligibility warnings the admin
+// confirms. Confirmation contract: a request that triggers warnings is refused
+// with code `eligibility_warnings` carrying the warnings, until it is resent
+// with `confirmedWarnings` listing their messages.
 //
 // Runs against the isolated, seeded e2e database (reset before each test). The
 // default `request` fixture is auto-authenticated as the admin (u-admin).
@@ -52,7 +53,7 @@ test('reassigning past the shift maximum is refused until confirmed', async ({ r
     error: atMax, code: 'eligibility_warnings', warnings: [{ kind: 'shift maximum', message: atMax }],
   });
 
-  const ok = await reassign(request, dayShift, ['shift maximum']);
+  const ok = await reassign(request, dayShift, [atMax]);
   expect(ok.ok()).toBeTruthy();
   const saved = await ok.json();
   expect(saved.assignments).toContainEqual(A('u-bea', '2099-01-12', 's-day'));
@@ -64,7 +65,7 @@ test('reassigning past the consecutive-night limit is refused until confirmed', 
   expect(refused.status()).toBe(409);
   expect((await refused.json()).warnings).toEqual([{ kind: 'consecutive-night limit', message: pastNights }]);
 
-  const ok = await reassign(request, nightShift, ['consecutive-night limit']);
+  const ok = await reassign(request, nightShift, [pastNights]);
   expect(ok.ok()).toBeTruthy();
   expect((await ok.json()).assignments).toContainEqual(A('u-bea', '2099-01-10', 's-night'));
 });
@@ -79,12 +80,20 @@ test('a reassign past both limits lists both warnings, and a new one is refused 
   ]);
 
   // Confirming only one of them isn't enough: refused again with the full list.
-  const partly = await reassign(request, nightShift, ['shift maximum']);
+  const partly = await reassign(request, nightShift, [atMax]);
   expect(partly.status()).toBe(409);
   expect((await partly.json()).warnings).toHaveLength(2);
 
-  const ok = await reassign(request, nightShift, ['consecutive-night limit', 'shift maximum']);
+  const ok = await reassign(request, nightShift, [pastNights, atMax]);
   expect(ok.ok()).toBeTruthy();
+});
+
+test('confirming a warning of the same kind with a different message is refused again', async ({ request }) => {
+  await reset(request, { maxShiftsOverride: 2 });
+  const stale = 'Bea is already at their maximum of 3 shifts for this schedule.';
+  const refused = await reassign(request, dayShift, ['shift maximum', stale]);
+  expect(refused.status()).toBe(409);
+  expect((await refused.json()).warnings).toEqual([{ kind: 'shift maximum', message: atMax }]);
 });
 
 test('a confirmed reassign is still refused when a hard rule now blocks', async ({ request }) => {
@@ -94,7 +103,7 @@ test('a confirmed reassign is still refused when a hard rule now blocks', async 
   const away = await request.post('/api/awaytime', { data: { userId: 'u-bea', start: '2099-01-12', end: '2099-01-12' } });
   expect(away.ok()).toBeTruthy();
 
-  const refused = await reassign(request, dayShift, ['shift maximum']);
+  const refused = await reassign(request, dayShift, [atMax]);
   expect(refused.status()).toBe(400);
   expect(await refused.json()).toEqual({ error: 'Bea is on away time that day.' });
 });
@@ -103,9 +112,25 @@ test('reassigning onto a must-off day the person can afford is refused', async (
   await reset(request, {}, {
     timeOff: [{ id: 't-1', userId: 'u-bea', date: '2099-01-12', type: 'vacation' }],
   });
-  const refused = await reassign(request, dayShift, ['shift maximum', 'consecutive-night limit', 'must-off day']);
+  const mustOff = "2099-01-12 is one of Bea's must-off days.";
+  const refused = await reassign(request, dayShift, [mustOff]);
   expect(refused.status()).toBe(400);
-  expect(await refused.json()).toEqual({ error: 'Bea is on vacation that day.' });
+  expect(await refused.json()).toEqual({ error: mustOff });
+});
+
+test('reassigning onto a must-off day the person can\'t afford goes through', async ({ request }) => {
+  // Two must-off days in 2099 against a year balance of one: both unaffordable.
+  await reset(request, { vacationDays: 1 }, {
+    timeOff: [
+      { id: 't-1', userId: 'u-bea', date: '2099-01-12', type: 'vacation' },
+      { id: 't-2', userId: 'u-bea', date: '2099-01-13', type: 'vacation' },
+    ],
+  });
+  const ok = await reassign(request, dayShift);
+  expect(ok.ok()).toBeTruthy();
+  const saved = await ok.json();
+  expect(saved.assignments).toContainEqual(A('u-bea', '2099-01-12', 's-day'));
+  expect(saved.unfilled).not.toContainEqual(dayShift);
 });
 
 test('admin reassigns past the shift maximum through the confirm dialog', async ({ page, request }) => {
@@ -130,6 +155,30 @@ test('admin reassigns past the shift maximum through the confirm dialog', async 
   await page.reload();
   await expect(page.locator('.chip', { hasText: 'Bea · Day' })).toHaveCount(2);
   await expect(page.locator('.chip-open', { hasText: 'Day' })).toHaveCount(0);
+});
+
+test('declining the confirm dialog leaves the schedule unchanged, with no error', async ({ page, request }) => {
+  await reset(request, { maxShiftsOverride: 2 });
+  await page.goto('/');
+  await expect(page.locator('.cal-grid')).toBeVisible();
+  // Let the first load's fetches settle: a re-render remounts the chip's select.
+  await page.waitForLoadState('networkidle');
+
+  const dialogs: string[] = [];
+  page.on('dialog', (d) => { dialogs.push(d.message()); d.dismiss(); });
+
+  await page.locator('.chip-open', { hasText: 'Day' }).click();
+  await page.locator('select.chip-edit').selectOption('u-bea');
+
+  await expect.poll(() => dialogs.length).toBe(1);
+  expect(dialogs[0]).toContain(atMax);
+  await expect(page.locator('.banner.error')).toHaveCount(0);
+  await expect(page.locator('.chip-open', { hasText: 'Day' })).toHaveCount(1);
+  await expect(page.locator('.chip', { hasText: 'Bea · Day' })).toHaveCount(1);
+
+  // Nothing saved.
+  await page.reload();
+  await expect(page.locator('.chip-open', { hasText: 'Day' })).toHaveCount(1);
 });
 
 test('a reassign with no warnings goes through with no dialog', async ({ page, request }) => {

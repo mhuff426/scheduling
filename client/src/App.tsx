@@ -8,9 +8,12 @@ import LoginModal from './components/Login';
 import Register from './components/Register';
 import { safeBg } from './contrast';
 import { setLatestState } from './versions';
+import { DECLINED } from './confirmWarnings';
 import type { AppState, User } from '../../shared/types.js';
 
 // A mutation wrapper: runs `fn`, refreshes state, surfaces server errors.
+// Resolves true when the mutation went through; false when it failed or the
+// person declined a confirmation (`fn` resolved DECLINED: nothing happened).
 export type Act = (fn: () => unknown) => Promise<boolean>;
 
 const POLL_MS = 30_000;
@@ -193,8 +196,9 @@ export default function App() {
     // refresh — so bursts of edits go out back-to-back.
     mutationQueue.current = mutation.catch(() => {});
     return mutation
-      .then(async () => {
+      .then(async (r) => {
         notePending(-1);
+        if (r === DECLINED) return false;
         await refresh();
         return true;
       })

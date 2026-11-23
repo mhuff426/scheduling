@@ -20,7 +20,7 @@ export interface User {
   vacationDays: number;
   color: string;
   // Per-employee floor (null/absent = no minimum) and ceiling (null/absent =
-  // unlimited), plus an optional personal consecutive-night cap.
+  // unlimited), plus an optional personal consecutive-night limit.
   requiredShifts?: number | null;
   maxShiftsOverride?: number | null;
   maxConsecutiveNights?: number | null;

@@ -2,7 +2,7 @@
 import assert from 'assert';
 import {
   checkEligibility, GENERATOR_POLICY, ADMIN_REASSIGN_POLICY, TRADE_POLICY,
-  scheduleHeldShifts, indexedHeldShifts, scheduleEligibility, needsConfirmation,
+  scheduleHeldShifts, indexedHeldShifts, scheduleEligibility, needsConfirmation, parseConfirmedWarnings,
 } from './eligibility.js';
 import type { DayFacts, EligibilityPolicy, HeldShifts } from './eligibility.js';
 import type { Assignment, Db, Schedule, ShiftType, User, VacationCharge } from '../shared/types.js';
@@ -49,9 +49,10 @@ for (const [name, policy] of POLICIES) {
 const mustOffOn = (affordable: boolean): DayFacts => ({
   mustOff: (d) => (d === '2099-01-10' ? { affordable } : null), isAway: () => false,
 });
-const onVacation = { eligible: false, reason: 'Ben is on vacation that day.' };
-for (const policy of [GENERATOR_POLICY, ADMIN_REASSIGN_POLICY]) {
-  assert.deepStrictEqual(check({ policy, facts: mustOffOn(true) }), onVacation, `${policy.name}: affordable must-off blocks`);
+// Blocked or warned, the must-off day is worded the same way.
+const mustOffBlocks = (date: string) => ({ eligible: false, reason: `${date} is one of Ben's must-off days.` });
+for (const [name, policy] of [['generator', GENERATOR_POLICY], ['admin reassign', ADMIN_REASSIGN_POLICY]] as const) {
+  assert.deepStrictEqual(check({ policy, facts: mustOffOn(true) }), mustOffBlocks('2099-01-10'), `${name}: affordable must-off blocks`);
 }
 for (const [name, policy] of POLICIES) {
   assert.deepStrictEqual(check({ policy, facts: mustOffOn(true), date: '2099-01-11' }), { eligible: true, warnings: [] }, `${name}: other days are fine`);
@@ -189,7 +190,7 @@ for (const [name, policy] of POLICIES) {
   }
   assert.deepStrictEqual(reasons, [
     "Ben doesn't have a role allowed for that shift.",
-    'Ben is on vacation that day.',
+    "2099-01-10 is one of Ben's must-off days.",
     "Ben hasn't started yet (starts 2099-02-01).",
     'Ben is on away time that day.',
     'Ben already works a shift that day.',
@@ -202,7 +203,7 @@ for (const [name, policy] of POLICIES) {
 // ---- a limit set to warn makes the person eligible, listing every warning ----
 {
   const warnAll: EligibilityPolicy = {
-    name: 'warn all', affordableMustOff: 'warn', unaffordableMustOff: 'warn', consecutiveNightLimit: 'warn', shiftMaximum: 'warn',
+    affordableMustOff: 'warn', unaffordableMustOff: 'warn', consecutiveNightLimit: 'warn', shiftMaximum: 'warn',
   };
   const r = check({
     policy: warnAll, person: mkUser({ maxConsecutiveNights: 1, maxShiftsOverride: 1 }), shiftType: night,
@@ -234,18 +235,26 @@ for (const [name, policy] of POLICIES) {
 }
 
 // ---- confirmation contract: a request needs confirming unless it confirmed
-// every warning kind it now triggers ----
+// every warning it now triggers, identified by its message ----
 {
-  const max = { kind: 'shift maximum' as const, message: 'm' };
-  const nights = { kind: 'consecutive-night limit' as const, message: 'n' };
-  assert.strictEqual(needsConfirmation([], undefined), false, 'no warnings, no step');
-  assert.strictEqual(needsConfirmation([max], undefined), true, 'not confirmed');
+  const max = { kind: 'shift maximum' as const, message: 'Ben is already at their maximum of 2 shifts for this schedule.' };
+  const nights = { kind: 'consecutive-night limit' as const, message: 'Ben would exceed their 1-night limit on consecutive overnight shifts.' };
+  assert.strictEqual(needsConfirmation([], []), false, 'no warnings, no step');
   assert.strictEqual(needsConfirmation([max], []), true, 'confirmed nothing');
-  assert.strictEqual(needsConfirmation([max], ['shift maximum']), false, 'confirmed');
-  assert.strictEqual(needsConfirmation([max, nights], ['shift maximum']), true, 'a new warning appeared');
-  assert.strictEqual(needsConfirmation([max], ['shift maximum', 'consecutive-night limit']), false, 'a confirmed warning went away');
-  assert.strictEqual(needsConfirmation([max], 'shift maximum'), true, 'only a list confirms');
+  assert.strictEqual(needsConfirmation([max], [max.message]), false, 'confirmed');
+  assert.strictEqual(needsConfirmation([max, nights], [max.message]), true, 'a new warning appeared');
+  assert.strictEqual(needsConfirmation([max], [max.message, nights.message]), false, 'a confirmed warning went away');
+  // A new warning of a kind already confirmed (the maximum changed since) is
+  // a different warning: refused again.
+  const newMax = { kind: 'shift maximum' as const, message: 'Ben is already at their maximum of 1 shifts for this schedule.' };
+  assert.strictEqual(needsConfirmation([newMax], [max.message]), true, 'a new warning of a confirmed kind');
+  assert.strictEqual(needsConfirmation([max], ['shift maximum']), true, 'a kind alone confirms nothing');
 }
+
+// ---- the request's `confirmedWarnings` is read once into a list of messages ----
+assert.deepStrictEqual(parseConfirmedWarnings(undefined), [], 'absent');
+assert.deepStrictEqual(parseConfirmedWarnings('a message'), [], 'only a list confirms');
+assert.deepStrictEqual(parseConfirmedWarnings(['a', 2, null, 'b']), ['a', 'b'], 'non-strings dropped');
 
 // ---- both held-shifts adapters give the same answers on the same assignments ----
 {
@@ -304,7 +313,7 @@ for (const [name, policy] of POLICIES) {
   const mustOffs = ['2099-01-05', '2099-01-06', '2099-01-07'];
 
   // 3 balance, 3 must-off days: affordable, so the admin is blocked.
-  assert.deepStrictEqual(reassign(mkDb(3, mustOffs, [sched('s1', '2099-01-01', '2099-01-31')]), '2099-01-05'), onVacation, 'affordable blocks admin');
+  assert.deepStrictEqual(reassign(mkDb(3, mustOffs, [sched('s1', '2099-01-01', '2099-01-31')]), '2099-01-05'), mustOffBlocks('2099-01-05'), 'affordable blocks admin');
   // 2 balance, 3 must-off days: unaffordable, so the admin may reassign onto any of them.
   for (const d of mustOffs)
     assert.deepStrictEqual(reassign(mkDb(2, mustOffs, [sched('s1', '2099-01-01', '2099-01-31')]), d), { eligible: true, warnings: [] }, `unaffordable ${d}`);
@@ -313,7 +322,7 @@ for (const [name, policy] of POLICIES) {
   // 3 balance, 3 must-off days, all 3 charged by this schedule -> all affordable.
   {
     const db = mkDb(3, mustOffs, [sched('s1', '2099-01-01', '2099-01-31', mustOffs.map(charge))]);
-    for (const d of mustOffs) assert.deepStrictEqual(reassign(db, d), onVacation, `own charges left out ${d}`);
+    for (const d of mustOffs) assert.deepStrictEqual(reassign(db, d), mustOffBlocks(d), `own charges left out ${d}`);
   }
   // Another schedule's charges (live balance changes) do count: 3 balance,
   // 1 charged elsewhere in 2099 -> 2 left for 3 must-off days -> unaffordable.
@@ -324,7 +333,7 @@ for (const [name, policy] of POLICIES) {
   // Must-off days outside the schedule don't count toward it.
   assert.deepStrictEqual(
     reassign(mkDb(2, [...mustOffs.slice(0, 2), '2099-03-01'], [sched('s1', '2099-01-01', '2099-01-31')]), '2099-01-05'),
-    onVacation, 'only the schedule\'s own must-off days count'
+    mustOffBlocks('2099-01-05'), 'only the schedule\'s own must-off days count'
   );
 
   // A schedule spanning two vacation years is judged per year: 2 balance in
@@ -332,7 +341,7 @@ for (const [name, policy] of POLICIES) {
   {
     const db = mkDb(2, ['2098-12-29', '2098-12-30', '2098-12-31', '2099-01-01', '2099-01-02'], [sched('s1', '2098-12-20', '2099-01-10')]);
     assert.strictEqual(reassign(db, '2098-12-30').eligible, true, '2098 unaffordable');
-    assert.deepStrictEqual(reassign(db, '2099-01-01'), onVacation, '2099 affordable');
+    assert.deepStrictEqual(reassign(db, '2099-01-01'), mustOffBlocks('2099-01-01'), '2099 affordable');
   }
 }
 
