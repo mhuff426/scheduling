@@ -128,7 +128,7 @@ function awayFixture(): Db {
 
 // ---- the user list carries each user's registration ----
 {
-  const r = project(fixture(), 'u-emp', { kind: 'users', registered: { 'u-admin': true } });
+  const r = project(fixture(), 'u-admin', { kind: 'users', registered: { 'u-admin': true } });
   assert.ok('users' in r);
   assert.deepStrictEqual(r.users.map((u) => [u.id, u.registered]), [['u-admin', true], ['u-emp', false]]);
 }
@@ -398,6 +398,49 @@ function mustOffFixture(): Db {
   const a = project(mustOffFixture(), 'u-admin', { kind: 'tab', tab: 'admin' });
   assert.ok('state' in a);
   assert.strictEqual(a.state.timeOff.length, 8);
+}
+
+// ---- an employee's copy of coworkers is id, name and colour only (#57) ----
+function coworkerFixture(): Db {
+  const db = fixture();
+  db.users.push({
+    id: 'u-co', name: 'Cal Coworker', firstName: 'Cal', lastName: 'Coworker', email: 'cal@x.test',
+    employeeId: 'E-77', roles: ['role-employee'], vacationDays: 12, color: '#333333',
+    requiredShifts: 4, maxShiftsOverride: 9, maxConsecutiveNights: 2, startDate: '2024-01-01',
+    theme: 'dark', version: 3,
+  });
+  return db;
+}
+{
+  const r = project(coworkerFixture(), 'u-emp', { kind: 'users', registered: { 'u-admin': true, 'u-co': true, 'u-emp': true } });
+  assert.ok('users' in r);
+  const byId = Object.fromEntries(r.users.map((u) => [u.id, u]));
+  assert.deepStrictEqual(byId['u-co'], { id: 'u-co', name: 'Cal Coworker', color: '#333333' });
+  assert.deepStrictEqual(byId['u-admin'], { id: 'u-admin', name: 'Ada Admin', color: '#111111' });
+}
+
+// ---- an employee's own user record is complete ----
+{
+  const db = coworkerFixture();
+  const r = project(db, 'u-emp', { kind: 'users', registered: { 'u-emp': true } });
+  assert.ok('users' in r);
+  const own = r.users.find((u) => u.id === 'u-emp');
+  assert.deepStrictEqual(own, db.users.find((u) => u.id === 'u-emp'));
+}
+
+// ---- registration status is sent only to admins ----
+{
+  const emp = project(coworkerFixture(), 'u-emp', { kind: 'users', registered: { 'u-admin': true, 'u-co': true, 'u-emp': true } });
+  assert.ok('users' in emp);
+  for (const u of emp.users) assert.ok(!('registered' in u), `no registration status for ${u.id}`);
+}
+
+// ---- an admin still sees every full user record, with registration status ----
+{
+  const db = coworkerFixture();
+  const r = project(db, 'u-admin', { kind: 'users', registered: { 'u-co': true } });
+  assert.ok('users' in r);
+  assert.deepStrictEqual(r.users, db.users.map((u) => ({ ...u, registered: u.id === 'u-co' })));
 }
 
 console.log('projection tests passed');

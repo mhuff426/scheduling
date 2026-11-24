@@ -33,7 +33,8 @@ export type Refusal = 'unauthenticated' | 'forbidden' | 'not_found';
 export type Projection =
   | { refused: Refusal }
   | { state: AppState }
-  | { users: Array<User & { registered: boolean }> };
+  // Admins get each record with `registered`; employees get no registration status.
+  | { users: User[] };
 
 /** Who is reading, resolved once per read and handed to every collection view. */
 export type ViewContext = { viewer: User; db: Db };
@@ -74,11 +75,16 @@ const ownSettlement: CollectionView<'schedules'> = (rows, { viewer }) =>
     return own;
   });
 
+// Coworkers appear by name and colour only (ADR 0002); the viewer's own record
+// stays complete. The client must treat other users' other fields as absent.
+const coworkersByName: CollectionView<'users'> = (rows, { viewer }) =>
+  rows.map((u) => (u.id === viewer.id ? u : ({ id: u.id, name: u.name, color: u.color } as User)));
+
 // What an employee may see of each collection. Every key must be listed, so a
 // new collection can't reach employees until someone decides its view.
 // Later tickets narrow these per ADR 0002.
 const EMPLOYEE_VIEWS: { [K in CollectionKey]: CollectionView<K> } = {
-  users: whole,
+  users: coworkersByName,
   roles: whole,
   shiftTypes: whole,
   settings: whole,
@@ -144,6 +150,8 @@ export function project(db: Db, viewerId: string | null, request: ReadRequest): 
     }
 
     case 'users':
+      // Registration status goes to admins only.
+      if (!isAdmin(viewer)) return { users: viewOf('users', ctx) };
       return {
         users: viewOf('users', ctx).map((u) => ({ ...u, registered: !!request.registered[u.id] })),
       };
