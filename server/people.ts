@@ -10,6 +10,7 @@
 import { newId } from './db.js';
 import { can } from './capabilities.js';
 import { ok, refuse, type CommandContext, type Outcome, type Refused } from './outcome.js';
+import { bumpVersion, staleRefusal } from './staleness.js';
 import type { Db, RoleTag, User } from '../shared/types.js';
 
 const EMPLOYEE_ROLE = 'role-employee';
@@ -80,16 +81,6 @@ const managesPeople = (u: User) => can(u, 'managePeople');
 const isLastAdmin = (db: Db, user: User) =>
   managesPeople(user) && db.users.filter(managesPeople).length === 1;
 
-// Optimistic concurrency: clients echo the `version` they read as
-// `expectedVersion`; absent, the check is skipped (curl / legacy callers).
-function staleCheck(entity: { version?: number }, expected: unknown, what: string): Refused | null {
-  if (expected === undefined || Number(expected) === (entity.version ?? 1)) return null;
-  return refuse('stale', `${what} was changed by someone else — the view has been refreshed with the latest data. Please retry.`);
-}
-const bumpVersion = (entity: { version?: number }) => {
-  entity.version = (entity.version ?? 1) + 1;
-};
-
 // A nullable count field: null/'' clears it, anything else is at least `min`.
 const countOrNull = (v: unknown, min: number) => (v === null || v === '' ? null : Math.max(min, Number(v) || min));
 
@@ -106,7 +97,7 @@ export function editPerson(db: Db, { actor }: CommandContext, input: PersonEdit)
   if (no) return no;
   const user = db.users.find((u) => u.id === input.id);
   if (!user) return refuse('not_found', 'User not found.');
-  const stale = staleCheck(user, input.expectedVersion, `${user.name}'s profile`);
+  const stale = staleRefusal(user, input.expectedVersion, `${user.name}'s profile`);
   if (stale) return stale;
   let nameChanged = false;
   if (input.firstName !== undefined) {
@@ -194,7 +185,7 @@ export function renameRole(
   const role = db.roles.find((r) => r.id === input.id);
   if (!role) return refuse('not_found', 'Role not found.');
   if (role.system) return refuse('invalid', 'System roles cannot be renamed.');
-  const stale = staleCheck(role, input.expectedVersion, `The role "${role.name}"`);
+  const stale = staleRefusal(role, input.expectedVersion, `The role "${role.name}"`);
   if (stale) return stale;
   const name = checkRoleName(db, input.name, role.id);
   if (typeof name !== 'string') return name;
