@@ -88,14 +88,15 @@ export default function App() {
     }
     const caps: Capability[] = viewer.capabilities;
     let tabState;
-    if (tabRes.status === 'fulfilled') tabState = tabRes.value;
-    else if (tabRef.current === 'admin' && !caps.includes('seeEveryonesRecords')) {
-      // The viewer lost the Admin tab's capability (role edited elsewhere), so
-      // the server refused it: move them to the schedule and fetch that.
+    if (tabRef.current === 'admin' && !caps.includes('seeEveryonesRecords')) {
+      // The only place the UI snaps to the schedule on a capability change:
+      // the viewer lost the Admin tab's capability (role edited elsewhere), so
+      // move them to the schedule and fetch that.
       tabRef.current = 'schedule';
       setTab('schedule');
       tabState = await api.getTab('schedule');
-    } else throw tabRes.reason;
+    } else if (tabRes.status === 'fulfilled') tabState = tabRes.value;
+    else throw tabRes.reason;
     const { notifications } = await api.getNotifications();
     const merged: AppState = { ...tabState, users, notifications };
     // A newer refresh started while this one was in flight — drop this result.
@@ -161,16 +162,6 @@ export default function App() {
     document.documentElement.setAttribute('data-theme', t);
   }, [db, currentUserId]);
 
-  // If the viewer loses the capability behind the Admin tab while on it (role
-  // edited elsewhere), the next poll snaps them back to the schedule.
-  useEffect(() => {
-    if (!db) return;
-    if (tab === 'admin' && !capabilities.includes('seeEveryonesRecords')) {
-      tabRef.current = 'schedule';
-      setTab('schedule');
-    }
-  }, [db, capabilities, tab]);
-
   // Invite-link landing page: full takeover, regardless of auth state.
   if (isRegisterRoute()) return <Register />;
 
@@ -204,7 +195,7 @@ export default function App() {
   const currentUser = db.users.find((u) => u.id === currentUserId) || db.users[0];
   const can = (c: Capability) => capabilities.includes(c);
   // The Admin tab's data is the projection's admin view.
-  const seesAdminTab = can('seeEveryonesRecords');
+  const seesEveryonesRecords = can('seeEveryonesRecords');
 
   // Wraps a mutation: runs it (serialized through the queue), refreshes
   // state, surfaces server errors. On failure it STILL refreshes — conflict
@@ -240,7 +231,7 @@ export default function App() {
     { id: 'schedule', label: 'Schedule' },
     { id: 'preferences', label: 'Preferences' },
     { id: 'trades', label: 'Trades', badge: unread },
-    ...(seesAdminTab ? [{ id: 'admin', label: 'Admin' }] : []),
+    ...(seesEveryonesRecords ? [{ id: 'admin', label: 'Admin' }] : []),
   ];
 
   const openTab = (id: string) => {
@@ -333,7 +324,7 @@ export default function App() {
         {tab === 'schedule' && <ScheduleView db={db} currentUser={currentUser} act={act} can={can} />}
         {tab === 'preferences' && <Preferences db={db} currentUser={currentUser} act={act} />}
         {tab === 'trades' && <Trades db={db} currentUser={currentUser} act={act} />}
-        {tab === 'admin' && seesAdminTab && <Admin db={db} act={act} />}
+        {tab === 'admin' && seesEveryonesRecords && <Admin db={db} act={act} />}
       </main>
     </div>
   );
