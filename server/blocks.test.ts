@@ -1,7 +1,7 @@
 // Smoke test: tsx server/blocks.test.ts
 import assert from 'assert';
 import {
-  UNITS, todayYmd, addDaysLocal, addMonthsLocal, isValidCadence,
+  UNITS, todayYmd, isDate, addDaysLocal, addMonthsLocal, isValidCadence,
   blockStart, blockRange, currentBlockIndex, upcomingBlocks,
 } from '../shared/blocks.js';
 import type { Cadence } from '../shared/types.js';
@@ -11,6 +11,11 @@ assert.deepStrictEqual(UNITS, ['days', 'weeks', 'months', 'quarters', 'years'], 
 
 // ---- todayYmd returns a local YYYY-MM-DD ----
 assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(todayYmd()), 'todayYmd is YYYY-MM-DD');
+
+// ---- isDate: a YYYY-MM-DD string, nothing else ----
+assert.strictEqual(isDate('2026-07-06'), true, 'YYYY-MM-DD is a date');
+for (const bad of ['2026-7-6', '07/06/2026', '', null, undefined, 20260706, '2026-07-06T00:00'])
+  assert.strictEqual(isDate(bad), false, `${String(bad)} is not a date`);
 
 // ===== addDaysLocal =====
 assert.strictEqual(addDaysLocal('2026-07-06', 14), '2026-07-20', 'add 14 days');

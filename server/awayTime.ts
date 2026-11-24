@@ -4,14 +4,13 @@ import { newId } from './db.js';
 import { can } from './capabilities.js';
 import { ok, refuse, type CommandContext, type Outcome } from './outcome.js';
 import { staleRefusal, bumpVersion } from './staleness.js';
+import { isDate } from '../shared/blocks.js';
 import type { AwayTime, Db } from '../shared/types.js';
 
 const FORBIDDEN = 'Admin access required.';
 const NOT_FOUND = 'Away time not found.';
 const BAD_DATES = 'Away time needs a valid start and end date.';
 const END_BEFORE_START = 'The away end date must be on or after the start date.';
-
-const isDate = (s: unknown): s is string => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
 // Optional free-text fields: `label` is shown to the employee (calendar chip,
 // away card); `memo` (the away memo) is an admin-only note. Trimmed and cut to
