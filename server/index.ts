@@ -16,6 +16,7 @@ import {
   setExtraElection, tradeOptions, swapPartners,
 } from './trades.js';
 import { runCommand, mapOutcome, type Command, type CommandContext, type Outcome } from './outcome.js';
+import { updateSettings } from './cadence.js';
 import { buildIcs } from './ics.js';
 import { requestMustOff, withdrawMustOff } from './mustOff.js';
 import { project, tradeSeenBy, type ReadRequest, type Refusal } from './projection.js';
@@ -591,37 +592,8 @@ app.delete('/api/shift-types/:id', handle(async (req, res) => {
 }));
 
 // ---- settings ----
-app.put('/api/settings', handle(async (req, res) => {
-  const settings = await withMutation((db) => {
-    requireCapability(db, req, 'configureScheduling');
-    checkVersion(db.settings, req.body.expectedVersion, 'Settings');
-    const { maxVacationPerDay } = req.body;
-    if (maxVacationPerDay !== undefined)
-      db.settings.maxVacationPerDay = Math.max(1, Number(maxVacationPerDay) || 1);
-    if (req.body.holidaysRequiredPerYear !== undefined)
-      db.settings.holidaysRequiredPerYear = Math.max(0, Number(req.body.holidaysRequiredPerYear) || 0);
-    if (req.body.cadence !== undefined) {
-      const c = req.body.cadence;
-      if (!isValidCadence(c))
-        throw new HttpError(400, 'Invalid cadence: need an anchor date, a positive whole number, and a unit.');
-      const existing = db.settings.cadence;
-      const changed = !existing
-        || existing.anchorDate !== c.anchorDate
-        || existing.lengthUnit !== c.lengthUnit
-        || existing.lengthValue !== c.lengthValue;
-      // Changing an existing cadence requires a strictly-future anchor; the very
-      // first setup may start today or later.
-      if (changed && existing && c.anchorDate <= todayYmd())
-        throw new HttpError(400, 'A new schedule start date must be in the future.');
-      if (changed && !existing && c.anchorDate < todayYmd())
-        throw new HttpError(400, 'The schedule start date cannot be in the past.');
-      db.settings.cadence = { anchorDate: c.anchorDate, lengthUnit: c.lengthUnit, lengthValue: c.lengthValue };
-    }
-    bumpVersion(db.settings);
-    return db.settings;
-  });
-  res.json(settings);
-}));
+app.put('/api/settings', handle((req, res) =>
+  sendCommand(req, res, (db, ctx) => updateSettings(db, ctx, req.body ?? {}))));
 
 // ---- time off requests ----
 app.post('/api/timeoff', handle((req, res) =>

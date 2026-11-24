@@ -13,7 +13,7 @@
     "db:down": "docker compose down",
     "db:nuke": "docker compose down -v",
     "db:import": "tsx scripts/import-json-to-mysql.ts",
-    "test": "tsx server/outcome.test.ts && tsx server/eligibility.test.ts && tsx server/scheduler.test.ts && tsx server/trades.test.ts && tsx server/mustOff.test.ts && tsx server/schema.test.ts && tsx server/blocks.test.ts && tsx shared/holidays.test.ts && tsx shared/settlement.test.ts && tsx server/auth.test.ts && tsx server/projection.test.ts",
+    "test": "tsx server/outcome.test.ts && tsx server/eligibility.test.ts && tsx server/scheduler.test.ts && tsx server/trades.test.ts && tsx server/mustOff.test.ts && tsx server/schema.test.ts && tsx server/blocks.test.ts && tsx shared/holidays.test.ts && tsx shared/settlement.test.ts && tsx server/auth.test.ts && tsx server/projection.test.ts && tsx server/cadence.test.ts",
     "test:e2e": "node --loader tsx/esm ./node_modules/@playwright/test/cli.js test --config=playwright.config.cjs"
   },
   "dependencies": {
