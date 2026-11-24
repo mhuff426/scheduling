@@ -174,7 +174,8 @@ export default function ScheduleView({ db, currentUser, act, isAdmin }: Props) {
         )}
       </div>
 
-      {schedule.warnings?.length > 0 && isAdmin && (
+      {/* Warnings are admin-only; an employee's schedules don't carry them. */}
+      {isAdmin && schedule.warnings && schedule.warnings.length > 0 && (
         <details className="warnings">
           <summary>⚠️ {schedule.warnings.length} scheduling warning{schedule.warnings.length > 1 ? 's' : ''}</summary>
           <ul>{schedule.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
