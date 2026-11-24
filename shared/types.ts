@@ -6,6 +6,8 @@
 // `version` fields support optimistic concurrency: clients echo the version
 // they read as `expectedVersion` on updates; the server rejects (409) when it
 // no longer matches, and bumps it on every successful edit.
+import type { EligibilityWarning } from './confirmation.js';
+
 export interface RoleTag { id: string; name: string; system?: boolean; version?: number; }
 export type Frequency = 'daily' | 'weekly';
 export type TimeOffType = 'vacation' | 'preferred';
@@ -104,6 +106,19 @@ export interface Slot {
   date: string;
   shiftTypeId: string;
 }
+
+// Trade picker payloads (server/trades.ts → Trades screen). `warnings` are
+// what taking that option would ask the viewer to confirm (their own must-off
+// day); the server works them out, the client never does.
+export type SwapOption = Slot & { warnings: EligibilityWarning[] };
+// A giveaway the viewer may claim only after confirming warnings is ok, and
+// carries them; one with a blocking reason isn't.
+export interface ClaimOption { ok: boolean; reason: string | null; warnings: EligibilityWarning[] }
+export interface TradeOptions {
+  respond: Record<string, SwapOption[]>;
+  claim: Record<string, ClaimOption>;
+}
+export interface SwapPartner { userId: string; shifts: SwapOption[] }
 
 export interface Assignment extends Slot {
   userId: string;

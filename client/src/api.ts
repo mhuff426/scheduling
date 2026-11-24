@@ -23,6 +23,11 @@ async function request(method: string, url: string, body?: any): Promise<any> {
   return data;
 }
 
+// A POST the server may refuse until the person confirms its eligibility
+// warnings: asks them, then resends with the warnings they confirmed.
+const confirmablePost = (url: string, body: any) =>
+  withConfirmedWarnings((confirmedWarnings) => request('POST', url, { ...body, confirmedWarnings }));
+
 export const api = {
   getState: () => request('GET', '/api/state'),
   addUser: (u: any) => request('POST', '/api/users', u),
@@ -50,22 +55,13 @@ export const api = {
     request('PUT', `/api/holidays/${id}`, h).then((r) => { noteVersion('holidays', id, r.version); return r; }),
   deleteHoliday: (id: string) => request('DELETE', `/api/holidays/${id}`),
   createSchedule: (s: any) => request('POST', '/api/schedules', s),
-  reassign: (scheduleId: string, move: any) =>
-    withConfirmedWarnings((confirmedWarnings) =>
-      request('POST', `/api/schedules/${scheduleId}/reassign`, { ...move, confirmedWarnings })),
-  createTrade: (t: any) =>
-    withConfirmedWarnings((confirmedWarnings) => request('POST', '/api/trades', { ...t, confirmedWarnings })),
-  respondTrade: (id: string, body: any) =>
-    withConfirmedWarnings((confirmedWarnings) =>
-      request('POST', `/api/trades/${id}/respond`, { ...body, confirmedWarnings })),
+  reassign: (scheduleId: string, move: any) => confirmablePost(`/api/schedules/${scheduleId}/reassign`, move),
+  createTrade: (t: any) => confirmablePost('/api/trades', t),
+  respondTrade: (id: string, body: any) => confirmablePost(`/api/trades/${id}/respond`, body),
   withdrawResponse: (id: string, body: any) => request('POST', `/api/trades/${id}/withdraw`, body),
-  acceptTrade: (id: string, body: any) =>
-    withConfirmedWarnings((confirmedWarnings) =>
-      request('POST', `/api/trades/${id}/accept`, { ...body, confirmedWarnings })),
+  acceptTrade: (id: string, body: any) => confirmablePost(`/api/trades/${id}/accept`, body),
   rejectTrade: (id: string, body: any) => request('POST', `/api/trades/${id}/reject`, body),
-  claimTrade: (id: string, body: any) =>
-    withConfirmedWarnings((confirmedWarnings) =>
-      request('POST', `/api/trades/${id}/claim`, { ...body, confirmedWarnings })),
+  claimTrade: (id: string, body: any) => confirmablePost(`/api/trades/${id}/claim`, body),
   cancelTrade: (id: string, body: any) => request('POST', `/api/trades/${id}/cancel`, body),
   // Auth
   me: () => request('GET', '/api/auth/me').catch(() => null),
