@@ -22,6 +22,7 @@ import { createHoliday, editHoliday, deleteHoliday } from './holidays.js';
 import { createAwayTime, editAwayTime, deleteAwayTime } from './awayTime.js';
 import { buildIcs } from './ics.js';
 import { requestMustOff, withdrawMustOff } from './mustOff.js';
+import { buildSchedule } from './schedules.js';
 import { project, tradeSeenBy, type ReadRequest, type Refusal } from './projection.js';
 import { can, capabilitiesOf, type Capability } from './capabilities.js';
 import { isValidCadence, blockRange, currentBlockIndex, todayYmd } from '../shared/blocks.js';
@@ -561,54 +562,8 @@ app.delete('/api/holidays/:id', handle((req, res) =>
   sendCommand(req, res, (db, ctx) => deleteHoliday(db, ctx, { id: req.params.id }))));
 
 // ---- schedules ----
-app.post('/api/schedules', handle(async (req, res) => {
-  const schedule = await withMutation((db) => {
-    requireCapability(db, req, 'buildSchedules');
-    const cadence = db.settings.cadence;
-    if (!cadence) throw new HttpError(400, 'Configure a schedule cadence in Settings first.');
-    if (db.shiftTypes.length === 0)
-      throw new HttpError(400, 'Configure at least one shift type first.');
-    if (db.users.length === 0)
-      throw new HttpError(400, 'Add employees to the roster first.');
-    const blockIndex = Number(req.body.blockIndex);
-    if (!Number.isInteger(blockIndex) || blockIndex < 0)
-      throw new HttpError(400, 'Pick a schedule block.');
-    // Only the offered window (current block + next 4) may be generated.
-    const firstBlock = currentBlockIndex(cadence, todayYmd());
-    if (blockIndex < firstBlock || blockIndex > firstBlock + 4)
-      throw new HttpError(400, 'That block is outside the selectable window.');
-    const { startDate, endDate } = blockRange(cadence, blockIndex);
-    // Fresh-state check under the lock (plus a UNIQUE(start_date) backstop in
-    // the schema) — two admins generating the same block can't both win.
-    if (db.schedules.some((s) => s.startDate === startDate))
-      throw new HttpError(400, 'A schedule for this block already exists — delete it first to regenerate.');
-
-    const requested = Array.isArray(req.body.userIds) ? req.body.userIds : null;
-    const userIds = (requested || db.users.map((u) => u.id)).filter((id: string) =>
-      db.users.some((u) => u.id === id)
-    );
-    if (userIds.length === 0)
-      throw new HttpError(400, 'Include at least one person in the block.');
-    const { nextRotationCursor, ...result } = generateSchedule(db, {
-      startDate,
-      endDate,
-      userIds,
-    });
-    const schedule = {
-      id: newId('sch'),
-      startDate,
-      endDate,
-      userIds,
-      createdAt: new Date().toISOString(),
-      extraElections: {},
-      ...result,
-    };
-    db.schedules.push(schedule);
-    db.meta.rotationCursor = nextRotationCursor;
-    return schedule;
-  });
-  res.json(schedule);
-}));
+app.post('/api/schedules', handle((req, res) =>
+  sendCommand(req, res, (db, ctx) => buildSchedule(db, ctx, req.body))));
 
 // Manual assignment editing: fill an open slot, hand a shift to someone else,
 // or unassign a shift back to open. Hard rules (one shift per day, 8h rest)
