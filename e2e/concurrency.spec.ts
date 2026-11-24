@@ -44,7 +44,8 @@ const post = (request, url: string, data: unknown) => request.post(url, { data }
 // the first admin (u-admin) — fine for reset/admin/system-level calls. To act
 // as a different user we mint a real session via /api/dev/impersonate on a
 // fresh APIRequestContext (its own cookie jar). Contexts must be created INSIDE
-// each test, after the beforeEach reset wipes the sessions table.
+// each test, after the beforeEach reset wipes the sessions table. Data reads
+// use an impersonated admin session, since reads refuse anyone not signed in.
 const impersonate = async (playwright, userId: string) => {
   const ctx = await playwright.request.newContext({ baseURL: 'http://localhost:5173' });
   const r = await ctx.post('/api/dev/impersonate', { data: { userId } });
@@ -108,7 +109,7 @@ test('duplicate open trade for the same shift is rejected', async ({ request }) 
   expect((await dup.json()).error).toContain('already have an open trade');
 });
 
-test('entity edits are version-checked: stale writes get 409 version_conflict', async ({ request }) => {
+test('entity edits are version-checked: stale writes get 409 version_conflict', async ({ request, playwright }) => {
   const first = await request.put('/api/users/u-bea', {
     data: { vacationDays: 12, expectedVersion: 1 },
   });
@@ -123,8 +124,10 @@ test('entity edits are version-checked: stale writes get 409 version_conflict', 
   const body = await stale.json();
   expect(body.code).toBe('version_conflict');
 
-  const { users } = await (await request.get('/api/users')).json();
+  const admin = await impersonate(playwright, 'u-admin');
+  const { users } = await (await admin.get('/api/users')).json();
   expect(users.find((u) => u.id === 'u-bea').vacationDays).toBe(12);
+  await admin.dispose();
 });
 
 test('the per-day vacation cap holds under sequential and stale submissions', async ({ request, playwright }) => {
@@ -154,14 +157,17 @@ test('parallel writes are serialized — no lost updates', async ({ request, pla
   );
   for (const r of results) expect(r.ok()).toBeTruthy();
 
-  const state = await (await request.get('/api/state')).json();
+  const admin = await impersonate(playwright, 'u-admin');
+  const state = await (await admin.get('/api/state')).json();
   const mine = state.timeOff.filter((t) => t.userId === 'u-cy');
   expect(mine.length).toBe(10);
 
   await cy.dispose();
+  await admin.dispose();
 });
 
-test('tab payloads carry only their collections; users/notifications have their own endpoints', async ({ request }) => {
+test('tab payloads carry only their collections; users/notifications have their own endpoints', async ({ playwright }) => {
+  const request = await impersonate(playwright, 'u-admin');
   const trades = await (await request.get('/api/tabs/trades')).json();
   expect(trades.trades).toBeDefined();
   expect(trades.schedules.length).toBe(1);
@@ -182,4 +188,5 @@ test('tab payloads carry only their collections; users/notifications have their 
   expect(Array.isArray(notifications)).toBeTruthy();
 
   expect((await request.get('/api/tabs/bogus')).status()).toBe(404);
+  await request.dispose();
 });

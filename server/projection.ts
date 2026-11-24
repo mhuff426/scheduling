@@ -1,0 +1,106 @@
+// The read projection (ADR 0002): every data read goes through `project`,
+// which takes the data, the viewer (or no viewer) and what was asked for, and
+// returns what that viewer may see. Read routes are thin adapters over it.
+// No HTTP here: refusals are values the route turns into status codes.
+//
+// Extending it: what an employee may see of each collection lives in
+// EMPLOYEE_VIEWS, one function per collection. A collection's view takes the
+// rows and the viewer context and returns the rows that viewer may see.
+// Admins see every collection whole.
+import type { AppState, Db, User } from '../shared/types.js';
+import type { CollectionKey } from './mysql.js';
+import { preferenceStandings } from './scheduler.js';
+import { DEFAULT_DATA } from './db.js';
+
+export const TAB_KEYS = {
+  schedule: ['schedules', 'shiftTypes', 'holidays', 'trades', 'settings'],
+  preferences: ['timeOff', 'awayTime', 'holidays', 'settings', 'schedules'],
+  trades: ['schedules', 'trades', 'shiftTypes'],
+  admin: ['roles', 'shiftTypes', 'settings', 'timeOff', 'schedules', 'awayTime', 'holidays'],
+} satisfies Record<string, CollectionKey[]>;
+
+export type TabName = keyof typeof TAB_KEYS;
+
+export type ReadRequest =
+  | { kind: 'state' }
+  | { kind: 'tab'; tab: string }
+  // `registered` (from the credential store, not the Db) is merged into each user record.
+  | { kind: 'users'; registered: Record<string, boolean> };
+
+export type Refusal = 'unauthenticated' | 'forbidden' | 'not_found';
+
+export type Projection =
+  | { refused: Refusal }
+  | { state: AppState }
+  | { users: Array<User & { registered: boolean }> };
+
+/** Who is reading, resolved once per read and handed to every collection view. */
+export type ViewContext = { viewer: User; db: Db };
+
+type CollectionView<K extends CollectionKey> = (rows: Db[K], ctx: ViewContext) => Db[K];
+
+const whole = <T,>(rows: T): T => rows;
+
+// What an employee may see of each collection. Every key must be listed, so a
+// new collection can't reach employees until someone decides its view.
+// Later tickets narrow these per ADR 0002.
+const EMPLOYEE_VIEWS: { [K in CollectionKey]: CollectionView<K> } = {
+  users: whole,
+  roles: whole,
+  shiftTypes: whole,
+  settings: whole,
+  timeOff: whole,
+  schedules: whole,
+  trades: whole,
+  notifications: whole,
+  awayTime: whole,
+  holidays: whole,
+  meta: whole,
+};
+
+// Temporary admin check until the capability module (#53 slice 3) exists.
+const isAdmin = (u: User) => (u.roles || []).includes('role-admin');
+
+function viewOf<K extends CollectionKey>(key: K, ctx: ViewContext): Db[K] {
+  if (isAdmin(ctx.viewer)) return ctx.db[key];
+  return EMPLOYEE_VIEWS[key](ctx.db[key], ctx);
+}
+
+// Tab responses keep the full AppState shape (components index collections
+// without guards); unrequested keys are empty/default.
+function emptyState(): AppState {
+  return {
+    users: [], roles: [], shiftTypes: [], timeOff: [], schedules: [],
+    trades: [], notifications: [], awayTime: [], holidays: [],
+    settings: structuredClone(DEFAULT_DATA.settings),
+    meta: { rotationCursor: 0 },
+  };
+}
+
+const isTab = (t: string): t is TabName => Object.prototype.hasOwnProperty.call(TAB_KEYS, t);
+
+export function project(db: Db, viewerId: string | null, request: ReadRequest): Projection {
+  const viewer = viewerId ? db.users.find((u) => u.id === viewerId) : undefined;
+  if (!viewer) return { refused: 'unauthenticated' };
+  const ctx: ViewContext = { viewer, db };
+
+  switch (request.kind) {
+    case 'state':
+      if (!isAdmin(viewer)) return { refused: 'forbidden' };
+      return { state: { ...db, preferenceStandings: preferenceStandings(db) } };
+
+    case 'tab': {
+      if (!isTab(request.tab)) return { refused: 'not_found' };
+      if (request.tab === 'admin' && !isAdmin(viewer)) return { refused: 'forbidden' };
+      const out = emptyState();
+      for (const k of TAB_KEYS[request.tab] as CollectionKey[]) (out as any)[k] = viewOf(k, ctx);
+      if (request.tab === 'admin') out.preferenceStandings = preferenceStandings(db);
+      return { state: out };
+    }
+
+    case 'users':
+      return {
+        users: viewOf('users', ctx).map((u) => ({ ...u, registered: !!request.registered[u.id] })),
+      };
+  }
+}
