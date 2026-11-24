@@ -2,7 +2,7 @@
 // What a viewer receives for each read (ADR 0002), against an in-memory Db.
 import assert from 'assert';
 import { project } from './projection.js';
-import type { Db } from '../shared/types.js';
+import type { Db, Trade } from '../shared/types.js';
 
 function fixture(): Db {
   return {
@@ -156,6 +156,82 @@ function awayFixture(): Db {
   db.users.find((u) => u.id === 'u-admin')!.roles = ['role-employee'];
   assert.deepStrictEqual(project(db, 'u-admin', { kind: 'state' }), { refused: 'forbidden' });
   assert.deepStrictEqual(project(db, 'u-admin', { kind: 'tab', tab: 'admin' }), { refused: 'forbidden' });
+}
+
+// ---- trades: an employee sees the trades open to them (ADR 0002) ----
+// Eve is the viewer; Bo and Cy are coworkers.
+function tradeFixture(): Db {
+  const db = fixture();
+  db.users.push(
+    { id: 'u-bo', name: 'Bo Coworker', firstName: 'Bo', lastName: 'Coworker', email: 'bo@x.test', roles: ['role-employee'], vacationDays: 10, color: '#333333', requiredShifts: null },
+    { id: 'u-cy', name: 'Cy Coworker', firstName: 'Cy', lastName: 'Coworker', email: 'cy@x.test', roles: ['role-employee'], vacationDays: 10, color: '#444444', requiredShifts: null },
+  );
+  const slot = { date: '2026-12-20', shiftTypeId: 'st-day' };
+  const trade = (id: string, type: Trade['type'], status: Trade['status'], fromUserId: string, more: Partial<Trade> = {}): Trade => ({
+    id, scheduleId: 's1', type, status, fromUserId, offered: slot, toUserId: null, requested: null,
+    responses: [], claimedBy: null, createdAt: '2026-11-01T00:00:00Z', resolvedAt: status === 'open' ? null : '2026-11-02T00:00:00Z', ...more,
+  });
+  const response = (userId: string) => ({ userId, date: '2026-12-21', shiftTypeId: 'st-day', at: '2026-11-01T01:00:00Z' });
+  db.trades = [
+    // Eve offered these, whatever became of them.
+    trade('mine-open', 'open', 'open', 'u-emp'),
+    trade('mine-direct-rejected', 'direct', 'rejected', 'u-emp', { toUserId: 'u-bo', requested: slot }),
+    trade('mine-giveaway-cancelled', 'giveaway', 'cancelled', 'u-emp'),
+    // Eve was offered this direct trade, later completed.
+    trade('to-me-completed', 'direct', 'completed', 'u-bo', { toUserId: 'u-emp', requested: slot }),
+    // Eve claimed this giveaway.
+    trade('claimed-by-me', 'giveaway', 'completed', 'u-bo', { claimedBy: 'u-emp' }),
+    // Eve offered a shift in reply to this open trade, which then expired.
+    trade('responded-expired', 'open', 'expired', 'u-cy', { responses: [response('u-emp')] }),
+    // Coworkers' open trades and giveaways that are still open.
+    trade('cw-open', 'open', 'open', 'u-bo', { responses: [response('u-cy')] }),
+    trade('cw-giveaway', 'giveaway', 'open', 'u-cy'),
+    // Hidden: direct trades between two other people, open or not.
+    trade('cw-direct-open', 'direct', 'open', 'u-bo', { toUserId: 'u-cy', requested: slot }),
+    trade('cw-direct-completed', 'direct', 'completed', 'u-cy', { toUserId: 'u-bo', requested: slot }),
+    // Hidden: coworkers' finished trades.
+    trade('cw-open-completed', 'open', 'completed', 'u-bo', { responses: [response('u-cy')] }),
+    trade('cw-giveaway-claimed', 'giveaway', 'completed', 'u-bo', { claimedBy: 'u-cy' }),
+    trade('cw-giveaway-expired', 'giveaway', 'expired', 'u-cy'),
+    trade('cw-open-cancelled', 'open', 'cancelled', 'u-cy'),
+  ];
+  return db;
+}
+const tradeIds = (r: ReturnType<typeof project>) => {
+  assert.ok('state' in r);
+  return r.state.trades.map((t) => t.id).sort();
+};
+const MY_TRADES = ['mine-open', 'mine-direct-rejected', 'mine-giveaway-cancelled', 'to-me-completed', 'claimed-by-me', 'responded-expired'];
+
+// ---- an employee sees every trade they offered, were offered or claimed, whatever its status ----
+{
+  for (const tab of ['trades', 'schedule']) {
+    const ids = tradeIds(project(tradeFixture(), 'u-emp', { kind: 'tab', tab }));
+    for (const id of MY_TRADES) assert.ok(ids.includes(id), `${tab}: ${id} visible`);
+  }
+}
+
+// ---- an employee sees coworkers' open trades and giveaways that are still open ----
+{
+  const ids = tradeIds(project(tradeFixture(), 'u-emp', { kind: 'tab', tab: 'trades' }));
+  assert.ok(ids.includes('cw-open'), 'coworker open trade visible');
+  assert.ok(ids.includes('cw-giveaway'), 'coworker giveaway visible');
+}
+
+// ---- an employee doesn't see direct trades between two other people, or coworkers' finished trades ----
+{
+  for (const tab of ['trades', 'schedule']) {
+    const ids = tradeIds(project(tradeFixture(), 'u-emp', { kind: 'tab', tab }));
+    assert.deepStrictEqual(ids, [...MY_TRADES, 'cw-open', 'cw-giveaway'].sort(), tab);
+  }
+}
+
+// ---- an admin still sees every trade ----
+{
+  for (const tab of ['trades', 'schedule']) {
+    assert.strictEqual(tradeIds(project(tradeFixture(), 'u-admin', { kind: 'tab', tab })).length, 14, tab);
+  }
+  assert.strictEqual(tradeIds(project(tradeFixture(), 'u-admin', { kind: 'state' })).length, 14, 'full dump');
 }
 
 console.log('projection tests passed');
