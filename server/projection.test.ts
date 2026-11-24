@@ -3,6 +3,7 @@
 import assert from 'assert';
 import { project } from './projection.js';
 import type { Db, Trade } from '../shared/types.js';
+import { extraDays, vacationCharged, yearBalance } from '../shared/settlement.js';
 
 function fixture(): Db {
   return {
@@ -232,6 +233,117 @@ const MY_TRADES = ['mine-open', 'mine-direct-rejected', 'mine-giveaway-cancelled
     assert.strictEqual(tradeIds(project(tradeFixture(), 'u-admin', { kind: 'tab', tab })).length, 14, tab);
   }
   assert.strictEqual(tradeIds(project(tradeFixture(), 'u-admin', { kind: 'state' })).length, 14, 'full dump');
+}
+
+// ---- schedule settlement (#58): a fixture with a settled schedule and a coworker ----
+function settledFixture(): Db {
+  const db = fixture();
+  db.users.push({ id: 'u-co', name: 'Cal Coworker', firstName: 'Cal', lastName: 'Coworker', email: 'cal@x.test', roles: ['role-employee'], vacationDays: 12, color: '#333333', requiredShifts: 2 });
+  db.users[1].requiredShifts = 2;
+  db.shiftTypes = [{ id: 'st-day', name: 'Day' } as any];
+  db.schedules = [{
+    id: 'sch-1', createdAt: '2026-11-01T00:00:00Z',
+    startDate: '2026-12-28', endDate: '2027-01-03',
+    userIds: ['u-admin', 'u-emp', 'u-co'],
+    assignments: [
+      { userId: 'u-emp', date: '2026-12-28', shiftTypeId: 'st-day' },
+      { userId: 'u-emp', date: '2026-12-29', shiftTypeId: 'st-day' },
+      { userId: 'u-emp', date: '2027-01-02', shiftTypeId: 'st-day' },
+      { userId: 'u-co', date: '2026-12-30', shiftTypeId: 'st-day' },
+    ],
+    unfilled: [{ date: '2026-12-31', shiftTypeId: 'st-day' }],
+    counts: { 'u-emp': 3, 'u-co': 1 },
+    warnings: ['Cal Coworker is below required shifts'],
+    vacationCharges: [
+      { userId: 'u-emp', date: '2027-01-01', cause: 'shortfall' },
+      { userId: 'u-co', date: '2026-12-31', cause: 'shortfall' },
+    ],
+    extraElections: {
+      'u-emp': { vacationByYear: { '2027': 1 }, incentive: 1 },
+      'u-co': { vacationByYear: { '2026': 2 }, incentive: 0 },
+    },
+    preferenceStats: { asks: { 'u-emp': 1, 'u-co': 3 }, median: 2 },
+  }];
+  return db;
+}
+
+// ---- an employee's schedules keep dates, people, assignments and unfilled slots ----
+{
+  for (const tab of ['schedule', 'preferences', 'trades']) {
+    const r = project(settledFixture(), 'u-emp', { kind: 'tab', tab });
+    assert.ok('state' in r, tab);
+    const [s] = r.state.schedules;
+    assert.strictEqual(s.id, 'sch-1', tab);
+    assert.strictEqual(s.startDate, '2026-12-28', tab);
+    assert.strictEqual(s.endDate, '2027-01-03', tab);
+    assert.deepStrictEqual(s.userIds, ['u-admin', 'u-emp', 'u-co'], tab);
+    assert.strictEqual(s.assignments.length, 4, `${tab}: coworkers' assignments too`);
+    assert.deepStrictEqual(s.unfilled, [{ date: '2026-12-31', shiftTypeId: 'st-day' }], tab);
+  }
+}
+
+// ---- an employee's schedules carry only their own vacation charges and extra-day election ----
+{
+  const r = project(settledFixture(), 'u-emp', { kind: 'tab', tab: 'schedule' });
+  assert.ok('state' in r);
+  const [s] = r.state.schedules;
+  assert.deepStrictEqual(s.vacationCharges, [{ userId: 'u-emp', date: '2027-01-01', cause: 'shortfall' }]);
+  assert.deepStrictEqual(s.extraElections, { 'u-emp': { vacationByYear: { '2027': 1 }, incentive: 1 } });
+}
+
+// ---- an employee's schedules carry no warnings, counts or preference stats ----
+{
+  for (const tab of ['schedule', 'preferences', 'trades']) {
+    const r = project(settledFixture(), 'u-emp', { kind: 'tab', tab });
+    assert.ok('state' in r, tab);
+    const [s] = r.state.schedules;
+    assert.ok(!('warnings' in s), `${tab}: no warnings`);
+    assert.ok(!('counts' in s), `${tab}: no counts`);
+    assert.ok(!('preferenceStats' in s), `${tab}: no preference stats`);
+  }
+}
+
+// ---- an employee's own year balance and extra-day election panel still work from their copy ----
+{
+  const r = project(settledFixture(), 'u-emp', { kind: 'tab', tab: 'preferences' });
+  assert.ok('state' in r);
+  const eve = settledFixture().users.find((u) => u.id === 'u-emp')!;
+  // 10 allowance; 2027: one charge used, one day elected as vacation.
+  assert.deepStrictEqual(yearBalance(r.state, eve, 2027), { used: 1, earned: 1, balance: 10 });
+  assert.deepStrictEqual(yearBalance(r.state, eve, 2026), { used: 0, earned: 0, balance: 10 });
+  const [s] = r.state.schedules;
+  const data = { shiftTypes: settledFixture().shiftTypes };
+  // 3 counting shifts + 1 charge − 2 required.
+  assert.strictEqual(extraDays(data, s, eve), 2);
+  assert.strictEqual(vacationCharged(s, 'u-emp'), 1);
+  assert.deepStrictEqual(s.extraElections?.['u-emp'], { vacationByYear: { '2027': 1 }, incentive: 1 });
+}
+
+// ---- an employee without an election or charges gets an empty settlement, not someone else's ----
+{
+  const db = settledFixture();
+  db.users[0].roles = ['role-employee']; // Ada as an employee: settled nothing on sch-1
+  const e = project(db, 'u-admin', { kind: 'tab', tab: 'schedule' });
+  assert.ok('state' in e);
+  assert.deepStrictEqual(e.state.schedules[0].vacationCharges, []);
+  assert.deepStrictEqual(e.state.schedules[0].extraElections, {});
+}
+
+// ---- an admin still sees everything on every schedule, settlement table included ----
+{
+  for (const tab of ['schedule', 'preferences', 'trades', 'admin']) {
+    const r = project(settledFixture(), 'u-admin', { kind: 'tab', tab });
+    assert.ok('state' in r, tab);
+    assert.deepStrictEqual(r.state.schedules, settledFixture().schedules, tab);
+  }
+  const r = project(settledFixture(), 'u-admin', { kind: 'state' });
+  assert.ok('state' in r);
+  const [s] = r.state.schedules;
+  assert.strictEqual(s.vacationCharges?.length, 2);
+  assert.deepStrictEqual(Object.keys(s.extraElections || {}), ['u-emp', 'u-co']);
+  assert.deepStrictEqual(s.warnings, ['Cal Coworker is below required shifts']);
+  assert.deepStrictEqual(s.counts, { 'u-emp': 3, 'u-co': 1 });
+  assert.deepStrictEqual(s.preferenceStats, { asks: { 'u-emp': 1, 'u-co': 3 }, median: 2 });
 }
 
 console.log('projection tests passed');

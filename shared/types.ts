@@ -166,8 +166,6 @@ export interface ScheduleDraft {
 export interface Schedule extends ScheduleDraft {
   id: string;
   createdAt: string;
-  counts: Record<string, number>;
-  warnings: string[];
 }
 
 export interface TradeResponse {
