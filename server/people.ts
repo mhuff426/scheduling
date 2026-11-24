@@ -7,14 +7,12 @@
 // refusal rolls back. Credentials, invites and the auth tables live outside
 // the data, so the routes handle them after the command commits.
 
-import { newId } from './db.js';
+import { EMPLOYEE_ROLE, newId } from './db.js';
 import { can } from './capabilities.js';
 import { ok, refuse, requireCan, type CommandContext, type Outcome, type Refused } from './outcome.js';
 import { bumpVersion, staleRefusal } from './staleness.js';
 import { isDate } from '../shared/blocks.js';
 import type { Db, RoleTag, User } from '../shared/types.js';
-
-const EMPLOYEE_ROLE = 'role-employee';
 
 // Pastel assignment colors. Each pairs with near-black chip text at >= 7:1
 // (WCAG AAA) — see client/src/contrast.ts (safeBg/CHIP_INK) and the chip styles.

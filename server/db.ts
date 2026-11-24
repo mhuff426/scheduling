@@ -26,10 +26,13 @@ import {
   type CollectionKey,
 } from './mysql.js';
 
+/** The Employee system role: everyone always carries it. */
+export const EMPLOYEE_ROLE = 'role-employee';
+
 // The two roles the system always provides; they can't be renamed or deleted.
 const SYSTEM_ROLES: RoleTag[] = [
   { id: 'role-admin', name: 'Admin', system: true },
-  { id: 'role-employee', name: 'Employee', system: true },
+  { id: EMPLOYEE_ROLE, name: 'Employee', system: true },
 ];
 
 export const DEFAULT_DATA: Db = {
@@ -87,7 +90,7 @@ export function normalizeDb(loaded: Db): Db {
     // Migrate the legacy single `role` field into role tags (then it's dead).
     u.roles ??= [];
     if ((u as any).role === 'admin' && !u.roles.includes('role-admin')) u.roles.push('role-admin');
-    if (!u.roles.includes('role-employee')) u.roles.push('role-employee');
+    if (!u.roles.includes(EMPLOYEE_ROLE)) u.roles.push(EMPLOYEE_ROLE);
     u.theme ??= 'light';
     // Derive firstName/lastName from name if missing (idempotent).
     if (!u.firstName) {
