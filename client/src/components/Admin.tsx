@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { api } from '../api';
 import { DOW, MONTHS, formatTime, todayYmd, prettyDate } from '../dates';
-import { UNITS, upcomingBlocks, isValidCadence } from '../../../shared/blocks.js';
+import { UNITS, upcomingBlocks, isValidCadence, cadenceChangeProblem, sameCadence } from '../../../shared/blocks.js';
 import RoleMultiSelect from './RoleMultiSelect';
 import { safeBg } from '../contrast';
 import { yearBalance } from '../../../shared/settlement.js';
@@ -351,36 +351,21 @@ function Settings({ db, act }: Props) {
     lengthUnit: existingCadence?.lengthUnit ?? 'weeks',
     anchorDate: existingCadence?.anchorDate ?? todayYmd(),
   }));
-  const [cadenceError, setCadenceError] = useState<string | null>(null);
   const setC = (k: string) => (e: any) => setCadenceForm((prev: any) => ({ ...prev, [k]: e.target.value }));
 
-  const saveCadence = async () => {
-    setCadenceError(null);
-    const payload = {
-      anchorDate: cadenceForm.anchorDate,
-      lengthUnit: cadenceForm.lengthUnit,
-      lengthValue: Number(cadenceForm.lengthValue),
-    };
-    if (!isValidCadence(payload)) {
-      setCadenceError('Please enter a valid anchor date, a whole number ≥ 1, and a unit.');
-      return;
-    }
-    if (existingCadence && payload.anchorDate <= todayYmd()) {
-      setCadenceError('A new schedule start date must be in the future.');
-      return;
-    }
-    if (!existingCadence && payload.anchorDate < todayYmd()) {
-      setCadenceError('The schedule start date cannot be in the past.');
-      return;
-    }
-    await act(() => api.updateSettings({ cadence: payload, expectedVersion: settingsVersion() }));
+  const payload = {
+    anchorDate: cadenceForm.anchorDate,
+    lengthUnit: cadenceForm.lengthUnit,
+    lengthValue: Number(cadenceForm.lengthValue),
   };
+  // Shown as the form changes; the change rule is the one the server applies.
+  const cadenceProblem = !isValidCadence(payload)
+    ? 'Please enter a valid anchor date, a whole number ≥ 1, and a unit.'
+    : cadenceChangeProblem(existingCadence, payload, todayYmd());
+  // Nothing to save when the form still shows the current cadence.
+  const cadenceSaveDisabled = !!cadenceProblem || sameCadence(existingCadence, payload);
 
-  const cadenceSaveDisabled =
-    (existingCadence && cadenceForm.anchorDate <= todayYmd()) ||
-    (!existingCadence && cadenceForm.anchorDate < todayYmd()) ||
-    !cadenceForm.anchorDate ||
-    Number(cadenceForm.lengthValue) < 1;
+  const saveCadence = () => act(() => api.updateSettings({ cadence: payload, expectedVersion: settingsVersion() }));
 
   return (
     <section className="card">
@@ -442,7 +427,7 @@ function Settings({ db, act }: Props) {
           />
         </label>
       </div>
-      {cadenceError && <p className="muted small" style={{ color: 'var(--color-danger, red)' }}>{cadenceError}</p>}
+      {cadenceProblem && <p className="muted small" style={{ color: 'var(--color-danger, red)' }}>{cadenceProblem}</p>}
       <button
         className="btn primary"
         style={{ marginTop: '0.5rem' }}
