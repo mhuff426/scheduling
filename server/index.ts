@@ -26,7 +26,7 @@ import {
   passwordProblem, verifyPassword, ensureCredentialRows, getCredential,
   setPassword, createInvite, findUserIdByInviteToken, registeredMap,
 } from './auth.js';
-import { attachSession, createSession, destroySession, sessionCookie, clearedSessionCookie, parseCookies } from './sessions.js';
+import { attachSession, sessionUserId, createSession, destroySession, sessionCookie, clearedSessionCookie, parseCookies } from './sessions.js';
 import { sendInviteEmail, inviteLink } from './email.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -102,12 +102,19 @@ const bumpVersion = (entity: { version?: number }) => {
 // Auth helpers
 // ---------------------------------------------------------------------------
 
+// One refusal per reason, shared by the projection's refusals and the
+// capability checks, so a read and a write refuse the same way.
+const REFUSALS: Record<Refusal, HttpError> = {
+  unauthenticated: new HttpError(401, 'Please log in.', 'unauthenticated'),
+  forbidden: new HttpError(403, 'Admin access required.'),
+  not_found: new HttpError(404, 'Unknown tab.'),
+};
+
 /** Returns the authed User, or throws 401. */
 function authedUser(db: Db, req: Request): User {
-  const uid = (req as any).authUserId as string | null | undefined;
-  if (!uid) throw new HttpError(401, 'Please log in.', 'unauthenticated');
-  const u = db.users.find((x) => x.id === uid);
-  if (!u) throw new HttpError(401, 'Please log in.', 'unauthenticated');
+  const uid = sessionUserId(req);
+  const u = uid ? db.users.find((x) => x.id === uid) : undefined;
+  if (!u) throw REFUSALS.unauthenticated;
   return u;
 }
 
@@ -117,7 +124,7 @@ function authedUser(db: Db, req: Request): User {
  */
 function requireCapability(db: Db, req: Request, capability: Capability): User {
   const u = authedUser(db, req);
-  if (!can(u, capability)) throw new HttpError(403, 'Admin access required.');
+  if (!can(u, capability)) throw REFUSALS.forbidden;
   return u;
 }
 
@@ -224,7 +231,7 @@ app.post('/api/auth/logout', handle(async (req, res) => {
 }));
 
 app.get('/api/auth/me', handle(async (req, res) => {
-  const uid = (req as any).authUserId as string | null | undefined;
+  const uid = sessionUserId(req);
   if (!uid) return res.status(401).json({ error: 'Not logged in.' });
   const db = await readState();
   const user = db.users.find((u) => u.id === uid);
@@ -278,16 +285,9 @@ const isTime = (s: string) => /^\d{2}:\d{2}$/.test(s || '');
 // Each tab fetches only the collections it renders. Cross-tab data (users,
 // notifications) deliberately has its OWN endpoints — fetched alongside
 // every tab and easy to upgrade to an SSE stream later.
-const REFUSALS: Record<Refusal, HttpError> = {
-  unauthenticated: new HttpError(401, 'Please log in.', 'unauthenticated'),
-  forbidden: new HttpError(403, 'Admin access required.'),
-  not_found: new HttpError(404, 'Unknown tab.'),
-};
-
 async function projectRead(req: Request, request: ReadRequest): Promise<object> {
   const db = await readState();
-  const viewerId = ((req as any).authUserId as string | null | undefined) ?? null;
-  const out = project(db, viewerId, request);
+  const out = project(db, sessionUserId(req), request);
   if ('refused' in out) throw REFUSALS[out.refused];
   return 'state' in out ? out.state : out;
 }
@@ -303,7 +303,7 @@ app.get('/api/tabs/:tab', handle(async (req, res) => {
 
 app.get('/api/users', handle(async (req, res) => {
   // Refuse before touching the credential store.
-  if (!(req as any).authUserId) throw REFUSALS.unauthenticated;
+  if (!sessionUserId(req)) throw REFUSALS.unauthenticated;
   res.json(await projectRead(req, { kind: 'users', registered: await registeredMap(getPool()) }));
 }));
 
