@@ -5,8 +5,10 @@ import { readFileSync } from 'node:fs';
 // database (reset before each test). No auth: the first roster user
 // is an admin. The Admin tab renders a "🏷️ Roles" card, a "👥 Roster" card
 // (each employee row has a roles multi-select combobox, class .ms), and a
-// "⏰ Shift Types" card whose create form has a matching combobox for "Roles
-// that can fill this shift". Unique names (Date.now) keep reruns independent.
+// "⏰ Shift Types" card. Unique names (Date.now) keep reruns independent.
+// The rules themselves (Employee kept, cascade to shift types, duplicates)
+// are unit-tested in server/people.test.ts; this keeps one happy path and one
+// refusal.
 
 const SEED = JSON.parse(readFileSync(new URL('./seed.json', import.meta.url), 'utf8'));
 
@@ -19,8 +21,6 @@ const rolesCard = (page) =>
   page.locator('.card', { has: page.getByRole('heading', { name: /Roles/ }) });
 const rosterCard = (page) =>
   page.locator('.card', { has: page.getByRole('heading', { name: /Roster/ }) });
-const shiftTypesCard = (page) =>
-  page.locator('.card', { has: page.getByRole('heading', { name: /Shift Types/ }) });
 const firstRosterRow = (page) => rosterCard(page).locator('tbody tr').first();
 
 async function gotoAdmin(page) {
@@ -36,30 +36,6 @@ async function addRole(page, name) {
   await card.getByRole('button', { name: 'Add role' }).click();
   await expect(page.locator('.banner.error')).toHaveCount(0);
 }
-
-test('admin creates a role, assigns it to an employee, and it persists', async ({ page }) => {
-  await gotoAdmin(page);
-  const name = `QA Role ${Date.now()}`;
-  await addRole(page, name);
-
-  // Assign the role via the roster's multi-select combobox; it becomes a pill.
-  const ms = firstRosterRow(page).locator('.ms');
-  await ms.locator('.ms-control').click();
-  await ms.locator('.ms-option', { hasText: name }).click();
-  await expect(ms.locator('.ms-pill', { hasText: name })).toBeVisible();
-  await expect(page.locator('.banner.error')).toHaveCount(0);
-
-  // Persisted across a reload (still shown as a pill).
-  await page.reload();
-  await page.locator('.tab', { hasText: 'Admin' }).click();
-  await expect(page.getByRole('heading', { name: /Roster/ })).toBeVisible();
-  await expect(firstRosterRow(page).locator('.ms-pill', { hasText: name })).toBeVisible();
-
-  // Removing it via the pill's ✕ takes it off the employee.
-  await firstRosterRow(page).locator('.ms-pill', { hasText: name }).getByRole('button').click();
-  await expect(firstRosterRow(page).locator('.ms-pill', { hasText: name })).toHaveCount(0);
-  await expect(page.locator('.banner.error')).toHaveCount(0);
-});
 
 test('system roles are protected; a custom role can be renamed and deleted (cascade)', async ({ page }) => {
   await gotoAdmin(page);
@@ -95,22 +71,14 @@ test('system roles are protected; a custom role can be renamed and deleted (casc
   await expect(firstRosterRow(page).locator('.ms-pill', { hasText: renamed })).toHaveCount(0);
 });
 
-test('a shift type can be restricted to a role and shows it in the table', async ({ page }) => {
+test('a role name already in use is refused', async ({ page }) => {
   await gotoAdmin(page);
-  const role = `Cook ${Date.now()}`;
-  await addRole(page, role);
-
-  const card = shiftTypesCard(page);
-  const form = card.locator('form');
-  const shiftName = `Grill ${Date.now()}`;
-  await form.locator('label', { hasText: 'Name' }).locator('input').fill(shiftName);
-  // Tag the shift with the new role via the combobox.
-  await form.locator('.ms .ms-control').click();
-  await form.locator('.ms .ms-option', { hasText: role }).click();
-  await card.getByRole('button', { name: 'Add shift type' }).click();
-  await expect(page.locator('.banner.error')).toHaveCount(0);
-
-  // The new shift row lists the role in its Roles cell (not "Anyone").
-  const shiftRow = card.locator('tbody tr', { hasText: shiftName });
-  await expect(shiftRow).toContainText(role);
+  const card = rolesCard(page);
+  const rows = card.locator('tbody tr');
+  const before = await rows.count();
+  // Names compare case-insensitively, so this collides with the Employee system role.
+  await card.locator('label', { hasText: 'New role' }).locator('input').fill('employee');
+  await card.getByRole('button', { name: 'Add role' }).click();
+  await expect(page.locator('.banner.error')).toContainText('A role with that name already exists.');
+  await expect(rows).toHaveCount(before);
 });
