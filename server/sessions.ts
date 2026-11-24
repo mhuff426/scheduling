@@ -57,8 +57,14 @@ export function clearedSessionCookie(): string {
   return `sid=logged-out; Path=/; HttpOnly; SameSite=Lax; Max-Age=${MAX_AGE}${secure}`;
 }
 
+/** The signed-in user's id that attachSession resolved for this request, or null. */
+export function sessionUserId(req: Request): string | null {
+  return ((req as any).authUserId as string | null | undefined) ?? null;
+}
+
 /**
  * Express middleware that resolves the session and sets (req as any).authUserId.
+ * Read it back with sessionUserId(req).
  *
  * E2E/dev bypass: if there is NO sid cookie at all AND E2E_TESTING==='1',
  * authenticate as the first admin. This keeps the 33 existing Playwright specs
