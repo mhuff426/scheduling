@@ -2,6 +2,7 @@
 // generator, admin reassign and trades, each passing its own policy (ADR 0001).
 // Terms follow GLOSSARY.md, "Eligibility".
 
+import { addDaysLocal } from '../shared/blocks.js';
 import { isCountingShiftType, shiftMaximum, vacationYearOf, vacationYearsOf, yearBalance } from '../shared/settlement.js';
 import type { Assignment, Db, Schedule, ShiftType, Slot, User } from '../shared/types.js';
 import type { EligibilityWarning } from '../shared/confirmation.js';
@@ -50,9 +51,8 @@ export const TRADE_POLICY: EligibilityPolicy = {
 export interface HeldShifts {
   // The shift held on `date`, if any.
   on(date: string): Assignment | undefined;
-  // Every held shift that could come within the rest window of a shift on
-  // `date`. It may return more (the rest check skips the far ones).
-  near(date: string): Iterable<Assignment>;
+  // Every shift the person holds (the rest check skips the far ones).
+  all(): Iterable<Assignment>;
   // How many counting shifts (standby excluded) the person holds.
   countingShifts(): number;
 }
@@ -138,12 +138,7 @@ export function restOk(heldAssignments: Iterable<Assignment>, shiftById: Record<
   return true;
 }
 
-function prevDay(date: string) {
-  const d = new Date(date + 'T00:00:00');
-  d.setDate(d.getDate() - 1);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
+const prevDay = (date: string) => addDaysLocal(date, -1);
 
 // Consecutive days held on ANY overnight shift, ending the day before `date`.
 function overnightRunBefore(held: Pick<HeldShifts, 'on'>, shiftById: Record<string, ShiftType>, date: string) {
@@ -162,17 +157,11 @@ function overnightRunBefore(held: Pick<HeldShifts, 'on'>, shiftById: Record<stri
 
 // Would `st` on `date` keep the person within their consecutive-night limit
 // (all overnight types counted together)?
-function withinConsecutiveNightLimit(person: User, held: Pick<HeldShifts, 'on'>, shiftById: Record<string, ShiftType>, date: string, st: ShiftType) {
+export function withinConsecutiveNightLimit(person: User, held: Pick<HeldShifts, 'on'>, shiftById: Record<string, ShiftType>, date: string, st: ShiftType) {
   if (!isOvernight(st)) return true;
   const limit = Number(person.maxConsecutiveNights);
   if (!Number.isFinite(limit) || limit <= 0) return true;
   return overnightRunBefore(held, shiftById, date) + 1 <= limit;
-}
-
-// Same check over a plain list of the person's assignments.
-export function assignmentsWithinConsecutiveNightLimit(user: User, userAssignments: Assignment[], shiftById: Record<string, ShiftType>, date: string, st: ShiftType) {
-  const byDate = new Map(userAssignments.map((a) => [a.date, a]));
-  return withinConsecutiveNightLimit(user, { on: (d) => byDate.get(d) }, shiftById, date, st);
 }
 
 const blocked = (reason: string): Eligibility => ({ eligible: false, reason });
@@ -199,7 +188,7 @@ export function checkEligibility({ person, date, shiftType, held, facts, shiftTy
     return blocked(`${person.name} hasn't started yet (starts ${person.startDate}).`);
   if (facts.isAway(date)) return blocked(`${person.name} is on away time that day.`);
   if (held.on(date)) return blocked(`${person.name} already works a shift that day.`);
-  if (!restOk(held.near(date), shiftTypes, date, shiftType))
+  if (!restOk(held.all(), shiftTypes, date, shiftType))
     return blocked(`${person.name} would have less than 8 hours of rest around that shift.`);
   if (!withinConsecutiveNightLimit(person, held, shiftTypes, date, shiftType)) {
     const r = limit(policy.consecutiveNightLimit, 'consecutive-night limit',
@@ -225,7 +214,7 @@ export function scheduleHeldShifts(
   const byDate = new Map(mine.map((a) => [a.date, a]));
   return {
     on: (date) => byDate.get(date),
-    near: () => mine,
+    all: () => mine,
     countingShifts: () => mine.filter((a) => isCountingShiftType(shiftTypes[a.shiftTypeId])).length,
   };
 }
@@ -244,7 +233,7 @@ export interface HeldShiftIndexes {
 export function indexedHeldShifts(userId: string, { list, byDate, counts }: HeldShiftIndexes): HeldShifts {
   return {
     on: (date) => byDate.get(userId)?.get(date),
-    near: () => list.get(userId) ?? [],
+    all: () => list.get(userId) ?? [],
     countingShifts: () => counts.get(userId) ?? 0,
   };
 }
@@ -274,7 +263,7 @@ export function isSchedulableDay(person: User, date: string, facts: DayFacts, ha
   return !off || !off.affordable;
 }
 
-type FactsSchedule =Pick<Schedule, 'startDate' | 'endDate'> & Partial<Pick<Schedule, 'id' | 'vacationCharges'>>;
+type FactsSchedule = Pick<Schedule, 'startDate' | 'endDate'> & Partial<Pick<Schedule, 'id' | 'vacationCharges'>>;
 
 // Day facts read straight from the db, for trades and reassign. Affordability
 // is recomputed live: year balances from every schedule as they stand now,

@@ -18,6 +18,7 @@
 // All dates are wall-clock dates at the scheduled location; the server is
 // assumed to run in (or be configured for) that location's timezone.
 
+import { addDaysLocal } from '../shared/blocks.js';
 import { holidayDatesInRange } from '../shared/holidays.js';
 import {
   shiftWeight, isCountingShiftType, shiftMaximum, requiredShifts, shortfall, vacationCharged,
@@ -90,16 +91,8 @@ function dayOfWeek(date: string) {
   return new Date(date + 'T00:00:00').getDay();
 }
 
-function prevDay(date: string) {
-  const d = new Date(date + 'T00:00:00');
-  d.setDate(d.getDate() - 1);
-  return ymdLocal(d);
-}
-function nextDay(date: string) {
-  const d = new Date(date + 'T00:00:00');
-  d.setDate(d.getDate() + 1);
-  return ymdLocal(d);
-}
+const prevDay = (date: string) => addDaysLocal(date, -1);
+const nextDay = (date: string) => addDaysLocal(date, 1);
 
 // --- shift "runs": keeping one person on a shift type several days running ---
 // Grouping is active for a shift type only when the admin sets a run target
@@ -311,8 +304,9 @@ export function mustOffInRange(db: Db, userId: string, { startDate, endDate }: {
   );
 }
 
-// Per-user minimum for this block, for scheduler-internal pressure: the
-// per-user required shifts reduced by hard must-off days inside the range.
+// Required shifts left to fill in this block, for scheduler-internal
+// pressure: each person's required shifts reduced by the must-off days inside
+// the range they can afford.
 // Unaffordable must-off days in `unaffordable` (keyed `userId|date`) don't
 // reduce anything — the person might still work them.
 export function effectiveMinimums(db: Db, { startDate, endDate }: { startDate: string; endDate: string }, unaffordable: Set<string> = new Set()): Map<string, number> {
@@ -460,7 +454,7 @@ export function generateSchedule(db: Db, { startDate, endDate, userIds }: { star
   // this block falling in one vacation year outnumber that year's balance,
   // ALL their must-offs in THAT year are unaffordable: strong claims, honored
   // when possible, schedulable over when coverage requires it. Must-offs in a
-  // year they can afford stay hard.
+  // year they can afford stay protected.
   // Holiday fairness counts per calendar year; vacation per vacation year.
   const blockYear = Number(startDate.slice(0, 4));
   const blockYears = vacationYearsOf({ startDate, endDate });

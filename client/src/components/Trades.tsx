@@ -2,19 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { prettyDate, formatTime, todayYmd } from '../dates';
 import { giveaway, vacationYearOf, yearBalance } from '../../../shared/settlement.js';
-import type { AppState, Assignment, Schedule, Slot, User } from '../../../shared/types.js';
+import type { AppState, Assignment, Schedule, Slot, SwapOption, SwapPartner, TradeOptions, User } from '../../../shared/types.js';
 import type { EligibilityWarning } from '../../../shared/confirmation.js';
 import type { Act } from '../App';
 
 interface Props { db: AppState; currentUser: User; act: Act; }
-
-// `warnings`: what taking that option would ask the viewer to confirm (their
-// own must-off day); the server sends them, the client never works them out.
-type SwapOption = Slot & { warnings?: EligibilityWarning[] };
-type TradeOptions = {
-  respond: Record<string, SwapOption[]>;
-  claim: Record<string, { ok: boolean; reason: string | null; warnings?: EligibilityWarning[] }>;
-};
 
 // An option's label, with its warnings appended so a picker shows them.
 const withWarnings = (label: string, warnings?: EligibilityWarning[]) =>
@@ -337,7 +329,7 @@ function StartTrade({ db, act, me, schedule, futureShiftsOf, slotLabel, slotKey,
   const [targetShiftKey, setTargetShiftKey] = useState('');
   // Feasible direct-swap partners for the chosen offered shift, from the
   // server (only employees who can take it, with the shifts I can take back).
-  const [partners, setPartners] = useState<{ userId: string; shifts: SwapOption[] }[]>([]);
+  const [partners, setPartners] = useState<SwapPartner[]>([]);
 
   const myShifts = futureShiftsOf(me.id);
   const userById = Object.fromEntries(db.users.map((u) => [u.id, u]));
