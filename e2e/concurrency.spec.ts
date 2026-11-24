@@ -130,23 +130,6 @@ test('entity edits are version-checked: stale writes get 409 version_conflict', 
   await admin.dispose();
 });
 
-test('the per-day vacation cap holds under sequential and stale submissions', async ({ request, playwright }) => {
-  // Seed cap is 2 per day. Each request is a DIFFERENT user (server derives the
-  // owner from the session), so the cap — not the one-request-per-day guard —
-  // is what rejects the third. `userId` in the body is ignored; only date/type.
-  const bea = await impersonate(playwright, 'u-bea');
-  const cy = await impersonate(playwright, 'u-cy');
-
-  expect((await post(request, '/api/timeoff', { date: '2099-02-01', type: 'vacation' })).ok()).toBeTruthy();
-  expect((await bea.post('/api/timeoff', { data: { date: '2099-02-01', type: 'vacation' } })).ok()).toBeTruthy();
-  const third = await cy.post('/api/timeoff', { data: { date: '2099-02-01', type: 'vacation' } });
-  expect(third.status()).toBe(400);
-  expect((await third.json()).error).toContain('full');
-
-  await bea.dispose();
-  await cy.dispose();
-});
-
 test('parallel writes are serialized — no lost updates', async ({ request, playwright }) => {
   // 10 simultaneous inserts; each mutation rewrites the timeOff collection,
   // so any lost update would show as a missing row. All are u-cy (one session).

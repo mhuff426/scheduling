@@ -72,12 +72,12 @@ test("the Preferences calendar shows a full day and refuses a must-off request o
   await expect(cell(14).locator('.chip', { hasText: 'Must off' })).toHaveCount(0);
 });
 
-test('a must-off request on a full day is refused without saying how many people are off', async ({ playwright }) => {
+// The full-day rule itself (no headcount, the per-day cap) is covered by
+// server/mustOff.test.ts; here one request goes through and one is refused above.
+test('a must-off request on a day with room is saved for the requester', async ({ playwright }) => {
   const bea = await signedInAs(playwright, 'u-bea');
-  const res = await bea.post('/api/timeoff', { data: { date: FULL_DAY, type: 'vacation' } });
-  expect(res.status()).toBe(400);
-  const { error } = await res.json();
-  expect(error).toContain('full');
-  expect(error).not.toMatch(/\d/);
+  const res = await bea.post('/api/timeoff', { data: { date: CY_ONLY, type: 'vacation', userId: 'u-cy' } });
+  expect(res.status()).toBe(200);
+  expect(await res.json()).toMatchObject({ userId: 'u-bea', date: CY_ONLY, type: 'vacation' });
   await bea.dispose();
 });
