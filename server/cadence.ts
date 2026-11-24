@@ -3,6 +3,7 @@
 // shared with the Settings form (shared/blocks.ts).
 import { can } from './capabilities.js';
 import { ok, refuse, type CommandContext, type Outcome } from './outcome.js';
+import { bumpVersion, staleRefusal } from './staleness.js';
 import { cadenceChangeProblem, isValidCadence } from '../shared/blocks.js';
 import type { Db, Settings } from '../shared/types.js';
 
@@ -17,8 +18,8 @@ export function updateSettings(db: Db, { actor, today }: CommandContext, input: 
   if (!can(actor, 'configureScheduling')) return refuse('forbidden', 'Admin access required.');
   const settings = db.settings;
   const { expectedVersion, maxVacationPerDay, holidaysRequiredPerYear, cadence } = input;
-  if (expectedVersion !== undefined && Number(expectedVersion) !== (settings.version ?? 1))
-    return refuse('stale', 'Settings was changed by someone else — the view has been refreshed with the latest data. Please retry.');
+  const stale = staleRefusal(settings, expectedVersion, 'Settings');
+  if (stale) return stale;
 
   // Check the cadence before changing anything, so a refusal leaves the data as it was.
   if (cadence !== undefined) {
@@ -34,6 +35,6 @@ export function updateSettings(db: Db, { actor, today }: CommandContext, input: 
     settings.holidaysRequiredPerYear = Math.max(0, Number(holidaysRequiredPerYear) || 0);
   if (isValidCadence(cadence))
     settings.cadence = { anchorDate: cadence.anchorDate, lengthUnit: cadence.lengthUnit, lengthValue: cadence.lengthValue };
-  settings.version = (settings.version ?? 1) + 1;
+  bumpVersion(settings);
   return ok(settings);
 }
