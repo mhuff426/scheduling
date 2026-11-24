@@ -104,3 +104,41 @@ test('types with no shifts and no extras are omitted', async ({ page }) => {
   await expect(eve.nth(1)).toHaveText('1');
   await expect(eve.nth(2)).toHaveText('0');
 });
+
+// Settlement is private to the person and the admins (ADR 0002): an employee
+// looking at a coworker's shifts sees the assignments, but no settlement card
+// and no extras picked up.
+async function openMyShiftsAs(page, userId: string) {
+  await page.goto('/');
+  await page.locator('.user-switch select').selectOption(userId);
+  await expect(page.locator('.user-switch select')).toHaveValue(userId);
+  // Reload so the picker starts on the signed-in person, as after a real sign-in.
+  await page.reload();
+  await expect(page.locator('.user-switch select')).toHaveValue(userId);
+  await page.getByRole('button', { name: /My Shifts/ }).click();
+}
+const settlementHeading = (page) => page.getByRole('heading', { name: /Schedule settlement/ });
+
+test("an employee sees a coworker's shifts but not their settlement or extras picked up", async ({ page }) => {
+  await openMyShiftsAs(page, 'u-bea');
+  const card = page.locator('.card', { has: page.getByRole('heading', { name: /Shifts for/ }) });
+  await card.locator('select').selectOption('u-admin');
+  await expect(card.locator('table').first().locator('tbody tr')).toHaveCount(5);
+  await expect(breakdown(page)).toBeVisible();
+  await expect(breakdown(page).getByText('Extra picked up')).toHaveCount(0);
+  await expect(rowFor(page, 'Evening').locator('td')).toHaveCount(2);
+  await expect(settlementHeading(page)).toHaveCount(0);
+});
+
+test('an employee still sees their own settlement card', async ({ page }) => {
+  await openMyShiftsAs(page, 'u-bea');
+  await expect(settlementHeading(page)).toBeVisible();
+});
+
+test("an admin still sees a coworker's settlement card and extras picked up", async ({ page }) => {
+  await openMyShiftsAs(page, 'u-admin');
+  const card = page.locator('.card', { has: page.getByRole('heading', { name: /Shifts for/ }) });
+  await card.locator('select').selectOption('u-cy');
+  await expect(breakdown(page).getByText('Extra picked up')).toBeVisible();
+  await expect(settlementHeading(page)).toBeVisible();
+});
