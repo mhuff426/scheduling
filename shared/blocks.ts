@@ -47,6 +47,21 @@ export function isValidCadence(c: any): c is Cadence {
     && Number.isInteger(c.lengthValue) && c.lengthValue >= 1;
 }
 
+export const sameCadence = (a: Cadence | null | undefined, b: Cadence | null | undefined): boolean =>
+  !!a && !!b
+  && a.anchorDate === b.anchorDate && a.lengthUnit === b.lengthUnit && a.lengthValue === b.lengthValue;
+
+// The cadence change rule, shared by the settings command and the Settings
+// form: what's wrong with saving `next` over `existing` as of `today`, or null.
+// A changed cadence must start after today; the first one may start today.
+// Saving the cadence unchanged is never a problem.
+export function cadenceChangeProblem(existing: Cadence | null | undefined, next: Cadence, today: string): string | null {
+  if (sameCadence(existing, next)) return null;
+  if (existing && next.anchorDate <= today) return 'A new schedule start date must be in the future.';
+  if (!existing && next.anchorDate < today) return 'The schedule start date cannot be in the past.';
+  return null;
+}
+
 // First day of block i (i >= 0), counting from the anchor.
 export function blockStart(cadence: Cadence, i: number): string {
   const { anchorDate, lengthUnit, lengthValue } = cadence;
