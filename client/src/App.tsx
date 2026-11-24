@@ -10,6 +10,7 @@ import { safeBg } from './contrast';
 import { setLatestState } from './versions';
 import { DECLINED } from './confirmWarnings';
 import type { AppState, User } from '../../shared/types.js';
+import type { Capability } from '../../shared/capabilities.js';
 
 // A mutation wrapper: runs `fn`, refreshes state, surfaces server errors.
 // Resolves true when the mutation went through; false when it failed or the
@@ -28,6 +29,10 @@ export default function App() {
   const [authUser, setAuthUser] = useState<User | null | 'loading'>('loading');
   const [showLogin, setShowLogin] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  // The viewer's capabilities as the server last sent them (current-user
+  // endpoint, then every users poll). Only a hint for which controls to show:
+  // the server checks every request itself.
+  const [capabilities, setCapabilities] = useState<Capability[]>([]);
   const [tab, setTab] = useState('schedule');
   const [error, setError] = useState('');
   // Refs mirror tab/user so refresh() never closes over stale state (it is
@@ -58,6 +63,7 @@ export default function App() {
     userRef.current = null;
     setAuthUser(null);
     setCurrentUserId(null);
+    setCapabilities([]);
     setDb(null);
     tabRef.current = 'schedule';
     setTab('schedule');
@@ -70,7 +76,9 @@ export default function App() {
   const refresh = useCallback(async () => {
     if (!loggedInRef.current) return null;
     const seq = ++refreshSeq.current;
-    const [tabState, { users }] = await Promise.all([api.getTab(tabRef.current), api.getUsers()]);
+    const [tabRes, usersRes] = await Promise.allSettled([api.getTab(tabRef.current), api.getUsers()]);
+    if (usersRes.status === 'rejected') throw usersRes.reason;
+    const { users, viewer } = usersRes.value;
     // If the authed user disappeared from the roster, the session user was
     // deleted — treat it as logged out rather than silently switching identity.
     const uid = userRef.current;
@@ -78,20 +86,34 @@ export default function App() {
       becomeLoggedOut();
       return null;
     }
+    const caps: Capability[] = viewer.capabilities;
+    let tabState;
+    if (tabRes.status === 'fulfilled') tabState = tabRes.value;
+    else if (tabRef.current === 'admin' && !caps.includes('seeEveryonesRecords')) {
+      // The viewer lost the Admin tab's capability (role edited elsewhere), so
+      // the server refused it: move them to the schedule and fetch that.
+      tabRef.current = 'schedule';
+      setTab('schedule');
+      tabState = await api.getTab('schedule');
+    } else throw tabRes.reason;
     const { notifications } = await api.getNotifications();
     const merged: AppState = { ...tabState, users, notifications };
     // A newer refresh started while this one was in flight — drop this result.
     if (seq !== refreshSeq.current) return merged;
     setLatestState(merged);
+    setCapabilities(caps);
     setDb(merged);
     return merged;
   }, [becomeLoggedOut]);
 
   // Called when login/registration succeeds (or boot me() finds a session).
-  const becomeLoggedIn = useCallback((user: User) => {
+  // Capabilities come with the current-user endpoint; login and registration
+  // don't send them, so those wait for the first users poll.
+  const becomeLoggedIn = useCallback((user: User, caps: Capability[] = []) => {
     loggedInRef.current = true;
     userRef.current = user.id;
     setAuthUser(user);
+    setCapabilities(caps);
     setCurrentUserId(user.id);
     setShowLogin(false);
     refresh().catch((e) => setError((e as Error).message));
@@ -100,8 +122,8 @@ export default function App() {
   // Boot: resolve the session. No tab fetching until we know who's asking.
   useEffect(() => {
     if (isRegisterRoute()) return; // Register page handles itself.
-    api.me().then((r: { user: User } | null) => {
-      if (r?.user) becomeLoggedIn(r.user);
+    api.me().then((r: { user: User; capabilities: Capability[] } | null) => {
+      if (r?.user) becomeLoggedIn(r.user, r.capabilities);
       else setAuthUser(null);
     });
   }, [becomeLoggedIn]);
@@ -139,17 +161,15 @@ export default function App() {
     document.documentElement.setAttribute('data-theme', t);
   }, [db, currentUserId]);
 
-  // If the current user loses the admin role while on the Admin tab (role
-  // edited elsewhere), snap back to the schedule.
+  // If the viewer loses the capability behind the Admin tab while on it (role
+  // edited elsewhere), the next poll snaps them back to the schedule.
   useEffect(() => {
     if (!db) return;
-    const user = db.users.find((u) => u.id === currentUserId) || db.users[0];
-    const admin = (user?.roles || []).includes('role-admin');
-    if (tab === 'admin' && !admin) {
+    if (tab === 'admin' && !capabilities.includes('seeEveryonesRecords')) {
       tabRef.current = 'schedule';
       setTab('schedule');
     }
-  }, [db, currentUserId, tab]);
+  }, [db, capabilities, tab]);
 
   // Invite-link landing page: full takeover, regardless of auth state.
   if (isRegisterRoute()) return <Register />;
@@ -182,7 +202,9 @@ export default function App() {
   if (!db) return <div className="loading">Loading…</div>;
 
   const currentUser = db.users.find((u) => u.id === currentUserId) || db.users[0];
-  const isAdmin = (currentUser?.roles || []).includes('role-admin');
+  const can = (c: Capability) => capabilities.includes(c);
+  // The Admin tab's data is the projection's admin view.
+  const seesAdminTab = can('seeEveryonesRecords');
 
   // Wraps a mutation: runs it (serialized through the queue), refreshes
   // state, surfaces server errors. On failure it STILL refreshes — conflict
@@ -218,7 +240,7 @@ export default function App() {
     { id: 'schedule', label: 'Schedule' },
     { id: 'preferences', label: 'Preferences' },
     { id: 'trades', label: 'Trades', badge: unread },
-    ...(isAdmin ? [{ id: 'admin', label: 'Admin' }] : []),
+    ...(seesAdminTab ? [{ id: 'admin', label: 'Admin' }] : []),
   ];
 
   const openTab = (id: string) => {
@@ -255,6 +277,7 @@ export default function App() {
       userRef.current = r.user.id;
       setAuthUser(r.user);
       setCurrentUserId(r.user.id);
+      setCapabilities(r.capabilities);
       await refresh();
     } catch (e) {
       setError((e as Error).message);
@@ -288,7 +311,7 @@ export default function App() {
             >
               {db.users.map((u) => (
                 <option key={u.id} value={u.id}>
-                  {u.name} {(u.roles || []).includes('role-admin') ? '(admin)' : ''}
+                  {u.name}
                 </option>
               ))}
             </select>
@@ -307,10 +330,10 @@ export default function App() {
       )}
 
       <main className="content">
-        {tab === 'schedule' && <ScheduleView db={db} currentUser={currentUser} act={act} isAdmin={isAdmin} />}
+        {tab === 'schedule' && <ScheduleView db={db} currentUser={currentUser} act={act} can={can} />}
         {tab === 'preferences' && <Preferences db={db} currentUser={currentUser} act={act} />}
         {tab === 'trades' && <Trades db={db} currentUser={currentUser} act={act} />}
-        {tab === 'admin' && isAdmin && <Admin db={db} act={act} />}
+        {tab === 'admin' && seesAdminTab && <Admin db={db} act={act} />}
       </main>
     </div>
   );

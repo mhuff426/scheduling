@@ -10,6 +10,7 @@ import { safeBg, CHIP_INK } from '../contrast';
 import { holidayDatesInRange } from '../../../shared/holidays.js';
 import type { AppState, Assignment, Holiday, Schedule, Slot, User } from '../../../shared/types.js';
 import type { Act } from '../App';
+import type { Capability } from '../../../shared/capabilities.js';
 
 // Neutral background for a shift with no current assignee (former/open).
 const NO_USER = '#cbd5e1';
@@ -17,9 +18,13 @@ const NO_USER = '#cbd5e1';
 const HOUR_H = 28; // px per hour in the week view
 const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
 
-interface Props { db: AppState; currentUser: User; act: Act; isAdmin: boolean; }
+// `can` is the viewer's capabilities as the server sent them: a hint for which
+// controls to show (the server checks every request).
+interface Props { db: AppState; currentUser: User; act: Act; can: (c: Capability) => boolean; }
 
-export default function ScheduleView({ db, currentUser, act, isAdmin }: Props) {
+export default function ScheduleView({ db, currentUser, act, can }: Props) {
+  const buildsSchedules = can('buildSchedules');
+  const seesEveryonesRecords = can('seeEveryonesRecords');
   const schedules = [...db.schedules].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const [scheduleId, setScheduleId] = useState<string | null>(schedules[0]?.id || null);
   const schedule = schedules.find((s) => s.id === scheduleId) || schedules[0];
@@ -51,7 +56,7 @@ export default function ScheduleView({ db, currentUser, act, isAdmin }: Props) {
       <div className="empty-state">
         <h2>No schedules yet</h2>
         <p>
-          {isAdmin
+          {buildsSchedules
             ? 'Head to Admin → Generate Schedule to create the first one.'
             : 'Your admin hasn’t published a schedule yet. Check back soon!'}
         </p>
@@ -162,7 +167,7 @@ export default function ScheduleView({ db, currentUser, act, isAdmin }: Props) {
         <button className="btn" onClick={() => exportIcs(currentUser.id)}>
           ⬇️ Add my shifts to calendar (.ics)
         </button>
-        {isAdmin && (
+        {buildsSchedules && (
           <button
             className="btn danger ghost"
             onClick={() => {
@@ -175,7 +180,7 @@ export default function ScheduleView({ db, currentUser, act, isAdmin }: Props) {
       </div>
 
       {/* Warnings are admin-only; an employee's schedules don't carry them. */}
-      {isAdmin && schedule.warnings && schedule.warnings.length > 0 && (
+      {seesEveryonesRecords && schedule.warnings && schedule.warnings.length > 0 && (
         <details className="warnings">
           <summary>⚠️ {schedule.warnings.length} scheduling warning{schedule.warnings.length > 1 ? 's' : ''}</summary>
           <ul>{schedule.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
@@ -223,16 +228,16 @@ export default function ScheduleView({ db, currentUser, act, isAdmin }: Props) {
                     const st = shiftById[a.shiftTypeId];
                     if (!st) return null;
                     const key = `${a.date}|${a.shiftTypeId}|${a.userId}`;
-                    if (isAdmin && editKey === key) {
+                    if (buildsSchedules && editKey === key) {
                       return <RoleSelect key={j} date={a.date} shiftTypeId={a.shiftTypeId} fromUserId={a.userId} />;
                     }
                     return (
                       <div
                         key={j}
-                        className={`chip ${a.userId === currentUser.id ? 'mine' : ''} ${isAdmin ? 'editable' : ''}`}
+                        className={`chip ${a.userId === currentUser.id ? 'mine' : ''} ${buildsSchedules ? 'editable' : ''}`}
                         style={{ background: safeBg(u ? u.color : NO_USER), color: CHIP_INK }}
-                        title={`${u ? u.name : 'Former employee'} — ${st.name} (${formatTime(st.startTime)}–${formatTime(st.endTime)})${isAdmin ? ' — click to reassign' : ''}`}
-                        onClick={() => isAdmin && setEditKey(key)}
+                        title={`${u ? u.name : 'Former employee'} — ${st.name} (${formatTime(st.startTime)}–${formatTime(st.endTime)})${buildsSchedules ? ' — click to reassign' : ''}`}
+                        onClick={() => buildsSchedules && setEditKey(key)}
                       >
                         {(u ? u.name : '?').split(' ')[0]} · {st.name}
                       </div>
@@ -242,15 +247,15 @@ export default function ScheduleView({ db, currentUser, act, isAdmin }: Props) {
                     const st = shiftById[s.shiftTypeId];
                     if (!st) return null;
                     const key = `${s.date}|${s.shiftTypeId}|open`;
-                    if (isAdmin && editKey === key) {
+                    if (buildsSchedules && editKey === key) {
                       return <RoleSelect key={`o${j}`} date={s.date} shiftTypeId={s.shiftTypeId} fromUserId={null} />;
                     }
                     return (
                       <div
                         key={`o${j}`}
-                        className={`chip chip-open ${isAdmin ? 'editable' : ''}`}
-                        title={`Open shift: ${st.name} (${formatTime(st.startTime)}–${formatTime(st.endTime)})${isAdmin ? ' — click to assign' : ''}`}
-                        onClick={() => isAdmin && setEditKey(key)}
+                        className={`chip chip-open ${buildsSchedules ? 'editable' : ''}`}
+                        title={`Open shift: ${st.name} (${formatTime(st.startTime)}–${formatTime(st.endTime)})${buildsSchedules ? ' — click to assign' : ''}`}
+                        onClick={() => buildsSchedules && setEditKey(key)}
                       >
                         ⚠ OPEN · {st.name}
                       </div>
@@ -318,7 +323,7 @@ export default function ScheduleView({ db, currentUser, act, isAdmin }: Props) {
             self={listUser.id === currentUser.id} act={act}
           />
         )}
-        {isAdmin && <AdminSettlementTable db={db} schedule={schedule} users={legendUsers} />}
+        {seesEveryonesRecords && <AdminSettlementTable db={db} schedule={schedule} users={legendUsers} />}
         </>
       )}
     </div>

@@ -11,7 +11,7 @@ import type { AppState, Db, Schedule, User } from '../shared/types.js';
 import type { CollectionKey } from './mysql.js';
 import { preferenceStandings } from './scheduler.js';
 import { DEFAULT_DATA } from './db.js';
-import { can } from './capabilities.js';
+import { can, capabilitiesOf, type Capability } from './capabilities.js';
 
 export const TAB_KEYS = {
   schedule: ['schedules', 'shiftTypes', 'holidays', 'trades', 'settings'],
@@ -34,7 +34,8 @@ export type Projection =
   | { refused: Refusal }
   | { state: AppState }
   // Admins get each record with `registered`; employees get no registration status.
-  | { users: User[] };
+  // `viewer` carries the viewer's own capabilities.
+  | { users: User[]; viewer: { capabilities: Capability[] } };
 
 /** Who is reading, resolved once per read and handed to every collection view. */
 export type ViewContext = { viewer: User; db: Db };
@@ -149,11 +150,16 @@ export function project(db: Db, viewerId: string | null, request: ReadRequest): 
       return { state: out };
     }
 
-    case 'users':
+    case 'users': {
+      // The viewer's own capabilities ride on every users poll, so a role
+      // change reaches the UI without an extra request.
+      const viewerCaps = { capabilities: capabilitiesOf(viewer) };
       // Registration status goes to admins only.
-      if (!isAdmin(viewer)) return { users: viewOf('users', ctx) };
+      if (!isAdmin(viewer)) return { users: viewOf('users', ctx), viewer: viewerCaps };
       return {
         users: viewOf('users', ctx).map((u) => ({ ...u, registered: !!request.registered[u.id] })),
+        viewer: viewerCaps,
       };
+    }
   }
 }
