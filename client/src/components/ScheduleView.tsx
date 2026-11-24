@@ -115,6 +115,9 @@ export default function ScheduleView({ db, currentUser, act, can }: Props) {
   };
 
   const listUser: User = userById[listUserId as string] || currentUser;
+  // Settlement (the settlement card and extras picked up) is private to the
+  // person and the admins (ADR 0002); a coworker's copy has none of it.
+  const seesListUsersSettlement = listUser?.id === currentUser.id || seesEveryonesRecords;
   const myAssignments = schedule.assignments
     .filter((a) => a.userId === listUser?.id)
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -314,9 +317,11 @@ export default function ScheduleView({ db, currentUser, act, can }: Props) {
               </tbody>
             </table>
           )}
-          {listUser && <ShiftBreakdownTable db={db} schedule={schedule} user={listUser} />}
+          {listUser && (
+            <ShiftBreakdownTable db={db} schedule={schedule} user={listUser} showExtras={seesListUsersSettlement} />
+          )}
         </div>
-        {listUser && (
+        {listUser && seesListUsersSettlement && (
           <SettlementCard
             key={`${schedule.id}|${listUser.id}`}
             db={db} schedule={schedule} user={listUser}
@@ -331,14 +336,18 @@ export default function ScheduleView({ db, currentUser, act, can }: Props) {
 }
 
 // How many of each kind of shift the person works this block, and how many of
-// those they picked up as extras via giveaways.
-function ShiftBreakdownTable({ db, schedule, user }: { db: AppState; schedule: Schedule; user: User }) {
+// those they picked up as extras via giveaways. Extras are part of the
+// person's settlement, so `showExtras` is off for a coworker's breakdown.
+function ShiftBreakdownTable({ db, schedule, user, showExtras }: { db: AppState; schedule: Schedule; user: User; showExtras: boolean }) {
   const { rows, total } = shiftTypeBreakdown(db, schedule, user.id);
   if (rows.length === 0) return null;
   return (
     <table className="table shift-breakdown">
       <thead>
-        <tr><th>Shift type</th><th>Shifts</th><th title="Shifts picked up from coworkers' giveaways">Extra picked up</th></tr>
+        <tr>
+          <th>Shift type</th><th>Shifts</th>
+          {showExtras && <th title="Shifts picked up from coworkers' giveaways">Extra picked up</th>}
+        </tr>
       </thead>
       <tbody>
         {rows.map((r) => (
@@ -350,12 +359,12 @@ function ShiftBreakdownTable({ db, schedule, user }: { db: AppState; schedule: S
               )}
             </td>
             <td>{r.shifts}</td>
-            <td>{r.extra}</td>
+            {showExtras && <td>{r.extra}</td>}
           </tr>
         ))}
       </tbody>
       <tfoot>
-        <tr><th>Total</th><th>{total.shifts}</th><th>{total.extra}</th></tr>
+        <tr><th>Total</th><th>{total.shifts}</th>{showExtras && <th>{total.extra}</th>}</tr>
       </tfoot>
     </table>
   );
