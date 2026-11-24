@@ -47,6 +47,18 @@ const whole = <T,>(rows: T): T => rows;
 const ownAwayTimeWithoutMemo: CollectionView<'awayTime'> = (rows, { viewer }) =>
   rows.filter((a) => a.userId === viewer.id).map(({ memo: _memo, ...rest }) => rest);
 
+// Trades an employee may see: ones they offered (posted, or offered a shift in
+// reply to), were offered or claimed, whatever their status; plus coworkers'
+// open trades and giveaways that are still open. Direct trades between two
+// other people and coworkers' finished trades are hidden.
+const tradesOpenToViewer: CollectionView<'trades'> = (trades, { viewer }) =>
+  trades.filter((t) =>
+    t.fromUserId === viewer.id ||
+    t.toUserId === viewer.id ||
+    t.claimedBy === viewer.id ||
+    t.responses.some((r) => r.userId === viewer.id) ||
+    (t.status === 'open' && (t.type === 'open' || t.type === 'giveaway')));
+
 // What an employee may see of each collection. Every key must be listed, so a
 // new collection can't reach employees until someone decides its view.
 // Later tickets narrow these per ADR 0002.
@@ -57,7 +69,7 @@ const EMPLOYEE_VIEWS: { [K in CollectionKey]: CollectionView<K> } = {
   settings: whole,
   timeOff: whole,
   schedules: whole,
-  trades: whole,
+  trades: tradesOpenToViewer,
   notifications: whole,
   awayTime: ownAwayTimeWithoutMemo,
   holidays: whole,
