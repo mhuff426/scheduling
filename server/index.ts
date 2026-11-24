@@ -19,6 +19,7 @@ import { runCommand, mapOutcome, type Command, type CommandContext, type Outcome
 import { updateSettings } from './cadence.js';
 import { createShiftType, editShiftType, deleteShiftType } from './shiftTypes.js';
 import { createHoliday, editHoliday, deleteHoliday } from './holidays.js';
+import { createAwayTime, editAwayTime, deleteAwayTime } from './awayTime.js';
 import { buildIcs } from './ics.js';
 import { requestMustOff, withdrawMustOff } from './mustOff.js';
 import { project, tradeSeenBy, type ReadRequest, type Refusal } from './projection.js';
@@ -539,62 +540,15 @@ app.post('/api/timeoff', handle((req, res) =>
 app.delete('/api/timeoff/:id', handle((req, res) =>
   sendCommand(req, res, (db, ctx) => withdrawMustOff(db, ctx, { id: req.params.id }))));
 
-// ---- away time (admin-managed; never counts against vacation) ----
-// Optional free-text fields: `label` is shown to the employee (calendar chip,
-// away card); `memo` is an admin-only note. Blank collapses to absent.
-const awayText = (v: unknown, max: number): string | undefined => {
-  const s = String(v ?? '').trim().slice(0, max);
-  return s || undefined;
-};
+// ---- away time (./awayTime.ts; admin-managed, never counts against vacation) ----
+app.post('/api/awaytime', handle((req, res) =>
+  sendCommand(req, res, (db, ctx) => createAwayTime(db, ctx, req.body))));
 
-app.post('/api/awaytime', handle(async (req, res) => {
-  const entry = await withMutation((db) => {
-    requireCapability(db, req, 'manageAwayTime');
-    const { userId, start, end } = req.body;
-    const user = db.users.find((u) => u.id === userId);
-    if (!user) throw new HttpError(404, 'User not found.');
-    if (!isDate(start) || !isDate(end)) throw new HttpError(400, 'Away time needs a valid start and end date.');
-    if (end < start) throw new HttpError(400, 'The away end date must be on or after the start date.');
-    const e = {
-      id: newId('aw'), userId, start, end,
-      ...(awayText(req.body.label, 255) ? { label: awayText(req.body.label, 255) } : {}),
-      ...(awayText(req.body.memo, 10000) ? { memo: awayText(req.body.memo, 10000) } : {}),
-    };
-    db.awayTime.push(e);
-    return e;
-  });
-  res.json(entry);
-}));
+app.put('/api/awaytime/:id', handle((req, res) =>
+  sendCommand(req, res, (db, ctx) => editAwayTime(db, ctx, { ...req.body, id: req.params.id }))));
 
-app.put('/api/awaytime/:id', handle(async (req, res) => {
-  const entry = await withMutation((db) => {
-    requireCapability(db, req, 'manageAwayTime');
-    const entry = db.awayTime.find((a) => a.id === req.params.id);
-    if (!entry) throw new HttpError(404, 'Away time not found.');
-    checkVersion(entry, req.body.expectedVersion, 'This away-time range');
-    const newStart = req.body.start !== undefined ? req.body.start : entry.start;
-    const newEnd = req.body.end !== undefined ? req.body.end : entry.end;
-    if (!isDate(newStart) || !isDate(newEnd)) throw new HttpError(400, 'Away time needs a valid start and end date.');
-    if (newEnd < newStart) throw new HttpError(400, 'The away end date must be on or after the start date.');
-    entry.start = newStart;
-    entry.end = newEnd;
-    if (req.body.label !== undefined) entry.label = awayText(req.body.label, 255);
-    if (req.body.memo !== undefined) entry.memo = awayText(req.body.memo, 10000);
-    bumpVersion(entry);
-    return entry;
-  });
-  res.json(entry);
-}));
-
-app.delete('/api/awaytime/:id', handle(async (req, res) => {
-  await withMutation((db) => {
-    requireCapability(db, req, 'manageAwayTime');
-    const idx = db.awayTime.findIndex((a) => a.id === req.params.id);
-    if (idx === -1) throw new HttpError(404, 'Away time not found.');
-    db.awayTime.splice(idx, 1);
-  });
-  res.json({ ok: true });
-}));
+app.delete('/api/awaytime/:id', handle((req, res) =>
+  sendCommand(req, res, (db, ctx) => deleteAwayTime(db, ctx, { id: req.params.id }))));
 
 // ---- holidays (./holidays.ts) ----
 app.post('/api/holidays', handle((req, res) =>
