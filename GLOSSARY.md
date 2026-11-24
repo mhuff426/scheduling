@@ -86,3 +86,19 @@ A day in a schedule, with at least one shift, where the person has started, isn'
 **Withdrawn must-off request**:
 A must-off request its owner took back. It no longer protects the day but stays on record with who withdrew it and when. Only the person who made the request can withdraw it.
 _Avoid_: Deleted vacation request
+
+## Access
+
+**Admin**:
+A person who may manage people, scheduling settings, away time and schedules, and see everyone's records. Everyone else sees their own records in full and coworkers only by name and colour.
+_Avoid_: Superuser, manager
+
+**Away time**:
+A stretch of days an admin marks a person as unavailable, with a label the person sees.
+_Avoid_: Leave, absence
+
+**Away memo**:
+An admin's private note on away time, never shown to the person or to coworkers.
+
+**Full day**:
+A date where as many people have must-off days as the per-day limit allows, so no more can be requested.
