@@ -75,6 +75,7 @@ test('a role name already in use is refused', async ({ page }) => {
   await gotoAdmin(page);
   const card = rolesCard(page);
   const rows = card.locator('tbody tr');
+  await expect(rows.first()).toBeVisible();
   const before = await rows.count();
   // Names compare case-insensitively, so this collides with the Employee system role.
   await card.locator('label', { hasText: 'New role' }).locator('input').fill('employee');
