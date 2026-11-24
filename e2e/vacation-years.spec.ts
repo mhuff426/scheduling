@@ -30,7 +30,16 @@ const reset = async (request, extra: object) => {
   const res = await request.post('/api/test/reset', { data: { ...SEED, ...extra } });
   expect(res.ok()).toBeTruthy();
 };
-const state = async (request) => (await request.get('/api/state')).json();
+// The full dump is admin-only: read it through an impersonated admin session.
+const state = async (playwright) => {
+  const ctx = await playwright.request.newContext({ baseURL: 'http://localhost:5173' });
+  try {
+    expect((await ctx.post('/api/dev/impersonate', { data: { userId: 'u-admin' } })).ok()).toBeTruthy();
+    return await (await ctx.get('/api/state')).json();
+  } finally {
+    await ctx.dispose();
+  }
+};
 
 async function openMyShifts(page) {
   await page.goto('/');
@@ -38,7 +47,7 @@ async function openMyShifts(page) {
   await page.getByRole('button', { name: /My Shifts/ }).click();
 }
 
-test('a schedule spanning New Year lets the employee split elected vacation across both years', async ({ page, request }) => {
+test('a schedule spanning New Year lets the employee split elected vacation across both years', async ({ page, request, playwright }) => {
   await reset(request, { schedules: [spanning] });
   await openMyShifts(page);
 
@@ -52,7 +61,7 @@ test('a schedule spanning New Year lets the employee split elected vacation acro
   await y2100.fill('2');
   await page.getByRole('button', { name: 'Save extra-day election' }).click();
 
-  await expect.poll(async () => (await state(request)).schedules[0].extraElections['u-admin']).toEqual({
+  await expect.poll(async () => (await state(playwright)).schedules[0].extraElections['u-admin']).toEqual({
     vacationByYear: { 2099: 1, 2100: 2 }, incentive: 0,
   });
   // The admin overview shows the per-year breakdown.
@@ -60,28 +69,28 @@ test('a schedule spanning New Year lets the employee split elected vacation acro
   await expect(overview.locator('tbody tr', { hasText: 'Admin' })).toContainText('3 (2099: 1, 2100: 2)');
 });
 
-test('all elected vacation can go to the later year', async ({ page, request }) => {
+test('all elected vacation can go to the later year', async ({ page, request, playwright }) => {
   await reset(request, { schedules: [spanning] });
   await openMyShifts(page);
   await page.getByLabel('As vacation for 2100').fill('3');
   await page.getByRole('button', { name: 'Save extra-day election' }).click();
-  await expect.poll(async () => (await state(request)).schedules[0].extraElections['u-admin']).toEqual({
+  await expect.poll(async () => (await state(playwright)).schedules[0].extraElections['u-admin']).toEqual({
     vacationByYear: { 2100: 3 }, incentive: 0,
   });
 });
 
-test('a schedule inside one vacation year shows a single vacation field', async ({ page, request }) => {
+test('a schedule inside one vacation year shows a single vacation field', async ({ page, request, playwright }) => {
   await reset(request, { schedules: [single] });
   await openMyShifts(page);
   await expect(page.getByLabel('As vacation for 2099')).toHaveCount(0);
   await page.getByLabel('As vacation', { exact: true }).fill('2');
   await page.getByRole('button', { name: 'Save extra-day election' }).click();
-  await expect.poll(async () => (await state(request)).schedules[0].extraElections['u-admin']).toEqual({
+  await expect.poll(async () => (await state(playwright)).schedules[0].extraElections['u-admin']).toEqual({
     vacationByYear: { 2099: 2 }, incentive: 0,
   });
 });
 
-test('legacy charge counts and elections migrate without changing a year balance', async ({ request }) => {
+test('legacy charge counts and elections migrate without changing a year balance', async ({ request, playwright }) => {
   // The old per-schedule shape: counts, and elections with one vacation number.
   const legacy = {
     ...spanning,
@@ -89,7 +98,7 @@ test('legacy charge counts and elections migrate without changing a year balance
     extraElections: { 'u-admin': { vacation: 2, incentive: 1 } },
   };
   await reset(request, { schedules: [legacy] });
-  const s = (await state(request)).schedules[0];
+  const s = (await state(playwright)).schedules[0];
   expect(s.vacationCharged).toBeUndefined();
   expect(s.vacationCharges).toEqual([
     { userId: 'u-bea', date: '2099-12-28', cause: 'legacy' },

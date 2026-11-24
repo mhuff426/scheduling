@@ -3,10 +3,10 @@ import type { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { initDb, readState, withMutation, newId, vacationCountForDate, resetDbForTests, DEFAULT_DATA, getPool } from './db.js';
+import { initDb, readState, withMutation, newId, vacationCountForDate, resetDbForTests, getPool } from './db.js';
 import type { CollectionKey } from './mysql.js';
 import {
-  generateSchedule, summarizeSchedule, preferenceStandings,
+  generateSchedule, summarizeSchedule,
 } from './scheduler.js';
 import { ADMIN_REASSIGN_POLICY, needsConfirmation, parseConfirmedWarnings, scheduleEligibility } from './eligibility.js';
 import { confirmationRefusal } from '../shared/confirmation.js';
@@ -17,9 +17,10 @@ import {
   setExtraElection, tradeOptions, swapPartners,
 } from './trades.js';
 import { buildIcs } from './ics.js';
+import { project, type ReadRequest, type Refusal } from './projection.js';
 import { isValidCadence, blockRange, currentBlockIndex, todayYmd } from '../shared/blocks.js';
 import { isValidRecurrence } from '../shared/holidays.js';
-import type { AppState, Db, ShiftType, User } from '../shared/types.js';
+import type { Db, ShiftType, User } from '../shared/types.js';
 import {
   passwordProblem, verifyPassword, ensureCredentialRows, getCredential,
   setPassword, createInvite, findUserIdByInviteToken, registeredMap,
@@ -267,48 +268,37 @@ const isDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s || '');
 const isTime = (s: string) => /^\d{2}:\d{2}$/.test(s || '');
 
 // ---- whole app state (kept for debugging/tooling; the client fetches per tab) ----
-app.get('/api/state', handle(async (req, res) => {
-  const db = await readState();
-  // Derived, never persisted or editable — shown only in the admin roster UI.
-  res.json({ ...db, preferenceStandings: preferenceStandings(db) });
-}));
-
-// ---- per-tab reads ----
+// ---- reads: thin adapters over the read projection (ADR 0002) ----
 // Each tab fetches only the collections it renders. Cross-tab data (users,
-// notifications) deliberately has its OWN endpoints below — fetched alongside
+// notifications) deliberately has its OWN endpoints — fetched alongside
 // every tab and easy to upgrade to an SSE stream later.
-const TAB_KEYS: Record<string, CollectionKey[]> = {
-  schedule: ['schedules', 'shiftTypes', 'holidays', 'trades', 'settings'],
-  preferences: ['timeOff', 'awayTime', 'holidays', 'settings', 'schedules'],
-  trades: ['schedules', 'trades', 'shiftTypes'],
-  admin: ['roles', 'shiftTypes', 'settings', 'timeOff', 'schedules', 'awayTime', 'holidays'],
+const REFUSALS: Record<Refusal, HttpError> = {
+  unauthenticated: new HttpError(401, 'Please log in.', 'unauthenticated'),
+  forbidden: new HttpError(403, 'Admin access required.'),
+  not_found: new HttpError(404, 'Unknown tab.'),
 };
 
-// Responses keep the full AppState shape (components index collections
-// without guards) — unrequested keys are empty/default.
-function emptyState(): AppState {
-  return {
-    users: [], roles: [], shiftTypes: [], timeOff: [], schedules: [],
-    trades: [], notifications: [], awayTime: [], holidays: [],
-    settings: structuredClone(DEFAULT_DATA.settings),
-    meta: { rotationCursor: 0 },
-  };
+async function projectRead(req: Request, request: ReadRequest): Promise<object> {
+  const db = await readState();
+  const viewerId = ((req as any).authUserId as string | null | undefined) ?? null;
+  const out = project(db, viewerId, request);
+  if ('refused' in out) throw REFUSALS[out.refused];
+  return 'state' in out ? out.state : out;
 }
 
+// Whole app state, for debugging/tooling (admin-only); the client fetches per tab.
+app.get('/api/state', handle(async (req, res) => {
+  res.json(await projectRead(req, { kind: 'state' }));
+}));
+
 app.get('/api/tabs/:tab', handle(async (req, res) => {
-  const keys = TAB_KEYS[req.params.tab];
-  if (!keys) throw new HttpError(404, 'Unknown tab.');
-  const db = await readState();
-  const out = emptyState();
-  for (const k of keys) (out as any)[k] = db[k];
-  if (req.params.tab === 'admin') out.preferenceStandings = preferenceStandings(db);
-  res.json(out);
+  res.json(await projectRead(req, { kind: 'tab', tab: req.params.tab }));
 }));
 
 app.get('/api/users', handle(async (req, res) => {
-  const db = await readState();
-  const map = await registeredMap(getPool());
-  res.json({ users: db.users.map((u) => ({ ...u, registered: !!map[u.id] })) });
+  // Refuse before touching the credential store.
+  if (!(req as any).authUserId) throw REFUSALS.unauthenticated;
+  res.json(await projectRead(req, { kind: 'users', registered: await registeredMap(getPool()) }));
 }));
 
 app.get('/api/notifications', handle(async (req, res) => {

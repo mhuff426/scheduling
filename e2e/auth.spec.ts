@@ -162,7 +162,15 @@ test('admin-route protection: a logged-in non-admin is 403 on admin mutations an
   expect(status).toBe(403);
 });
 
-test('session is identity: the server ignores a spoofed userId on time-off create', async ({ page }) => {
+// Reads refuse anyone not signed in, and the full dump is admin-only: read
+// back through an impersonated admin session on its own cookie jar.
+async function asAdmin(playwright) {
+  const ctx = await playwright.request.newContext({ baseURL: 'http://localhost:5173' });
+  expect((await ctx.post('/api/dev/impersonate', { data: { userId: 'u-admin' } })).ok()).toBeTruthy();
+  return ctx;
+}
+
+test('session is identity: the server ignores a spoofed userId on time-off create', async ({ page, playwright }) => {
   await page.goto('/');
   await registerViaApi(page, 'bea@shiftly.local', 'beasPassw0rd');
   await page.reload();
@@ -184,16 +192,14 @@ test('session is identity: the server ignores a spoofed userId on time-off creat
   expect(createStatus).toBe(200);
 
   // The created entry belongs to u-bea (the session user), not u-cy.
-  const owner = await page.evaluate(async (date) => {
-    const res = await fetch('/api/state', { credentials: 'same-origin' });
-    const state = await res.json();
-    const entry = state.timeOff.find((t: any) => t.date === date);
-    return entry ? entry.userId : null;
-  }, future);
-  expect(owner).toBe('u-bea');
+  const admin = await asAdmin(playwright);
+  const state = await (await admin.get('/api/state')).json();
+  await admin.dispose();
+  const entry = state.timeOff.find((t: any) => t.date === future);
+  expect(entry?.userId).toBe('u-bea');
 });
 
-test('pending UI: unregistered users show a badge; it disappears after they register', async ({ page }) => {
+test('pending UI: unregistered users show a badge; it disappears after they register', async ({ page, playwright }) => {
   await page.goto('/');
   await expect(userSwitch(page)).toBeVisible();
   await page.locator('.tab', { hasText: 'Admin' }).click();
@@ -211,7 +217,7 @@ test('pending UI: unregistered users show a badge; it disappears after they regi
   // Register Bea by email. (This also sets Bea's sid on this browser context,
   // so the page is no longer the bypass admin afterward — that's fine; we
   // re-verify the registered state through the source of truth the badge reads:
-  // the `registered` flag on GET /api/users, which is an unguarded read.)
+  // the `registered` flag on GET /api/users, read as an admin.)
   const status = await page.evaluate(async () => {
     const res = await fetch('/api/auth/register', {
       method: 'POST',
@@ -225,8 +231,9 @@ test('pending UI: unregistered users show a badge; it disappears after they regi
 
   // Re-fetch the roster data: Bea now reads registered=true (badge gone),
   // Cy stays registered=false (badge stays).
-  const usersRes = await page.request.get('/api/users');
-  const body = await usersRes.json();
+  const admin = await asAdmin(playwright);
+  const body = await (await admin.get('/api/users')).json();
+  await admin.dispose();
   const bea = body.users.find((u: any) => u.id === 'u-bea');
   const cy = body.users.find((u: any) => u.id === 'u-cy');
   expect(bea.registered).toBe(true);
