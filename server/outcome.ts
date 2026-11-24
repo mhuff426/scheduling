@@ -10,6 +10,7 @@
 import { confirmationRefusal, CONFIRM_WARNINGS_CODE, type EligibilityWarning } from '../shared/confirmation.js';
 import type { Db, User } from '../shared/types.js';
 import type { Refusal } from './projection.js';
+import { can, type Capability } from './capabilities.js';
 
 // The projection's read refusals, plus the ones only writes produce.
 export type Reason = Refusal | 'invalid' | 'conflict' | 'stale' | 'unconfirmed';
@@ -39,6 +40,11 @@ export const refuse = (
 /** The confirmation contract's refusal (ADR 0001): resend confirming these warnings. */
 export const unconfirmed = (warnings: EligibilityWarning[]): Refused =>
   ({ ok: false, refusal: { reason: 'unconfirmed', message: confirmationRefusal(warnings).error, warnings } });
+
+/** The one capability guard: null when `actor` may, else a forbidden refusal. */
+export const requireCan = (
+  actor: User, capability: Capability, message = 'Admin access required.'
+): Refused | null => (can(actor, capability) ? null : refuse('forbidden', message));
 
 /** The success value transformed, or the refusal passed through. */
 export const mapOutcome = <T, U>(o: Outcome<T>, f: (value: T) => U): Outcome<U> =>

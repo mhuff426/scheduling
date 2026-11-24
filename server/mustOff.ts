@@ -1,8 +1,7 @@
 // Must-off request commands (ADR 0003). A person requests days off only for
 // themselves; see GLOSSARY.md "Must-off day" and "Full day".
 import { newId, vacationCountForDate } from './db.js';
-import { can } from './capabilities.js';
-import { ok, refuse, type CommandContext, type Outcome } from './outcome.js';
+import { ok, refuse, requireCan, type CommandContext, type Outcome } from './outcome.js';
 import { isDate } from '../shared/blocks.js';
 import type { Db, TimeOff } from '../shared/types.js';
 
@@ -31,8 +30,10 @@ export function requestMustOff(
 export function withdrawMustOff(db: Db, { actor }: CommandContext, { id }: { id: string }): Outcome<{ ok: true }> {
   const idx = db.timeOff.findIndex((t) => t.id === id);
   if (idx === -1) return refuse('not_found', 'Request not found.');
-  if (db.timeOff[idx].userId !== actor.id && !can(actor, 'manageOthersTimeOff'))
-    return refuse('forbidden', 'You can only delete your own time-off requests.');
+  if (db.timeOff[idx].userId !== actor.id) {
+    const no = requireCan(actor, 'manageOthersTimeOff', 'You can only delete your own time-off requests.');
+    if (no) return no;
+  }
   db.timeOff.splice(idx, 1);
   return ok({ ok: true });
 }

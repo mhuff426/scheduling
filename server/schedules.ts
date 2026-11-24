@@ -7,14 +7,11 @@
 // refusal rolls it back.
 
 import { newId } from './db.js';
-import { can } from './capabilities.js';
 import { generateSchedule, summarizeSchedule } from './scheduler.js';
 import { ADMIN_REASSIGN_POLICY, needsConfirmation, parseConfirmedWarnings, scheduleEligibility } from './eligibility.js';
-import { ok, refuse, unconfirmed, type CommandContext, type Outcome } from './outcome.js';
+import { ok, refuse, requireCan, unconfirmed, type CommandContext, type Outcome } from './outcome.js';
 import { blockRange, currentBlockIndex } from '../shared/blocks.js';
 import type { Db, Schedule } from '../shared/types.js';
-
-const forbidden = () => refuse('forbidden', 'Admin access required.');
 
 // How many blocks the selectable window offers: the current one and the next 4.
 const SELECTABLE_BLOCKS = 5;
@@ -28,7 +25,8 @@ const SELECTABLE_BLOCKS = 5;
 export function buildSchedule(
   db: Db, { actor, today }: CommandContext, input: { blockIndex: unknown; userIds?: unknown }
 ): Outcome<Schedule> {
-  if (!can(actor, 'buildSchedules')) return forbidden();
+  const no = requireCan(actor, 'buildSchedules');
+  if (no) return no;
   const cadence = db.settings.cadence;
   if (!cadence) return refuse('invalid', 'Configure a schedule cadence in Settings first.');
   if (db.shiftTypes.length === 0) return refuse('invalid', 'Configure at least one shift type first.');
@@ -80,7 +78,8 @@ export interface ReassignInput {
  * admin, who confirms. Re-summarizes the schedule's counts and warnings.
  */
 export function reassignShift(db: Db, { actor }: CommandContext, input: ReassignInput): Outcome<Schedule> {
-  if (!can(actor, 'buildSchedules')) return forbidden();
+  const no = requireCan(actor, 'buildSchedules');
+  if (no) return no;
   const schedule = db.schedules.find((s) => s.id === input.id);
   if (!schedule) return refuse('not_found', 'Schedule not found.');
   const { date, shiftTypeId, fromUserId, toUserId } = input;
@@ -125,7 +124,8 @@ export function reassignShift(db: Db, { actor }: CommandContext, input: Reassign
 
 /** Removes a schedule. */
 export function deleteSchedule(db: Db, { actor }: CommandContext, { id }: { id: string }): Outcome<{ ok: true }> {
-  if (!can(actor, 'buildSchedules')) return forbidden();
+  const no = requireCan(actor, 'buildSchedules');
+  if (no) return no;
   const idx = db.schedules.findIndex((s) => s.id === id);
   if (idx === -1) return refuse('not_found', 'Schedule not found.');
   db.schedules.splice(idx, 1);

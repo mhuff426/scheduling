@@ -9,7 +9,7 @@
 
 import { newId } from './db.js';
 import { can } from './capabilities.js';
-import { ok, refuse, type CommandContext, type Outcome, type Refused } from './outcome.js';
+import { ok, refuse, requireCan, type CommandContext, type Outcome, type Refused } from './outcome.js';
 import { bumpVersion, staleRefusal } from './staleness.js';
 import { isDate } from '../shared/blocks.js';
 import type { Db, RoleTag, User } from '../shared/types.js';
@@ -25,9 +25,6 @@ const PALETTE = [
 ];
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-const forbidden = (actor: User): Refused | null =>
-  can(actor, 'managePeople') ? null : refuse('forbidden', 'Admin access required.');
 
 // The one role fix-up: keep only roles that exist, and always the Employee role.
 function fixRoles(db: Db, roles: unknown): string[] {
@@ -53,7 +50,7 @@ export interface NewPerson {
 
 /** Adds a person to the roster. The route then creates their credentials and invite. */
 export function createPerson(db: Db, { actor }: CommandContext, input: NewPerson): Outcome<User> {
-  const no = forbidden(actor);
+  const no = requireCan(actor, 'managePeople');
   if (no) return no;
   const firstName = String(input.firstName || '').trim();
   const lastName = String(input.lastName || '').trim();
@@ -93,7 +90,7 @@ export interface PersonEdit {
 
 /** Edits the given fields of a person's profile. The last admin keeps the Admin role. */
 export function editPerson(db: Db, { actor }: CommandContext, input: PersonEdit): Outcome<User> {
-  const no = forbidden(actor);
+  const no = requireCan(actor, 'managePeople');
   if (no) return no;
   const user = db.users.find((u) => u.id === input.id);
   if (!user) return refuse('not_found', 'User not found.');
@@ -143,7 +140,7 @@ export function editPerson(db: Db, { actor }: CommandContext, input: PersonEdit)
 
 /** Removes a person with their must-off days and away time. The route then clears their auth rows. */
 export function removePerson(db: Db, { actor }: CommandContext, { id }: { id: string }): Outcome<{ ok: true }> {
-  const no = forbidden(actor);
+  const no = requireCan(actor, 'managePeople');
   if (no) return no;
   const user = db.users.find((u) => u.id === id);
   if (!user) return refuse('not_found', 'User not found.');
@@ -168,7 +165,7 @@ function checkRoleName(db: Db, name: unknown, selfId?: string): string | Refused
 }
 
 export function createRole(db: Db, { actor }: CommandContext, input: { name?: unknown }): Outcome<RoleTag> {
-  const no = forbidden(actor);
+  const no = requireCan(actor, 'managePeople');
   if (no) return no;
   const name = checkRoleName(db, input.name);
   if (typeof name !== 'string') return name;
@@ -180,7 +177,7 @@ export function createRole(db: Db, { actor }: CommandContext, input: { name?: un
 export function renameRole(
   db: Db, { actor }: CommandContext, input: { id: string; name?: unknown; expectedVersion?: unknown }
 ): Outcome<RoleTag> {
-  const no = forbidden(actor);
+  const no = requireCan(actor, 'managePeople');
   if (no) return no;
   const role = db.roles.find((r) => r.id === input.id);
   if (!role) return refuse('not_found', 'Role not found.');
@@ -196,7 +193,7 @@ export function renameRole(
 
 /** Deletes a role, removing it from every person and every shift type. */
 export function deleteRole(db: Db, { actor }: CommandContext, { id }: { id: string }): Outcome<{ ok: true }> {
-  const no = forbidden(actor);
+  const no = requireCan(actor, 'managePeople');
   if (no) return no;
   const role = db.roles.find((r) => r.id === id);
   if (!role) return refuse('not_found', 'Role not found.');

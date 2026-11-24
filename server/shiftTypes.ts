@@ -1,14 +1,12 @@
 // Shift-type commands (ADR 0003): create, edit and delete, for whoever can
 // configure scheduling.
 import { newId } from './db.js';
-import { can } from './capabilities.js';
-import { ok, refuse, type CommandContext, type Outcome } from './outcome.js';
+import { ok, refuse, requireCan, type CommandContext, type Outcome } from './outcome.js';
 import { staleRefusal, bumpVersion } from './staleness.js';
 import type { Db, ShiftType } from '../shared/types.js';
 
 const isTime = (s: unknown) => typeof s === 'string' && /^\d{2}:\d{2}$/.test(s);
 
-const FORBIDDEN = 'Admin access required.';
 const NOT_FOUND = 'Shift type not found.';
 
 // Validate and normalize the shift-type fields shared by create and edit.
@@ -46,7 +44,8 @@ export function parseShiftType(body: any): { error: string; fields?: undefined }
 }
 
 export function createShiftType(db: Db, { actor }: CommandContext, input: unknown): Outcome<ShiftType> {
-  if (!can(actor, 'configureScheduling')) return refuse('forbidden', FORBIDDEN);
+  const no = requireCan(actor, 'configureScheduling');
+  if (no) return no;
   const { error, fields } = parseShiftType(input);
   if (error) return refuse('invalid', error);
   const st: ShiftType = { id: newId('s'), ...fields! };
@@ -57,7 +56,8 @@ export function createShiftType(db: Db, { actor }: CommandContext, input: unknow
 export function editShiftType(
   db: Db, { actor }: CommandContext, input: { id: string; expectedVersion?: unknown; [field: string]: unknown }
 ): Outcome<ShiftType> {
-  if (!can(actor, 'configureScheduling')) return refuse('forbidden', FORBIDDEN);
+  const no = requireCan(actor, 'configureScheduling');
+  if (no) return no;
   const st = db.shiftTypes.find((s) => s.id === input.id);
   if (!st) return refuse('not_found', NOT_FOUND);
   const stale = staleRefusal(st, input.expectedVersion, `The shift type "${st.name}"`);
@@ -71,7 +71,8 @@ export function editShiftType(
 }
 
 export function deleteShiftType(db: Db, { actor }: CommandContext, { id }: { id: string }): Outcome<{ ok: true }> {
-  if (!can(actor, 'configureScheduling')) return refuse('forbidden', FORBIDDEN);
+  const no = requireCan(actor, 'configureScheduling');
+  if (no) return no;
   const idx = db.shiftTypes.findIndex((s) => s.id === id);
   if (idx === -1) return refuse('not_found', NOT_FOUND);
   db.shiftTypes.splice(idx, 1);

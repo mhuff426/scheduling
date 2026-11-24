@@ -3,7 +3,7 @@
 // commits what the callback changed only when it returns (a throw rolls back),
 // the way the MySQL transaction does.
 import assert from 'assert';
-import { ok, refuse, unconfirmed, runCommand, type Mutate } from './outcome.js';
+import { ok, refuse, unconfirmed, requireCan, runCommand, type Mutate } from './outcome.js';
 import type { Db, User } from '../shared/types.js';
 
 const ann: User = { id: 'a', name: 'Ann', roles: ['role-employee'], vacationDays: 10, color: '#888' };
@@ -103,6 +103,16 @@ async function main() {
     let ran = false;
     await runCommand(mutate, 'a', TODAY, () => o, () => { ran = true; });
     assert.ok(!ran, 'afterCommit never runs on a refusal');
+  }
+
+  // ---- requireCan: null with the capability, a forbidden refusal without it ----
+  {
+    const boss: User = { ...ann, id: 'b', roles: ['role-admin', 'role-employee'] };
+    assert.strictEqual(requireCan(boss, 'managePeople'), null);
+    assert.deepStrictEqual(requireCan(ann, 'managePeople'),
+      { ok: false, refusal: { reason: 'forbidden', message: 'Admin access required.' } });
+    assert.deepStrictEqual(requireCan(ann, 'manageOthersTimeOff', 'Only your own.'),
+      { ok: false, refusal: { reason: 'forbidden', message: 'Only your own.' } });
   }
 
   // ---- a thrown error is not a refusal: it propagates (500/503 upstream) ----
