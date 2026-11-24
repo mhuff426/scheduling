@@ -17,13 +17,14 @@ import {
 } from './trades.js';
 import { runCommand, mapOutcome, type Command, type CommandContext, type Outcome } from './outcome.js';
 import { updateSettings } from './cadence.js';
+import { createShiftType, editShiftType, deleteShiftType } from './shiftTypes.js';
 import { buildIcs } from './ics.js';
 import { requestMustOff, withdrawMustOff } from './mustOff.js';
 import { project, tradeSeenBy, type ReadRequest, type Refusal } from './projection.js';
 import { can, capabilitiesOf, type Capability } from './capabilities.js';
 import { isValidCadence, blockRange, currentBlockIndex, todayYmd } from '../shared/blocks.js';
 import { isValidRecurrence } from '../shared/holidays.js';
-import type { Db, ShiftType, Trade, User } from '../shared/types.js';
+import type { Db, Trade, User } from '../shared/types.js';
 import {
   passwordProblem, verifyPassword, ensureCredentialRows, getCredential,
   setPassword, createInvite, findUserIdByInviteToken, registeredMap,
@@ -289,7 +290,6 @@ const PALETTE = [
 ];
 
 const isDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s || '');
-const isTime = (s: string) => /^\d{2}:\d{2}$/.test(s || '');
 
 // ---- whole app state (kept for debugging/tooling; the client fetches per tab) ----
 // ---- reads: thin adapters over the read projection (ADR 0002) ----
@@ -518,78 +518,15 @@ app.delete('/api/roles/:id', handle(async (req, res) => {
   res.json({ ok: true });
 }));
 
-// ---- shift types ----
-// Validate and normalize the shift-type fields shared by create and edit.
-// Returns { error } on failure or { fields } on success.
-function parseShiftType(body: any): { error: string; fields?: undefined } | { error?: undefined; fields: Omit<ShiftType, 'id'> } {
-  const { name, startTime, endTime, frequency, dayOfWeek, staffRequired, minRun, maxRun, weight, allowedRoles } = body;
-  if (!name || !name.trim()) return { error: 'Shift name is required.' };
-  if (!isTime(startTime) || !isTime(endTime))
-    return { error: 'Start and end times are required (HH:MM).' };
-  const freq = frequency === 'weekly' ? 'weekly' : 'daily';
-  // Run target: a person stays on this shift type between minRun and maxRun
-  // consecutive days. Blank = no grouping (min 1, no max).
-  const min = Math.max(1, Number(minRun) || 1);
-  const maxNum = Number(maxRun);
-  const max = Number.isFinite(maxNum) && maxNum >= 1 ? Math.max(min, maxNum) : null;
-  // Fairness weight: blank = automatic (1, or the overnight default for
-  // overnight shifts). 0 is allowed and means standby duty that doesn't count
-  // toward anyone's shift count.
-  const wNum = Number(weight);
-  const w = weight === '' || weight == null || !Number.isFinite(wNum) ? null : Math.max(0, wNum);
-  return {
-    fields: {
-      weight: w,
-      name: name.trim(),
-      startTime,
-      endTime,
-      frequency: freq,
-      dayOfWeek: freq === 'weekly' ? Math.min(6, Math.max(0, Number(dayOfWeek) || 0)) : null,
-      staffRequired: Math.max(1, Number(staffRequired) || 1),
-      minRun: min,
-      maxRun: max,
-      allowedRoles: Array.isArray(allowedRoles) ? allowedRoles.filter((r: any) => typeof r === 'string') : [],
-    },
-  };
-}
+// ---- shift types (./shiftTypes.ts) ----
+app.post('/api/shift-types', handle((req, res) =>
+  sendCommand(req, res, (db, ctx) => createShiftType(db, ctx, req.body))));
 
-app.post('/api/shift-types', handle(async (req, res) => {
-  const st = await withMutation((db) => {
-    requireCapability(db, req, 'configureScheduling');
-    const { error, fields } = parseShiftType(req.body);
-    if (error) throw new HttpError(400, error);
-    const st: ShiftType = { id: newId('s'), ...fields! };
-    db.shiftTypes.push(st);
-    return st;
-  });
-  res.json(st);
-}));
+app.put('/api/shift-types/:id', handle((req, res) =>
+  sendCommand(req, res, (db, ctx) => editShiftType(db, ctx, { ...req.body, id: req.params.id }))));
 
-app.put('/api/shift-types/:id', handle(async (req, res) => {
-  const st = await withMutation((db) => {
-    requireCapability(db, req, 'configureScheduling');
-    const st = db.shiftTypes.find((s) => s.id === req.params.id);
-    if (!st) throw new HttpError(404, 'Shift type not found.');
-    checkVersion(st, req.body.expectedVersion, `The shift type "${st.name}"`);
-    const { error, fields } = parseShiftType(req.body);
-    if (error) throw new HttpError(400, error);
-    // Mutate in place so existing schedules keep referencing the same id.
-    Object.assign(st, fields!);
-    bumpVersion(st);
-    return st;
-  });
-  res.json(st);
-}));
-
-app.delete('/api/shift-types/:id', handle(async (req, res) => {
-  await withMutation((db) => {
-    requireCapability(db, req, 'configureScheduling');
-    const idx = db.shiftTypes.findIndex((s) => s.id === req.params.id);
-    if (idx === -1) throw new HttpError(404, 'Shift type not found.');
-    db.shiftTypes.splice(idx, 1);
-  });
-  res.json({ ok: true });
-}));
+app.delete('/api/shift-types/:id', handle((req, res) =>
+  sendCommand(req, res, (db, ctx) => deleteShiftType(db, ctx, { id: req.params.id }))));
 
 // ---- settings ----
 app.put('/api/settings', handle((req, res) =>
