@@ -6,7 +6,8 @@
 // Extending it: what an employee may see of each collection lives in
 // EMPLOYEE_VIEWS, one function per collection. A collection's view takes the
 // rows and the viewer context and returns the rows that viewer may see.
-// Admins see every collection whole.
+// Admins see every collection whole. Which tabs employees may read at all,
+// and what each tab sends besides its collections, lives in TAB_RULES.
 import type { AppState, Db, Schedule, User } from '../shared/types.js';
 import type { CollectionKey } from './mysql.js';
 import { preferenceStandings } from './scheduler.js';
@@ -21,6 +22,17 @@ export const TAB_KEYS = {
 } satisfies Record<string, CollectionKey[]>;
 
 export type TabName = keyof typeof TAB_KEYS;
+
+// Who may read each tab beyond the admins, and what a tab sends besides its
+// collections. A tab missing `employeesMayRead` is refused to employees, so a
+// new tab stays invisible to them until someone decides what they may see.
+type TabRule = { employeesMayRead?: true; extras?: (db: Db) => Partial<AppState> };
+const TAB_RULES: { [T in TabName]: TabRule } = {
+  schedule: { employeesMayRead: true },
+  preferences: { employeesMayRead: true, extras: (db) => ({ fullDays: fullDays(db) }) },
+  trades: { employeesMayRead: true },
+  admin: { extras: (db) => ({ fullDays: fullDays(db), preferenceStandings: preferenceStandings(db) }) },
+};
 
 export type ReadRequest =
   | { kind: 'state' }
@@ -83,7 +95,6 @@ const coworkersByName: CollectionView<'users'> = (rows, { viewer }) =>
 
 // What an employee may see of each collection. Every key must be listed, so a
 // new collection can't reach employees until someone decides its view.
-// Later tickets narrow these per ADR 0002.
 const EMPLOYEE_VIEWS: { [K in CollectionKey]: CollectionView<K> } = {
   users: coworkersByName,
   roles: whole,
@@ -101,10 +112,10 @@ const EMPLOYEE_VIEWS: { [K in CollectionKey]: CollectionView<K> } = {
 };
 
 // Admins see every collection whole: the "see everyone's records" capability.
-const isAdmin = (u: User) => can(u, 'seeEveryonesRecords');
+const seesEveryonesRecords = (u: User) => can(u, 'seeEveryonesRecords');
 
 function viewOf<K extends CollectionKey>(key: K, ctx: ViewContext): Db[K] {
-  if (isAdmin(ctx.viewer)) return ctx.db[key];
+  if (seesEveryonesRecords(ctx.viewer)) return ctx.db[key];
   return EMPLOYEE_VIEWS[key](ctx.db[key], ctx);
 }
 
@@ -137,17 +148,17 @@ export function project(db: Db, viewerId: string | null, request: ReadRequest): 
 
   switch (request.kind) {
     case 'state':
-      if (!isAdmin(viewer)) return { refused: 'forbidden' };
+      if (!seesEveryonesRecords(viewer)) return { refused: 'forbidden' };
       return { state: { ...db, preferenceStandings: preferenceStandings(db) } };
 
     case 'tab': {
       if (!isTab(request.tab)) return { refused: 'not_found' };
-      if (request.tab === 'admin' && !isAdmin(viewer)) return { refused: 'forbidden' };
+      const rule = TAB_RULES[request.tab];
+      if (!rule.employeesMayRead && !seesEveryonesRecords(viewer)) return { refused: 'forbidden' };
       const out = emptyState();
-      for (const k of TAB_KEYS[request.tab] as CollectionKey[]) (out as any)[k] = viewOf(k, ctx);
-      if ((TAB_KEYS[request.tab] as CollectionKey[]).includes('timeOff')) out.fullDays = fullDays(db);
-      if (request.tab === 'admin') out.preferenceStandings = preferenceStandings(db);
-      return { state: out };
+      const keys: readonly CollectionKey[] = TAB_KEYS[request.tab];
+      for (const k of keys) (out as any)[k] = viewOf(k, ctx);
+      return { state: { ...out, ...rule.extras?.(db) } };
     }
 
     case 'users': {
@@ -155,7 +166,7 @@ export function project(db: Db, viewerId: string | null, request: ReadRequest): 
       // change reaches the UI without an extra request.
       const viewerCaps = { capabilities: capabilitiesOf(viewer) };
       // Registration status goes to admins only.
-      if (!isAdmin(viewer)) return { users: viewOf('users', ctx), viewer: viewerCaps };
+      if (!seesEveryonesRecords(viewer)) return { users: viewOf('users', ctx), viewer: viewerCaps };
       return {
         users: viewOf('users', ctx).map((u) => ({ ...u, registered: !!request.registered[u.id] })),
         viewer: viewerCaps,
