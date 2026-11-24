@@ -170,6 +170,23 @@ async function asAdmin(playwright) {
   return ctx;
 }
 
+test('removing a person\'s admin role takes effect on their very next request', async ({ playwright }) => {
+  const admin = await asAdmin(playwright);
+  // Make Bea an admin, then give her a session of her own.
+  expect((await admin.put('/api/users/u-bea', { data: { roles: ['role-admin', 'role-employee'] } })).ok()).toBeTruthy();
+  const bea = await playwright.request.newContext({ baseURL: 'http://localhost:5173' });
+  expect((await bea.post('/api/dev/impersonate', { data: { userId: 'u-bea' } })).ok()).toBeTruthy();
+  expect((await bea.post('/api/roles', { data: { name: 'Lead' } })).status()).toBe(200);
+  expect((await bea.get('/api/state')).status()).toBe(200);
+
+  // Demote her; her existing session loses the admin capabilities at once.
+  expect((await admin.put('/api/users/u-bea', { data: { roles: ['role-employee'] } })).ok()).toBeTruthy();
+  expect((await bea.post('/api/roles', { data: { name: 'Lead 2' } })).status()).toBe(403);
+  expect((await bea.get('/api/state')).status()).toBe(403);
+  await bea.dispose();
+  await admin.dispose();
+});
+
 test('session is identity: the server ignores a spoofed userId on time-off create', async ({ page, playwright }) => {
   await page.goto('/');
   await registerViaApi(page, 'bea@shiftly.local', 'beasPassw0rd');

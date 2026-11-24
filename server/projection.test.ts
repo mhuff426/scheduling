@@ -132,4 +132,30 @@ function awayFixture(): Db {
   assert.deepStrictEqual(r.users.map((u) => [u.id, u.registered]), [['u-admin', true], ['u-emp', false]]);
 }
 
+// ---- see everyone's records: viewers with different roles (capability lookup) ----
+{
+  const db = fixture();
+  db.roles.push({ id: 'role-lead', name: 'Lead' });
+  db.users.push(
+    { id: 'u-only-admin', name: 'Oli Admin', firstName: 'Oli', lastName: 'Admin', email: 'oli@x.test', roles: ['role-admin'], vacationDays: 0, color: '#333333', requiredShifts: null },
+    { id: 'u-lead', name: 'Lee Lead', firstName: 'Lee', lastName: 'Lead', email: 'lee@x.test', roles: ['role-employee', 'role-lead'], vacationDays: 0, color: '#444444', requiredShifts: null },
+    { id: 'u-no-roles', name: 'Noa None', firstName: 'Noa', lastName: 'None', email: 'noa@x.test', roles: undefined as any, vacationDays: 0, color: '#555555', requiredShifts: null },
+  );
+  const dump = project(db, 'u-only-admin', { kind: 'state' });
+  assert.ok('state' in dump, 'the admin role tag alone grants the full dump');
+  assert.strictEqual((dump.state.awayTime[0] as any).memo, 'admin note');
+  assert.deepStrictEqual(project(db, 'u-lead', { kind: 'state' }), { refused: 'forbidden' }, 'a custom role tag is not admin');
+  assert.deepStrictEqual(project(db, 'u-lead', { kind: 'tab', tab: 'admin' }), { refused: 'forbidden' });
+  assert.deepStrictEqual(project(db, 'u-no-roles', { kind: 'state' }), { refused: 'forbidden' }, 'no roles, no capabilities');
+}
+
+// ---- removing a person's admin role takes effect on their very next read ----
+{
+  const db = fixture();
+  assert.ok('state' in project(db, 'u-admin', { kind: 'state' }));
+  db.users.find((u) => u.id === 'u-admin')!.roles = ['role-employee'];
+  assert.deepStrictEqual(project(db, 'u-admin', { kind: 'state' }), { refused: 'forbidden' });
+  assert.deepStrictEqual(project(db, 'u-admin', { kind: 'tab', tab: 'admin' }), { refused: 'forbidden' });
+}
+
 console.log('projection tests passed');
