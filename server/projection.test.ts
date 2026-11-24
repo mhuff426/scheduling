@@ -443,4 +443,25 @@ function coworkerFixture(): Db {
   assert.deepStrictEqual(r.users, db.users.map((u) => ({ ...u, registered: u.id === 'u-co' })));
 }
 
+// ---- the user list carries the viewer's own capabilities ----
+{
+  const asAdmin = project(fixture(), 'u-admin', { kind: 'users', registered: {} });
+  assert.ok('users' in asAdmin);
+  assert.deepStrictEqual(asAdmin.viewer.capabilities, [
+    'managePeople', 'configureScheduling', 'manageAwayTime', 'buildSchedules', 'manageOthersTimeOff', 'seeEveryonesRecords',
+  ]);
+  const asEmployee = project(fixture(), 'u-emp', { kind: 'users', registered: {} });
+  assert.ok('users' in asEmployee);
+  assert.deepStrictEqual(asEmployee.viewer.capabilities, [], 'an employee has no capabilities');
+}
+
+// ---- a demoted admin's next user-list poll carries no capabilities ----
+{
+  const db = fixture();
+  db.users.find((u) => u.id === 'u-admin')!.roles = ['role-employee'];
+  const r = project(db, 'u-admin', { kind: 'users', registered: {} });
+  assert.ok('users' in r);
+  assert.deepStrictEqual(r.viewer.capabilities, []);
+}
+
 console.log('projection tests passed');

@@ -18,7 +18,7 @@ import {
 } from './trades.js';
 import { buildIcs } from './ics.js';
 import { project, type ReadRequest, type Refusal } from './projection.js';
-import { can, type Capability } from './capabilities.js';
+import { can, capabilitiesOf, type Capability } from './capabilities.js';
 import { isValidCadence, blockRange, currentBlockIndex, todayYmd } from '../shared/blocks.js';
 import { isValidRecurrence } from '../shared/holidays.js';
 import type { Db, ShiftType, User } from '../shared/types.js';
@@ -230,7 +230,9 @@ app.get('/api/auth/me', handle(async (req, res) => {
   const user = db.users.find((u) => u.id === uid);
   if (!user) return res.status(401).json({ error: 'Not logged in.' });
   const map = await registeredMap(getPool());
-  return res.json({ user: redactUser(user, !!map[user.id]) });
+  // The viewer's capabilities ride with their user record: the UI's hint for
+  // which controls to show. The server still checks every request.
+  return res.json({ user: redactUser(user, !!map[user.id]), capabilities: capabilitiesOf(user) });
 }));
 
 // Dev/test-only impersonation (never in production).
