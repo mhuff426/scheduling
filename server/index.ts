@@ -3,7 +3,7 @@ import type { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { initDb, readState, withMutation, newId, vacationCountForDate, resetDbForTests, getPool } from './db.js';
+import { initDb, readState, withMutation, newId, resetDbForTests, getPool } from './db.js';
 import type { CollectionKey } from './mysql.js';
 import {
   generateSchedule, summarizeSchedule,
@@ -17,6 +17,7 @@ import {
 } from './trades.js';
 import { runCommand, mapOutcome, type Command, type CommandContext, type Outcome } from './outcome.js';
 import { buildIcs } from './ics.js';
+import { requestMustOff, withdrawMustOff } from './mustOff.js';
 import { project, tradeSeenBy, type ReadRequest, type Refusal } from './projection.js';
 import { can, capabilitiesOf, type Capability } from './capabilities.js';
 import { isValidCadence, blockRange, currentBlockIndex, todayYmd } from '../shared/blocks.js';
@@ -623,52 +624,11 @@ app.put('/api/settings', handle(async (req, res) => {
 }));
 
 // ---- time off requests ----
-app.post('/api/timeoff', handle(async (req, res) => {
-  const entry = await withMutation((db) => {
-    const authed = authedUser(db, req);
-    const userId = authed.id; // ignore client-sent userId; use session identity
-    const { date, type } = req.body;
-    const user = authed;
-    if (!isDate(date)) throw new HttpError(400, 'Invalid date.');
-    if (type !== 'vacation' && type !== 'preferred')
-      throw new HttpError(400, 'Type must be vacation or preferred.');
+app.post('/api/timeoff', handle((req, res) =>
+  sendCommand(req, res, (db, ctx) => requestMustOff(db, ctx, req.body))));
 
-    const existing = db.timeOff.find((t) => t.userId === userId && t.date === date);
-    if (existing)
-      throw new HttpError(409, 'You already have a request on that day. Remove it first.');
-
-    // Must-have-off requests are free at request time — vacation is only
-    // charged after a schedule is generated, if the days kept the person under
-    // their required shifts. The per-day cap still protects coverage. Both
-    // checks run against fresh state under the write lock, so concurrent
-    // requests can't slip past them.
-    if (type === 'vacation') {
-      const dayCount = vacationCountForDate(db, date);
-      if (dayCount >= db.settings.maxVacationPerDay) {
-        // Say only that the day is full: on a small team a headcount points to people (ADR 0002).
-        throw new HttpError(400, 'That day is full. Pick another day.');
-      }
-    }
-
-    const e = { id: newId('t'), userId, date, type };
-    db.timeOff.push(e);
-    return e;
-  });
-  res.json(entry);
-}));
-
-app.delete('/api/timeoff/:id', handle(async (req, res) => {
-  await withMutation((db) => {
-    const authed = authedUser(db, req);
-    const idx = db.timeOff.findIndex((t) => t.id === req.params.id);
-    if (idx === -1) throw new HttpError(404, 'Request not found.');
-    const entry = db.timeOff[idx];
-    if (entry.userId !== authed.id && !can(authed, 'manageOthersTimeOff'))
-      throw new HttpError(403, 'You can only delete your own time-off requests.');
-    db.timeOff.splice(idx, 1);
-  });
-  res.json({ ok: true });
-}));
+app.delete('/api/timeoff/:id', handle((req, res) =>
+  sendCommand(req, res, (db, ctx) => withdrawMustOff(db, ctx, { id: req.params.id }))));
 
 // ---- away time (admin-managed; never counts against vacation) ----
 // Optional free-text fields: `label` is shown to the employee (calendar chip,
