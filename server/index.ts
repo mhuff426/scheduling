@@ -19,6 +19,7 @@ import { createHoliday, editHoliday, deleteHoliday } from './holidays.js';
 import { createAwayTime, editAwayTime, deleteAwayTime } from './awayTime.js';
 import { buildIcs } from './ics.js';
 import { requestMustOff, withdrawMustOff } from './mustOff.js';
+import { createPerson, editPerson, removePerson, createRole, renameRole, deleteRole } from './people.js';
 import { project, tradeSeenBy, type ReadRequest, type Refusal } from './projection.js';
 import { can, capabilitiesOf, type Capability } from './capabilities.js';
 import type { Db, Trade, User } from '../shared/types.js';
@@ -280,14 +281,6 @@ if (process.env.E2E_TESTING === '1') {
   }));
 }
 
-// Pastel assignment colors. Each pairs with near-black chip text at >= 7:1
-// (WCAG AAA) — see client/src/contrast.ts (safeBg/CHIP_INK) and the chip styles.
-const PALETTE = [
-  '#fca5a5', '#fdba74', '#fcd34d', '#bef264', '#86efac',
-  '#5eead4', '#67e8f9', '#7dd3fc', '#93c5fd', '#a5b4fc',
-  '#c4b5fd', '#d8b4fe', '#f0abfc', '#f9a8d4', '#fda4af',
-];
-
 const isDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s || '');
 
 // ---- whole app state (kept for debugging/tooling; the client fetches per tab) ----
@@ -323,38 +316,13 @@ app.get('/api/notifications', handle(async (req, res) => {
   res.json({ notifications: db.notifications.filter((n) => n.userId === user.id) });
 }));
 
-// ---- roster ----
+// ---- roster (commands in ./people.ts) ----
+// Creating a person commits the data first; the credential row and invite
+// are made after, outside the transaction.
 app.post('/api/users', handle(async (req, res) => {
-  const user = await withMutation((db) => {
-    requireCapability(db, req, 'managePeople');
-    const { firstName, lastName, email, employeeId, roles, vacationDays, startDate } = req.body;
-    const firstTrim = String(firstName || '').trim();
-    const lastTrim = String(lastName || '').trim();
-    if (!firstTrim || !lastTrim) throw new HttpError(400, 'First and last name are required.');
-    const emailTrim = String(email || '').trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) throw new HttpError(400, 'A valid email is required.');
-    if (db.users.some((u) => u.email?.toLowerCase() === emailTrim))
-      throw new HttpError(409, 'A user with that email already exists.');
-    const valid = new Set(db.roles.map((r) => r.id));
-    const reqRoles = (Array.isArray(roles) ? roles : []).filter((id: string) => valid.has(id));
-    if (!reqRoles.includes('role-employee')) reqRoles.push('role-employee');
-    const empId = employeeId ? String(employeeId).trim() || null : null;
-    const u: User = {
-      id: newId('u'),
-      firstName: firstTrim,
-      lastName: lastTrim,
-      name: `${firstTrim} ${lastTrim}`.trim(),
-      email: emailTrim,
-      employeeId: empId,
-      roles: reqRoles,
-      vacationDays: Math.max(0, Number(vacationDays) || 0),
-      color: PALETTE[db.users.length % PALETTE.length],
-      startDate: isDate(startDate) ? startDate : null,
-    };
-    db.users.push(u);
-    return u;
-  });
-  // After the mutation commits, create credential row + invite.
+  const out = await runCommand(withMutation, sessionUserId(req), todayYmd(), (db, ctx) => createPerson(db, ctx, req.body));
+  if (out.status !== 200) return res.status(out.status).json(out.body);
+  const user = out.body as User;
   const pool = getPool();
   await ensureCredentialRows(pool, [user.id]);
   const rawToken = await createInvite(pool, user.id);
@@ -363,95 +331,18 @@ app.post('/api/users', handle(async (req, res) => {
   res.json({ ...redactUser(user, false), ...(delivered ? {} : { inviteLink: link }) });
 }));
 
-// The last-admin guard: someone must always be able to manage people.
-const managesPeople = (u: User) => can(u, 'managePeople');
-const isLastAdmin = (db: Db, user: User) =>
-  managesPeople(user) && db.users.filter(managesPeople).length === 1;
-
-app.put('/api/users/:id', handle(async (req, res) => {
-  const user = await withMutation((db) => {
-    requireCapability(db, req, 'managePeople');
-    const user = db.users.find((u) => u.id === req.params.id);
-    if (!user) throw new HttpError(404, 'User not found.');
-    checkVersion(user, req.body.expectedVersion, `${user.name}'s profile`);
-    const { name, roles, vacationDays } = req.body;
-    // Handle firstName/lastName edits.
-    let nameChanged = false;
-    if (req.body.firstName !== undefined) {
-      const f = String(req.body.firstName).trim();
-      if (!f) throw new HttpError(400, 'First name cannot be empty.');
-      user.firstName = f;
-      nameChanged = true;
-    }
-    if (req.body.lastName !== undefined) {
-      user.lastName = String(req.body.lastName).trim();
-      nameChanged = true;
-    }
-    if (nameChanged) user.name = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || user.name;
-    if (req.body.email !== undefined) {
-      const emailTrim = String(req.body.email).trim().toLowerCase();
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) throw new HttpError(400, 'A valid email is required.');
-      if (db.users.some((u) => u.id !== user.id && u.email?.toLowerCase() === emailTrim))
-        throw new HttpError(409, 'A user with that email already exists.');
-      user.email = emailTrim;
-    }
-    if (req.body.employeeId !== undefined) {
-      const empId = req.body.employeeId === null || req.body.employeeId === '' ? null : String(req.body.employeeId).trim() || null;
-      user.employeeId = empId;
-    }
-    if (name !== undefined && !req.body.firstName && !req.body.lastName) user.name = String(name).trim() || user.name;
-    if (roles !== undefined) {
-      const valid = new Set(db.roles.map((r) => r.id));
-      const next = (Array.isArray(roles) ? roles : []).filter((id: string) => valid.has(id));
-      if (!next.includes('role-employee')) next.push('role-employee'); // Employee always implied
-      // Can't strip the Admin tag (admin access) from the only admin.
-      if (!managesPeople({ ...user, roles: next }) && isLastAdmin(db, user)) {
-        throw new HttpError(400, `${user.name} is the only admin. Make someone else an admin first.`);
-      }
-      user.roles = next;
-    }
-    if (vacationDays !== undefined) user.vacationDays = Math.max(0, Number(vacationDays) || 0);
-    if (req.body.requiredShifts !== undefined) {
-      const r = req.body.requiredShifts;
-      user.requiredShifts = r === null || r === '' ? null : Math.max(0, Number(r) || 0);
-    }
-    if (req.body.maxConsecutiveNights !== undefined) {
-      const n = req.body.maxConsecutiveNights;
-      user.maxConsecutiveNights = n === null || n === '' ? null : Math.max(1, Number(n) || 1);
-    }
-    if (req.body.maxShiftsOverride !== undefined) {
-      const n = req.body.maxShiftsOverride;
-      user.maxShiftsOverride = n === null || n === '' ? null : Math.max(1, Number(n) || 1);
-    }
-    if (req.body.startDate !== undefined) {
-      const d = req.body.startDate;
-      user.startDate = d === null || d === '' ? null : (isDate(d) ? d : user.startDate);
-    }
-    if (req.body.color !== undefined && typeof req.body.color === 'string') user.color = req.body.color;
-    if (req.body.theme !== undefined) user.theme = req.body.theme === 'dark' ? 'dark' : 'light';
-    bumpVersion(user);
-    return user;
-  });
-  res.json(user);
-}));
+app.put('/api/users/:id', handle((req, res) =>
+  sendCommand(req, res, (db, ctx) => editPerson(db, ctx, { ...req.body, id: req.params.id }))));
 
 app.delete('/api/users/:id', handle(async (req, res) => {
-  await withMutation((db) => {
-    requireCapability(db, req, 'managePeople');
-    const idx = db.users.findIndex((u) => u.id === req.params.id);
-    if (idx === -1) throw new HttpError(404, 'User not found.');
-    if (isLastAdmin(db, db.users[idx])) {
-      throw new HttpError(400, `${db.users[idx].name} is the only admin and can't be removed. Make someone else an admin first.`);
-    }
-    db.users.splice(idx, 1);
-    db.timeOff = db.timeOff.filter((t) => t.userId !== req.params.id);
-    db.awayTime = db.awayTime.filter((a) => a.userId !== req.params.id);
-  });
-  // Explicit cleanup of auth tables (no FK cascade — see schema comments).
-  const pool = getPool();
-  await pool.query('DELETE FROM `user_credentials` WHERE `user_id` = ?', [req.params.id]);
-  await pool.query('DELETE FROM `sessions` WHERE `user_id` = ?', [req.params.id]);
-  res.json({ ok: true });
+  const out = await runCommand(withMutation, sessionUserId(req), todayYmd(), (db, ctx) => removePerson(db, ctx, { id: req.params.id }));
+  if (out.status === 200) {
+    // Explicit cleanup of auth tables (no FK cascade — see schema comments).
+    const pool = getPool();
+    await pool.query('DELETE FROM `user_credentials` WHERE `user_id` = ?', [req.params.id]);
+    await pool.query('DELETE FROM `sessions` WHERE `user_id` = ?', [req.params.id]);
+  }
+  res.status(out.status).json(out.body);
 }));
 
 // ---- resend invite ----
@@ -470,52 +361,15 @@ app.post('/api/users/:id/resend-invite', handle(async (req, res) => {
   return res.json({ ok: true, ...(delivered ? {} : { inviteLink: link }) });
 }));
 
-// ---- employee roles (capability tags; Admin/Employee are system roles) ----
-app.post('/api/roles', handle(async (req, res) => {
-  const role = await withMutation((db) => {
-    requireCapability(db, req, 'managePeople');
-    const name = String(req.body.name || '').trim();
-    if (!name) throw new HttpError(400, 'Role name is required.');
-    if (db.roles.some((r) => r.name.toLowerCase() === name.toLowerCase()))
-      throw new HttpError(400, 'A role with that name already exists.');
-    const role = { id: newId('role'), name };
-    db.roles.push(role);
-    return role;
-  });
-  res.json(role);
-}));
+// ---- employee roles (commands in ./people.ts) ----
+app.post('/api/roles', handle((req, res) =>
+  sendCommand(req, res, (db, ctx) => createRole(db, ctx, req.body))));
 
-app.put('/api/roles/:id', handle(async (req, res) => {
-  const role = await withMutation((db) => {
-    requireCapability(db, req, 'managePeople');
-    const role = db.roles.find((r) => r.id === req.params.id);
-    if (!role) throw new HttpError(404, 'Role not found.');
-    if (role.system) throw new HttpError(400, 'System roles cannot be renamed.');
-    checkVersion(role, req.body.expectedVersion, `The role "${role.name}"`);
-    const name = String(req.body.name || '').trim();
-    if (!name) throw new HttpError(400, 'Role name is required.');
-    if (db.roles.some((r) => r.id !== role.id && r.name.toLowerCase() === name.toLowerCase()))
-      throw new HttpError(400, 'A role with that name already exists.');
-    role.name = name;
-    bumpVersion(role);
-    return role;
-  });
-  res.json(role);
-}));
+app.put('/api/roles/:id', handle((req, res) =>
+  sendCommand(req, res, (db, ctx) => renameRole(db, ctx, { ...req.body, id: req.params.id }))));
 
-app.delete('/api/roles/:id', handle(async (req, res) => {
-  await withMutation((db) => {
-    requireCapability(db, req, 'managePeople');
-    const role = db.roles.find((r) => r.id === req.params.id);
-    if (!role) throw new HttpError(404, 'Role not found.');
-    if (role.system) throw new HttpError(400, 'System roles cannot be deleted.');
-    // Cascade: drop the role id from every user and every shift type.
-    for (const u of db.users) u.roles = (u.roles || []).filter((r) => r !== role.id);
-    for (const st of db.shiftTypes) st.allowedRoles = (st.allowedRoles || []).filter((r) => r !== role.id);
-    db.roles = db.roles.filter((r) => r.id !== role.id);
-  });
-  res.json({ ok: true });
-}));
+app.delete('/api/roles/:id', handle((req, res) =>
+  sendCommand(req, res, (db, ctx) => deleteRole(db, ctx, { id: req.params.id }))));
 
 // ---- shift types (./shiftTypes.ts) ----
 app.post('/api/shift-types', handle((req, res) =>
