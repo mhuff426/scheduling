@@ -41,6 +41,11 @@ type CollectionView<K extends CollectionKey> = (rows: Db[K], ctx: ViewContext) =
 
 const whole = <T,>(rows: T): T => rows;
 
+// Away time is private to the person and the admins; the away memo is admin-only,
+// so even the person's own away time reaches them with its label but no memo.
+const ownAwayTimeWithoutMemo: CollectionView<'awayTime'> = (rows, { viewer }) =>
+  rows.filter((a) => a.userId === viewer.id).map(({ memo: _memo, ...rest }) => rest);
+
 // What an employee may see of each collection. Every key must be listed, so a
 // new collection can't reach employees until someone decides its view.
 // Later tickets narrow these per ADR 0002.
@@ -53,7 +58,7 @@ const EMPLOYEE_VIEWS: { [K in CollectionKey]: CollectionView<K> } = {
   schedules: whole,
   trades: whole,
   notifications: whole,
-  awayTime: whole,
+  awayTime: ownAwayTimeWithoutMemo,
   holidays: whole,
   meta: whole,
 };

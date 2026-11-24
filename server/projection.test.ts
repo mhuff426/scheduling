@@ -91,6 +91,40 @@ function fixture(): Db {
   assert.strictEqual(t.state.settings.maxVacationPerDay, 2, 'unrequested settings are the defaults');
 }
 
+// ---- away time (#56): an employee sees only their own, with its label and without any away memo ----
+function awayFixture(): Db {
+  const db = fixture();
+  db.awayTime = [
+    { id: 'a-own', userId: 'u-emp', start: '2026-12-10', end: '2026-12-12', label: 'Training', memo: 'own memo' },
+    { id: 'a-own-bare', userId: 'u-emp', start: '2027-01-05', end: '2027-01-05' },
+    { id: 'a-other', userId: 'u-admin', start: '2026-12-20', end: '2026-12-24', label: 'Conference', memo: 'other memo' },
+  ];
+  return db;
+}
+{
+  for (const tab of ['preferences', 'schedule', 'trades']) {
+    const r = project(awayFixture(), 'u-emp', { kind: 'tab', tab });
+    assert.ok('state' in r, tab);
+    assert.ok(r.state.awayTime.every((a) => a.userId === 'u-emp'), `${tab}: only own away time`);
+    assert.ok(!JSON.stringify(r).includes('memo'), `${tab}: no away memo anywhere in the response`);
+  }
+  const r = project(awayFixture(), 'u-emp', { kind: 'tab', tab: 'preferences' });
+  assert.ok('state' in r);
+  assert.deepStrictEqual(r.state.awayTime, [
+    { id: 'a-own', userId: 'u-emp', start: '2026-12-10', end: '2026-12-12', label: 'Training' },
+    { id: 'a-own-bare', userId: 'u-emp', start: '2027-01-05', end: '2027-01-05' },
+  ], 'own away time keeps its label, loses its memo');
+}
+
+// ---- away time (#56): an admin sees every person's away time with its memo ----
+{
+  for (const request of [{ kind: 'state' } as const, { kind: 'tab', tab: 'admin' } as const, { kind: 'tab', tab: 'preferences' } as const]) {
+    const r = project(awayFixture(), 'u-admin', request);
+    assert.ok('state' in r);
+    assert.deepStrictEqual(r.state.awayTime, awayFixture().awayTime, JSON.stringify(request));
+  }
+}
+
 // ---- the user list carries each user's registration ----
 {
   const r = project(fixture(), 'u-emp', { kind: 'users', registered: { 'u-admin': true } });
