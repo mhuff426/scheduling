@@ -3,11 +3,8 @@ import type { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { initDb, readState, withMutation, newId, resetDbForTests, getPool } from './db.js';
-import type { CollectionKey } from './mysql.js';
-import { needsConfirmation, parseConfirmedWarnings } from './eligibility.js';
-import { confirmationRefusal } from '../shared/confirmation.js';
-import type { ConfirmationRefusal, EligibilityWarning } from '../shared/confirmation.js';
+import { initDb, readState, withMutation, resetDbForTests, getPool } from './db.js';
+import { parseConfirmedWarnings } from './eligibility.js';
 import {
   createTrade, respondToOpenTrade, withdrawResponse, acceptTrade, rejectDirect, claimGiveaway, cancelTrade,
   setExtraElection, tradeOptions, swapPartners,
@@ -24,7 +21,7 @@ import { project, tradeSeenBy, type ReadRequest, type Refusal } from './projecti
 import { can, capabilitiesOf, type Capability } from './capabilities.js';
 import type { Db, Trade, User } from '../shared/types.js';
 import { buildSchedule, deleteSchedule, reassignShift } from './schedules.js';
-import { isValidCadence, todayYmd } from '../shared/blocks.js';
+import { todayYmd } from '../shared/blocks.js';
 import {
   passwordProblem, verifyPassword, ensureCredentialRows, getCredential,
   setPassword, createInvite, findUserIdByInviteToken, registeredMap,
@@ -42,25 +39,13 @@ app.use((req: Request, res: Response, next) => {
   attachSession(getPool())(req, res, next);
 });
 
-// Validation failures inside withMutation() THROW one of these (rolls the
-// transaction back — they always happen before any mutation). Business
-// outcomes are domain commands returning an Outcome instead (see sendCommand).
+// The auth, read and notification routes throw one of these to refuse
+// (inside withMutation() it rolls the transaction back). Domain commands
+// return an Outcome instead (see sendCommand).
 class HttpError extends Error {
   constructor(public status: number, message: string, public code?: string) {
     super(message);
   }
-}
-
-// Confirmation contract (ADR 0001): refuse a mutation whose eligibility
-// warnings the request hasn't confirmed, carrying the warnings so the client
-// can ask and resend with `confirmedWarnings` (the warning messages).
-class ConfirmationRequired extends Error {
-  constructor(public refusal: ConfirmationRefusal) {
-    super(refusal.error);
-  }
-}
-function requireConfirmed(warnings: EligibilityWarning[], confirmedWarnings: string[]): void {
-  if (needsConfirmation(warnings, confirmedWarnings)) throw new ConfirmationRequired(confirmationRefusal(warnings));
 }
 
 // Express 4 doesn't catch rejected async handlers — every route goes through
@@ -68,7 +53,6 @@ function requireConfirmed(warnings: EligibilityWarning[], confirmedWarnings: str
 const handle = (fn: (req: Request, res: Response) => Promise<unknown>) =>
   (req: Request, res: Response) => {
     fn(req, res).catch((e) => {
-      if (e instanceof ConfirmationRequired) return res.status(409).json(e.refusal);
       if (e instanceof HttpError) {
         return res.status(e.status).json({ error: e.message, ...(e.code ? { code: e.code } : {}) });
       }
@@ -88,26 +72,12 @@ const handle = (fn: (req: Request, res: Response) => Promise<unknown>) =>
 // transaction as the session user, as of today, and sends its outcome. A
 // refusal rolls back unless it persists; outcome.ts maps reasons to statuses.
 // Call it inside handle(), which still turns thrown errors into 500/503.
-const sendCommand = async <T>(req: Request, res: Response, command: Command<T>) => {
-  const { status, body } = await runCommand(withMutation, sessionUserId(req), todayYmd(), command);
+// `afterCommit` runs only after a success commits and may shape the response.
+const sendCommand = async <T>(
+  req: Request, res: Response, command: Command<T>, afterCommit?: (value: T) => unknown
+) => {
+  const { status, body } = await runCommand(withMutation, sessionUserId(req), todayYmd(), command, afterCommit);
   res.status(status).json(body);
-};
-
-// Optimistic-concurrency check: clients echo the `version` they read as
-// `expectedVersion`; a mismatch means someone else changed the record since.
-// Absent expectedVersion skips the check (curl / legacy callers).
-function checkVersion(entity: { version?: number }, expected: unknown, what: string): void {
-  if (expected === undefined) return;
-  if (Number(expected) !== (entity.version ?? 1)) {
-    throw new HttpError(
-      409,
-      `${what} was changed by someone else — the view has been refreshed with the latest data. Please retry.`,
-      'version_conflict'
-    );
-  }
-}
-const bumpVersion = (entity: { version?: number }) => {
-  entity.version = (entity.version ?? 1) + 1;
 };
 
 // ---------------------------------------------------------------------------
@@ -281,8 +251,6 @@ if (process.env.E2E_TESTING === '1') {
   }));
 }
 
-const isDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s || '');
-
 // ---- whole app state (kept for debugging/tooling; the client fetches per tab) ----
 // ---- reads: thin adapters over the read projection (ADR 0002) ----
 // Each tab fetches only the collections it renders. Cross-tab data (users,
@@ -319,31 +287,27 @@ app.get('/api/notifications', handle(async (req, res) => {
 // ---- roster (commands in ./people.ts) ----
 // Creating a person commits the data first; the credential row and invite
 // are made after, outside the transaction.
-app.post('/api/users', handle(async (req, res) => {
-  const out = await runCommand(withMutation, sessionUserId(req), todayYmd(), (db, ctx) => createPerson(db, ctx, req.body));
-  if (out.status !== 200) return res.status(out.status).json(out.body);
-  const user = out.body as User;
-  const pool = getPool();
-  await ensureCredentialRows(pool, [user.id]);
-  const rawToken = await createInvite(pool, user.id);
-  const link = inviteLink(rawToken);
-  const { delivered } = await sendInviteEmail({ to: user.email!, name: user.name, link });
-  res.json({ ...redactUser(user, false), ...(delivered ? {} : { inviteLink: link }) });
-}));
+app.post('/api/users', handle((req, res) =>
+  sendCommand(req, res, (db, ctx) => createPerson(db, ctx, req.body), async (user) => {
+    const pool = getPool();
+    await ensureCredentialRows(pool, [user.id]);
+    const rawToken = await createInvite(pool, user.id);
+    const link = inviteLink(rawToken);
+    const { delivered } = await sendInviteEmail({ to: user.email!, name: user.name, link });
+    return { ...redactUser(user, false), ...(delivered ? {} : { inviteLink: link }) };
+  })));
 
 app.put('/api/users/:id', handle((req, res) =>
   sendCommand(req, res, (db, ctx) => editPerson(db, ctx, { ...req.body, id: req.params.id }))));
 
-app.delete('/api/users/:id', handle(async (req, res) => {
-  const out = await runCommand(withMutation, sessionUserId(req), todayYmd(), (db, ctx) => removePerson(db, ctx, { id: req.params.id }));
-  if (out.status === 200) {
+app.delete('/api/users/:id', handle((req, res) =>
+  sendCommand(req, res, (db, ctx) => removePerson(db, ctx, { id: req.params.id }), async (removed) => {
     // Explicit cleanup of auth tables (no FK cascade — see schema comments).
     const pool = getPool();
     await pool.query('DELETE FROM `user_credentials` WHERE `user_id` = ?', [req.params.id]);
     await pool.query('DELETE FROM `sessions` WHERE `user_id` = ?', [req.params.id]);
-  }
-  res.status(out.status).json(out.body);
-}));
+    return removed;
+  })));
 
 // ---- resend invite ----
 app.post('/api/users/:id/resend-invite', handle(async (req, res) => {
