@@ -11,6 +11,7 @@ import { newId } from './db.js';
 import { can } from './capabilities.js';
 import { ok, refuse, type CommandContext, type Outcome, type Refused } from './outcome.js';
 import { bumpVersion, staleRefusal } from './staleness.js';
+import { isDate } from '../shared/blocks.js';
 import type { Db, RoleTag, User } from '../shared/types.js';
 
 const EMPLOYEE_ROLE = 'role-employee';
@@ -23,7 +24,6 @@ const PALETTE = [
   '#c4b5fd', '#d8b4fe', '#f0abfc', '#f9a8d4', '#fda4af',
 ];
 
-const isDate = (s: unknown): s is string => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const forbidden = (actor: User): Refused | null =>

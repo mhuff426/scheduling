@@ -3,9 +3,8 @@
 import { newId, vacationCountForDate } from './db.js';
 import { can } from './capabilities.js';
 import { ok, refuse, type CommandContext, type Outcome } from './outcome.js';
+import { isDate } from '../shared/blocks.js';
 import type { Db, TimeOff } from '../shared/types.js';
-
-const isDate = (s: unknown) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
 /** Requests `date` off for the actor. Any client-sent userId is ignored. */
 export function requestMustOff(

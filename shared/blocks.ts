@@ -21,6 +21,9 @@ export function todayYmd(): string {
   return ymd(new Date());
 }
 
+/** Whether `s` is a YYYY-MM-DD date string. */
+export const isDate = (s: unknown): s is string => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
+
 export function addDaysLocal(dateStr: string, n: number): string {
   const d = parse(dateStr);
   d.setDate(d.getDate() + n);
