@@ -1,7 +1,7 @@
 // Smoke test: tsx server/projection.test.ts
 // What a viewer receives for each read (ADR 0002), against an in-memory Db.
 import assert from 'assert';
-import { project } from './projection.js';
+import { project, tradeSeenBy } from './projection.js';
 import type { Db, Trade } from '../shared/types.js';
 import { extraDays, vacationCharged, yearBalance } from '../shared/settlement.js';
 
@@ -225,6 +225,41 @@ const MY_TRADES = ['mine-open', 'mine-direct-rejected', 'mine-giveaway-cancelled
     const ids = tradeIds(project(tradeFixture(), 'u-emp', { kind: 'tab', tab }));
     assert.deepStrictEqual(ids, [...MY_TRADES, 'cw-open', 'cw-giveaway'].sort(), tab);
   }
+}
+
+// ---- an open trade from a coworker carries only the viewer's own responses ----
+{
+  const db = tradeFixture();
+  db.trades.find((t) => t.id === 'cw-open')!.responses.push(
+    { userId: 'u-emp', date: '2026-12-22', shiftTypeId: 'st-day', at: '2026-11-01T02:00:00Z' },
+  );
+  const r = project(db, 'u-emp', { kind: 'tab', tab: 'trades' });
+  assert.ok('state' in r);
+  const byId = Object.fromEntries(r.state.trades.map((t) => [t.id, t]));
+  assert.deepStrictEqual(byId['cw-open'].responses.map((x) => x.userId), ['u-emp'], "a coworker's response is hidden");
+  assert.deepStrictEqual(byId['responded-expired'].responses.map((x) => x.userId), ['u-emp']);
+}
+
+// ---- the poster of an open trade sees every response to it ----
+{
+  const db = tradeFixture();
+  db.trades.find((t) => t.id === 'cw-open')!.responses.push(
+    { userId: 'u-emp', date: '2026-12-22', shiftTypeId: 'st-day', at: '2026-11-01T02:00:00Z' },
+  );
+  db.users.find((u) => u.id === 'u-bo')!.roles = ['role-employee'];
+  const r = project(db, 'u-bo', { kind: 'tab', tab: 'trades' });
+  assert.ok('state' in r);
+  const t = r.state.trades.find((x) => x.id === 'cw-open')!;
+  assert.deepStrictEqual(t.responses.map((x) => x.userId), ['u-cy', 'u-emp']);
+}
+
+// ---- tradeSeenBy gives a single trade as the viewer's projection shows it ----
+{
+  const db = tradeFixture();
+  const cwOpen = db.trades.find((t) => t.id === 'cw-open')!;
+  assert.deepStrictEqual(tradeSeenBy(db, 'u-emp', cwOpen).responses, [], 'employee: coworker responses hidden');
+  assert.deepStrictEqual(tradeSeenBy(db, 'u-bo', cwOpen).responses.map((x) => x.userId), ['u-cy'], 'poster: every response');
+  assert.deepStrictEqual(tradeSeenBy(db, 'u-admin', cwOpen), cwOpen, 'admin: the whole trade');
 }
 
 // ---- an admin still sees every trade ----

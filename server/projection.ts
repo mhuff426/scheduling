@@ -8,7 +8,7 @@
 // rows and the viewer context and returns the rows that viewer may see.
 // Admins see every collection whole. Which tabs employees may read at all,
 // and what each tab sends besides its collections, lives in TAB_RULES.
-import type { AppState, Db, Schedule, User } from '../shared/types.js';
+import type { AppState, Db, Schedule, Trade, User } from '../shared/types.js';
 import type { CollectionKey } from './mysql.js';
 import { preferenceStandings } from './scheduler.js';
 import { DEFAULT_DATA } from './db.js';
@@ -71,7 +71,23 @@ const tradesOpenToViewer: CollectionView<'trades'> = (trades, { viewer }) =>
     t.toUserId === viewer.id ||
     t.claimedBy === viewer.id ||
     t.responses.some((r) => r.userId === viewer.id) ||
-    (t.status === 'open' && (t.type === 'open' || t.type === 'giveaway')));
+    (t.status === 'open' && (t.type === 'open' || t.type === 'giveaway')))
+    .map((t) => ownResponsesUnlessPoster(t, viewer));
+
+// The poster of an open trade sees every response to it; anyone else sees
+// only the responses they offered themselves.
+const ownResponsesUnlessPoster = (t: Trade, viewer: User): Trade =>
+  t.fromUserId === viewer.id ? t : { ...t, responses: t.responses.filter((r) => r.userId === viewer.id) };
+
+/**
+ * One trade as this viewer's projection would show it: for a mutation's
+ * response, so a route never sends a raw trade row.
+ */
+export function tradeSeenBy(db: Db, viewerId: string, trade: Trade): Trade {
+  const viewer = db.users.find((u) => u.id === viewerId);
+  if (!viewer) throw new Error(`tradeSeenBy: unknown viewer ${viewerId}`);
+  return seesEveryonesRecords(viewer) ? trade : ownResponsesUnlessPoster(trade, viewer);
+}
 
 // Schedule settlement is private to the person and the admins: an employee's
 // copy keeps the dates, people, assignments and unfilled slots, plus only
