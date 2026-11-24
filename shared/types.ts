@@ -219,4 +219,5 @@ export interface Db {
 }
 
 // What GET /api/state returns: the whole db plus a derived, never-persisted map.
-export type AppState = Db & { preferenceStandings?: Record<string, number> };
+// fullDays: on tab reads that carry must-off days, the dates that are full (ADR 0002).
+export type AppState = Db & { preferenceStandings?: Record<string, number>; fullDays?: string[] };

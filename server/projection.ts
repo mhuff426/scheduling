@@ -82,7 +82,9 @@ const EMPLOYEE_VIEWS: { [K in CollectionKey]: CollectionView<K> } = {
   roles: whole,
   shiftTypes: whole,
   settings: whole,
-  timeOff: whole,
+  // Must-off days are private to their owner (ADR 0002); coworkers learn only
+  // which days are full, from `fullDays` on the tab read.
+  timeOff: (rows, { viewer }) => rows.filter((t) => t.userId === viewer.id),
   schedules: ownSettlement,
   trades: tradesOpenToViewer,
   notifications: whole,
@@ -110,6 +112,15 @@ function emptyState(): AppState {
   };
 }
 
+// Full days: dates where everyone's must-off days reach the per-day limit.
+// Sent instead of the must-off days themselves, so nobody learns who is off
+// or how many.
+export function fullDays(db: Db): string[] {
+  const perDay = new Map<string, number>();
+  for (const t of db.timeOff) if (t.type === 'vacation') perDay.set(t.date, (perDay.get(t.date) || 0) + 1);
+  return [...perDay].filter(([, n]) => n >= db.settings.maxVacationPerDay).map(([d]) => d).sort();
+}
+
 const isTab = (t: string): t is TabName => Object.prototype.hasOwnProperty.call(TAB_KEYS, t);
 
 export function project(db: Db, viewerId: string | null, request: ReadRequest): Projection {
@@ -127,6 +138,7 @@ export function project(db: Db, viewerId: string | null, request: ReadRequest): 
       if (request.tab === 'admin' && !isAdmin(viewer)) return { refused: 'forbidden' };
       const out = emptyState();
       for (const k of TAB_KEYS[request.tab] as CollectionKey[]) (out as any)[k] = viewOf(k, ctx);
+      if ((TAB_KEYS[request.tab] as CollectionKey[]).includes('timeOff')) out.fullDays = fullDays(db);
       if (request.tab === 'admin') out.preferenceStandings = preferenceStandings(db);
       return { state: out };
     }

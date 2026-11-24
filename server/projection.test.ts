@@ -346,4 +346,58 @@ function settledFixture(): Db {
   assert.deepStrictEqual(s.preferenceStats, { asks: { 'u-emp': 1, 'u-co': 3 }, median: 2 });
 }
 
+// ---- must-off days (#55): private to their owner and the admins; full days for everyone ----
+function mustOffFixture(): Db {
+  const db = fixture();
+  db.users.push({ id: 'u-cy', name: 'Cy Coworker', firstName: 'Cy', lastName: 'Coworker', email: 'cy@x.test', roles: ['role-employee'], vacationDays: 10, color: '#333333', requiredShifts: null });
+  // Per-day limit is 2. Dec 1: Eve + Ada = full. Dec 2: Ada + Cy = full (Eve has none).
+  // Dec 3: Cy alone = not full. Dec 4: two preferred-off days = not full.
+  db.timeOff = [
+    { id: 't1', userId: 'u-emp', date: '2026-12-01', type: 'vacation' },
+    { id: 't2', userId: 'u-admin', date: '2026-12-01', type: 'vacation' },
+    { id: 't3', userId: 'u-admin', date: '2026-12-02', type: 'vacation' },
+    { id: 't4', userId: 'u-cy', date: '2026-12-02', type: 'vacation' },
+    { id: 't5', userId: 'u-cy', date: '2026-12-03', type: 'vacation' },
+    { id: 't6', userId: 'u-cy', date: '2026-12-04', type: 'preferred' },
+    { id: 't7', userId: 'u-admin', date: '2026-12-04', type: 'preferred' },
+    { id: 't8', userId: 'u-emp', date: '2026-12-05', type: 'preferred' },
+  ] as any;
+  return db;
+}
+
+// ---- an employee's tab reads carry only their own must-off days ----
+{
+  const r = project(mustOffFixture(), 'u-emp', { kind: 'tab', tab: 'preferences' });
+  assert.ok('state' in r);
+  assert.deepStrictEqual(r.state.timeOff.map((t) => t.id), ['t1', 't8']);
+}
+
+// ---- an employee's tab reads carry the full days, worked out from everyone's must-off days ----
+{
+  const r = project(mustOffFixture(), 'u-emp', { kind: 'tab', tab: 'preferences' });
+  assert.ok('state' in r);
+  assert.deepStrictEqual(r.state.fullDays, ['2026-12-01', '2026-12-02']);
+}
+
+// ---- full days follow the per-day limit ----
+{
+  const db = mustOffFixture();
+  db.settings.maxVacationPerDay = 1;
+  const r = project(db, 'u-emp', { kind: 'tab', tab: 'preferences' });
+  assert.ok('state' in r);
+  assert.deepStrictEqual(r.state.fullDays, ['2026-12-01', '2026-12-02', '2026-12-03']);
+}
+
+// ---- an admin still sees every must-off day ----
+{
+  const r = project(mustOffFixture(), 'u-admin', { kind: 'tab', tab: 'preferences' });
+  assert.ok('state' in r);
+  assert.strictEqual(r.state.timeOff.length, 8);
+  assert.deepStrictEqual(r.state.fullDays, ['2026-12-01', '2026-12-02']);
+
+  const a = project(mustOffFixture(), 'u-admin', { kind: 'tab', tab: 'admin' });
+  assert.ok('state' in a);
+  assert.strictEqual(a.state.timeOff.length, 8);
+}
+
 console.log('projection tests passed');

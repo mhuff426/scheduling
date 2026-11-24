@@ -37,11 +37,9 @@ export default function Preferences({ db, currentUser, act }: Props) {
     (t) => t.type === 'vacation' && t.date.startsWith(String(year))
   ).length;
 
-  // Vacation headcount per date across all users, to show full days.
-  const vacationPerDay: Record<string, number> = {};
-  for (const t of db.timeOff) {
-    if (t.type === 'vacation') vacationPerDay[t.date] = (vacationPerDay[t.date] || 0) + 1;
-  }
+  // Full days come from the server: the tab carries only your own must-off
+  // days, so they can't be counted here (ADR 0002).
+  const fullDays = new Set(db.fullDays || []);
 
   const today = todayYmd();
 
@@ -148,7 +146,7 @@ export default function Preferences({ db, currentUser, act }: Props) {
             if (!date) return <div key={i} className="cal-cell blank" />;
             const req = mineByDate[date];
             const past = date < today;
-            const full = (vacationPerDay[date] || 0) >= db.settings.maxVacationPerDay && !req;
+            const full = fullDays.has(date) && !req;
             const awayDay = myAway.find((a) => a.start <= date && date <= a.end);
             return (
               <div
