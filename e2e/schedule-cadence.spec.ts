@@ -26,11 +26,6 @@ test.beforeEach(async ({ request }) => {
 const pad = (n) => String(n).padStart(2, '0');
 const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const todayYmd = () => ymd(new Date());
-const addDays = (n) => {
-  const d = new Date();
-  d.setDate(d.getDate() + n);
-  return ymd(d);
-};
 
 // ----- locators -----
 const settingsCard = (page) => page.locator('.card', { has: page.getByRole('heading', { name: /Settings/ }) });
@@ -130,38 +125,21 @@ test('duplicate block is rejected (already-generated option disabled)', async ({
     .locator('option').first()).toHaveJSProperty('disabled', true);
 });
 
-test('change-cadence rule: past anchor disabled, future anchor accepted', async ({ page }) => {
-  await gotoAdmin(page);
-  const c = cadenceInputs(page);
+// The cadence change rule's cases are unit tests (server/cadence.test.ts);
+// this checks the refusal reaches the wire. The default `request` fixture is
+// auto-authenticated as the seed admin under E2E_TESTING.
+test('refused: changing the cadence to start today is a 400 and keeps the old one', async ({ request }) => {
+  const first = { anchorDate: todayYmd(), lengthUnit: 'weeks', lengthValue: 2 };
+  expect((await request.put('/api/settings', { data: { cadence: first } })).ok()).toBeTruthy();
 
-  // Ensure a cadence already exists (so the strictly-future rule applies).
-  const hasCadence = await settingsCard(page).getByText(/Currently: every/).count();
-  if (!hasCadence) {
-    await c.length.fill('2');
-    await c.unit.selectOption('weeks');
-    await c.anchor.fill(todayYmd());
-    await c.save.click();
-    await expect(settingsCard(page).getByText(/Currently: every/)).toBeVisible();
-  }
+  const res = await request.put('/api/settings', {
+    data: { cadence: { anchorDate: todayYmd(), lengthUnit: 'weeks', lengthValue: 3 } },
+  });
+  expect(res.status()).toBe(400);
+  expect((await res.json()).error).toBe('A new schedule start date must be in the future.');
 
-  // A past anchor disables Save (changing an existing cadence needs a strictly
-  // future anchor).
-  await c.anchor.fill(addDays(-1));
-  await expect(c.save).toBeDisabled();
-
-  // Today is also not strictly future for an existing cadence -> still disabled.
-  await c.anchor.fill(todayYmd());
-  await expect(c.save).toBeDisabled();
-
-  // A future anchor is accepted: Save enables and persists.
-  const future = addDays(30);
-  await c.length.fill('3');
-  await c.unit.selectOption('weeks');
-  await c.anchor.fill(future);
-  await expect(c.save).toBeEnabled();
-  await c.save.click();
-  await expect(page.locator('.banner.error')).toHaveCount(0);
-  await expect(settingsCard(page).getByText(new RegExp(`anchored ${future}`))).toBeVisible();
+  const { settings } = await (await request.get('/api/state')).json();
+  expect(settings.cadence).toEqual(first);
 });
 
 // Empty-state coverage. The beforeEach reset guarantees no cadence is set, so
