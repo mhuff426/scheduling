@@ -18,12 +18,12 @@ import {
 import { runCommand, mapOutcome, type Command, type CommandContext, type Outcome } from './outcome.js';
 import { updateSettings } from './cadence.js';
 import { createShiftType, editShiftType, deleteShiftType } from './shiftTypes.js';
+import { createHoliday, editHoliday, deleteHoliday } from './holidays.js';
 import { buildIcs } from './ics.js';
 import { requestMustOff, withdrawMustOff } from './mustOff.js';
 import { project, tradeSeenBy, type ReadRequest, type Refusal } from './projection.js';
 import { can, capabilitiesOf, type Capability } from './capabilities.js';
 import { isValidCadence, blockRange, currentBlockIndex, todayYmd } from '../shared/blocks.js';
-import { isValidRecurrence } from '../shared/holidays.js';
 import type { Db, Trade, User } from '../shared/types.js';
 import {
   passwordProblem, verifyPassword, ensureCredentialRows, getCredential,
@@ -596,50 +596,15 @@ app.delete('/api/awaytime/:id', handle(async (req, res) => {
   res.json({ ok: true });
 }));
 
-// ---- holidays ----
-app.post('/api/holidays', handle(async (req, res) => {
-  const entry = await withMutation((db) => {
-    requireCapability(db, req, 'configureScheduling');
-    const { name, recurrence } = req.body;
-    if (!name || typeof name !== 'string') throw new HttpError(400, 'A holiday needs a name.');
-    if (!isValidRecurrence(recurrence)) throw new HttpError(400, 'A holiday needs a valid recurrence.');
-    const e = { id: newId('hol'), name: name.trim(), workable: !!req.body.workable, recurrence };
-    db.holidays.push(e);
-    return e;
-  });
-  res.json(entry);
-}));
+// ---- holidays (./holidays.ts) ----
+app.post('/api/holidays', handle((req, res) =>
+  sendCommand(req, res, (db, ctx) => createHoliday(db, ctx, req.body))));
 
-app.put('/api/holidays/:id', handle(async (req, res) => {
-  const entry = await withMutation((db) => {
-    requireCapability(db, req, 'configureScheduling');
-    const entry = db.holidays.find((h) => h.id === req.params.id);
-    if (!entry) throw new HttpError(404, 'Holiday not found.');
-    checkVersion(entry, req.body.expectedVersion, `The holiday "${entry.name}"`);
-    if (req.body.name !== undefined) {
-      if (!req.body.name || typeof req.body.name !== 'string') throw new HttpError(400, 'A holiday needs a name.');
-      entry.name = req.body.name.trim();
-    }
-    if (req.body.recurrence !== undefined) {
-      if (!isValidRecurrence(req.body.recurrence)) throw new HttpError(400, 'A holiday needs a valid recurrence.');
-      entry.recurrence = req.body.recurrence;
-    }
-    if (req.body.workable !== undefined) entry.workable = !!req.body.workable;
-    bumpVersion(entry);
-    return entry;
-  });
-  res.json(entry);
-}));
+app.put('/api/holidays/:id', handle((req, res) =>
+  sendCommand(req, res, (db, ctx) => editHoliday(db, ctx, { ...req.body, id: req.params.id }))));
 
-app.delete('/api/holidays/:id', handle(async (req, res) => {
-  await withMutation((db) => {
-    requireCapability(db, req, 'configureScheduling');
-    const idx = db.holidays.findIndex((h) => h.id === req.params.id);
-    if (idx === -1) throw new HttpError(404, 'Holiday not found.');
-    db.holidays.splice(idx, 1);
-  });
-  res.json({ ok: true });
-}));
+app.delete('/api/holidays/:id', handle((req, res) =>
+  sendCommand(req, res, (db, ctx) => deleteHoliday(db, ctx, { id: req.params.id }))));
 
 // ---- schedules ----
 app.post('/api/schedules', handle(async (req, res) => {
