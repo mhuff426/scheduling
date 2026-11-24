@@ -11,6 +11,7 @@ import type { AppState, Db, User } from '../shared/types.js';
 import type { CollectionKey } from './mysql.js';
 import { preferenceStandings } from './scheduler.js';
 import { DEFAULT_DATA } from './db.js';
+import { can } from './capabilities.js';
 
 export const TAB_KEYS = {
   schedule: ['schedules', 'shiftTypes', 'holidays', 'trades', 'settings'],
@@ -63,8 +64,8 @@ const EMPLOYEE_VIEWS: { [K in CollectionKey]: CollectionView<K> } = {
   meta: whole,
 };
 
-// Temporary admin check until the capability module (#53 slice 3) exists.
-const isAdmin = (u: User) => (u.roles || []).includes('role-admin');
+// Admins see every collection whole: the "see everyone's records" capability.
+const isAdmin = (u: User) => can(u, 'seeEveryonesRecords');
 
 function viewOf<K extends CollectionKey>(key: K, ctx: ViewContext): Db[K] {
   if (isAdmin(ctx.viewer)) return ctx.db[key];

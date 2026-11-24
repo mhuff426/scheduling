@@ -18,6 +18,7 @@ import {
 } from './trades.js';
 import { buildIcs } from './ics.js';
 import { project, type ReadRequest, type Refusal } from './projection.js';
+import { can, type Capability } from './capabilities.js';
 import { isValidCadence, blockRange, currentBlockIndex, todayYmd } from '../shared/blocks.js';
 import { isValidRecurrence } from '../shared/holidays.js';
 import type { Db, ShiftType, User } from '../shared/types.js';
@@ -110,10 +111,13 @@ function authedUser(db: Db, req: Request): User {
   return u;
 }
 
-/** Returns the authed User if they are an admin, else throws 403. */
-function requireAdmin(db: Db, req: Request): User {
+/**
+ * Returns the authed User if they have the named capability, else throws 403.
+ * Capabilities come from the viewer's current roles, read fresh on every request.
+ */
+function requireCapability(db: Db, req: Request, capability: Capability): User {
   const u = authedUser(db, req);
-  if (!(u.roles || []).includes('role-admin')) throw new HttpError(403, 'Admin access required.');
+  if (!can(u, capability)) throw new HttpError(403, 'Admin access required.');
   return u;
 }
 
@@ -310,7 +314,7 @@ app.get('/api/notifications', handle(async (req, res) => {
 // ---- roster ----
 app.post('/api/users', handle(async (req, res) => {
   const user = await withMutation((db) => {
-    requireAdmin(db, req);
+    requireCapability(db, req, 'managePeople');
     const { firstName, lastName, email, employeeId, roles, vacationDays, startDate } = req.body;
     const firstTrim = String(firstName || '').trim();
     const lastTrim = String(lastName || '').trim();
@@ -347,13 +351,14 @@ app.post('/api/users', handle(async (req, res) => {
   res.json({ ...redactUser(user, false), ...(delivered ? {} : { inviteLink: link }) });
 }));
 
-const isAdminUser = (u: User) => (u.roles || []).includes('role-admin');
+// The last-admin guard: someone must always be able to manage people.
+const managesPeople = (u: User) => can(u, 'managePeople');
 const isLastAdmin = (db: Db, user: User) =>
-  isAdminUser(user) && db.users.filter(isAdminUser).length === 1;
+  managesPeople(user) && db.users.filter(managesPeople).length === 1;
 
 app.put('/api/users/:id', handle(async (req, res) => {
   const user = await withMutation((db) => {
-    requireAdmin(db, req);
+    requireCapability(db, req, 'managePeople');
     const user = db.users.find((u) => u.id === req.params.id);
     if (!user) throw new HttpError(404, 'User not found.');
     checkVersion(user, req.body.expectedVersion, `${user.name}'s profile`);
@@ -388,7 +393,7 @@ app.put('/api/users/:id', handle(async (req, res) => {
       const next = (Array.isArray(roles) ? roles : []).filter((id: string) => valid.has(id));
       if (!next.includes('role-employee')) next.push('role-employee'); // Employee always implied
       // Can't strip the Admin tag (admin access) from the only admin.
-      if (isAdminUser(user) && !next.includes('role-admin') && isLastAdmin(db, user)) {
+      if (!managesPeople({ ...user, roles: next }) && isLastAdmin(db, user)) {
         throw new HttpError(400, `${user.name} is the only admin. Make someone else an admin first.`);
       }
       user.roles = next;
@@ -420,7 +425,7 @@ app.put('/api/users/:id', handle(async (req, res) => {
 
 app.delete('/api/users/:id', handle(async (req, res) => {
   await withMutation((db) => {
-    requireAdmin(db, req);
+    requireCapability(db, req, 'managePeople');
     const idx = db.users.findIndex((u) => u.id === req.params.id);
     if (idx === -1) throw new HttpError(404, 'User not found.');
     if (isLastAdmin(db, db.users[idx])) {
@@ -440,7 +445,7 @@ app.delete('/api/users/:id', handle(async (req, res) => {
 // ---- resend invite ----
 app.post('/api/users/:id/resend-invite', handle(async (req, res) => {
   const db = await readState();
-  requireAdmin(db, req);
+  requireCapability(db, req, 'managePeople');
   const user = db.users.find((u) => u.id === req.params.id);
   if (!user) throw new HttpError(404, 'User not found.');
   const pool = getPool();
@@ -456,7 +461,7 @@ app.post('/api/users/:id/resend-invite', handle(async (req, res) => {
 // ---- employee roles (capability tags; Admin/Employee are system roles) ----
 app.post('/api/roles', handle(async (req, res) => {
   const role = await withMutation((db) => {
-    requireAdmin(db, req);
+    requireCapability(db, req, 'managePeople');
     const name = String(req.body.name || '').trim();
     if (!name) throw new HttpError(400, 'Role name is required.');
     if (db.roles.some((r) => r.name.toLowerCase() === name.toLowerCase()))
@@ -470,7 +475,7 @@ app.post('/api/roles', handle(async (req, res) => {
 
 app.put('/api/roles/:id', handle(async (req, res) => {
   const role = await withMutation((db) => {
-    requireAdmin(db, req);
+    requireCapability(db, req, 'managePeople');
     const role = db.roles.find((r) => r.id === req.params.id);
     if (!role) throw new HttpError(404, 'Role not found.');
     if (role.system) throw new HttpError(400, 'System roles cannot be renamed.');
@@ -488,7 +493,7 @@ app.put('/api/roles/:id', handle(async (req, res) => {
 
 app.delete('/api/roles/:id', handle(async (req, res) => {
   await withMutation((db) => {
-    requireAdmin(db, req);
+    requireCapability(db, req, 'managePeople');
     const role = db.roles.find((r) => r.id === req.params.id);
     if (!role) throw new HttpError(404, 'Role not found.');
     if (role.system) throw new HttpError(400, 'System roles cannot be deleted.');
@@ -537,7 +542,7 @@ function parseShiftType(body: any): { error: string; fields?: undefined } | { er
 
 app.post('/api/shift-types', handle(async (req, res) => {
   const st = await withMutation((db) => {
-    requireAdmin(db, req);
+    requireCapability(db, req, 'configureScheduling');
     const { error, fields } = parseShiftType(req.body);
     if (error) throw new HttpError(400, error);
     const st: ShiftType = { id: newId('s'), ...fields! };
@@ -549,7 +554,7 @@ app.post('/api/shift-types', handle(async (req, res) => {
 
 app.put('/api/shift-types/:id', handle(async (req, res) => {
   const st = await withMutation((db) => {
-    requireAdmin(db, req);
+    requireCapability(db, req, 'configureScheduling');
     const st = db.shiftTypes.find((s) => s.id === req.params.id);
     if (!st) throw new HttpError(404, 'Shift type not found.');
     checkVersion(st, req.body.expectedVersion, `The shift type "${st.name}"`);
@@ -565,7 +570,7 @@ app.put('/api/shift-types/:id', handle(async (req, res) => {
 
 app.delete('/api/shift-types/:id', handle(async (req, res) => {
   await withMutation((db) => {
-    requireAdmin(db, req);
+    requireCapability(db, req, 'configureScheduling');
     const idx = db.shiftTypes.findIndex((s) => s.id === req.params.id);
     if (idx === -1) throw new HttpError(404, 'Shift type not found.');
     db.shiftTypes.splice(idx, 1);
@@ -576,7 +581,7 @@ app.delete('/api/shift-types/:id', handle(async (req, res) => {
 // ---- settings ----
 app.put('/api/settings', handle(async (req, res) => {
   const settings = await withMutation((db) => {
-    requireAdmin(db, req);
+    requireCapability(db, req, 'configureScheduling');
     checkVersion(db.settings, req.body.expectedVersion, 'Settings');
     const { maxVacationPerDay } = req.body;
     if (maxVacationPerDay !== undefined)
@@ -646,8 +651,7 @@ app.delete('/api/timeoff/:id', handle(async (req, res) => {
     const idx = db.timeOff.findIndex((t) => t.id === req.params.id);
     if (idx === -1) throw new HttpError(404, 'Request not found.');
     const entry = db.timeOff[idx];
-    const isAdmin = (authed.roles || []).includes('role-admin');
-    if (entry.userId !== authed.id && !isAdmin)
+    if (entry.userId !== authed.id && !can(authed, 'manageOthersTimeOff'))
       throw new HttpError(403, 'You can only delete your own time-off requests.');
     db.timeOff.splice(idx, 1);
   });
@@ -664,7 +668,7 @@ const awayText = (v: unknown, max: number): string | undefined => {
 
 app.post('/api/awaytime', handle(async (req, res) => {
   const entry = await withMutation((db) => {
-    requireAdmin(db, req);
+    requireCapability(db, req, 'manageAwayTime');
     const { userId, start, end } = req.body;
     const user = db.users.find((u) => u.id === userId);
     if (!user) throw new HttpError(404, 'User not found.');
@@ -683,7 +687,7 @@ app.post('/api/awaytime', handle(async (req, res) => {
 
 app.put('/api/awaytime/:id', handle(async (req, res) => {
   const entry = await withMutation((db) => {
-    requireAdmin(db, req);
+    requireCapability(db, req, 'manageAwayTime');
     const entry = db.awayTime.find((a) => a.id === req.params.id);
     if (!entry) throw new HttpError(404, 'Away time not found.');
     checkVersion(entry, req.body.expectedVersion, 'This away-time range');
@@ -703,7 +707,7 @@ app.put('/api/awaytime/:id', handle(async (req, res) => {
 
 app.delete('/api/awaytime/:id', handle(async (req, res) => {
   await withMutation((db) => {
-    requireAdmin(db, req);
+    requireCapability(db, req, 'manageAwayTime');
     const idx = db.awayTime.findIndex((a) => a.id === req.params.id);
     if (idx === -1) throw new HttpError(404, 'Away time not found.');
     db.awayTime.splice(idx, 1);
@@ -714,7 +718,7 @@ app.delete('/api/awaytime/:id', handle(async (req, res) => {
 // ---- holidays ----
 app.post('/api/holidays', handle(async (req, res) => {
   const entry = await withMutation((db) => {
-    requireAdmin(db, req);
+    requireCapability(db, req, 'configureScheduling');
     const { name, recurrence } = req.body;
     if (!name || typeof name !== 'string') throw new HttpError(400, 'A holiday needs a name.');
     if (!isValidRecurrence(recurrence)) throw new HttpError(400, 'A holiday needs a valid recurrence.');
@@ -727,7 +731,7 @@ app.post('/api/holidays', handle(async (req, res) => {
 
 app.put('/api/holidays/:id', handle(async (req, res) => {
   const entry = await withMutation((db) => {
-    requireAdmin(db, req);
+    requireCapability(db, req, 'configureScheduling');
     const entry = db.holidays.find((h) => h.id === req.params.id);
     if (!entry) throw new HttpError(404, 'Holiday not found.');
     checkVersion(entry, req.body.expectedVersion, `The holiday "${entry.name}"`);
@@ -748,7 +752,7 @@ app.put('/api/holidays/:id', handle(async (req, res) => {
 
 app.delete('/api/holidays/:id', handle(async (req, res) => {
   await withMutation((db) => {
-    requireAdmin(db, req);
+    requireCapability(db, req, 'configureScheduling');
     const idx = db.holidays.findIndex((h) => h.id === req.params.id);
     if (idx === -1) throw new HttpError(404, 'Holiday not found.');
     db.holidays.splice(idx, 1);
@@ -759,7 +763,7 @@ app.delete('/api/holidays/:id', handle(async (req, res) => {
 // ---- schedules ----
 app.post('/api/schedules', handle(async (req, res) => {
   const schedule = await withMutation((db) => {
-    requireAdmin(db, req);
+    requireCapability(db, req, 'buildSchedules');
     const cadence = db.settings.cadence;
     if (!cadence) throw new HttpError(400, 'Configure a schedule cadence in Settings first.');
     if (db.shiftTypes.length === 0)
@@ -813,7 +817,7 @@ app.post('/api/schedules', handle(async (req, res) => {
 // consecutive-night limit, needs `confirmedWarnings`.
 app.post('/api/schedules/:id/reassign', handle(async (req, res) => {
   const schedule = await withMutation((db) => {
-    requireAdmin(db, req);
+    requireCapability(db, req, 'buildSchedules');
     const schedule = db.schedules.find((s) => s.id === req.params.id);
     if (!schedule) throw new HttpError(404, 'Schedule not found.');
     const { date, shiftTypeId, fromUserId, toUserId } = req.body;
@@ -871,7 +875,7 @@ app.post('/api/schedules/:id/reassign', handle(async (req, res) => {
 
 app.delete('/api/schedules/:id', handle(async (req, res) => {
   await withMutation((db) => {
-    requireAdmin(db, req);
+    requireCapability(db, req, 'buildSchedules');
     const idx = db.schedules.findIndex((s) => s.id === req.params.id);
     if (idx === -1) throw new HttpError(404, 'Schedule not found.');
     db.schedules.splice(idx, 1);
@@ -1013,9 +1017,9 @@ app.get('/api/schedules/:id/ics', handle(async (req, res) => {
   const schedule = db.schedules.find((s) => s.id === req.params.id);
   if (!schedule) throw new HttpError(404, 'Schedule not found.');
   const authed = authedUser(db, req);
-  const isAdmin = (authed.roles || []).includes('role-admin');
-  // Non-admins always get their own ICS; admins may pass ?userId for someone else.
-  const targetId = isAdmin && req.query.userId ? req.query.userId as string : authed.id;
+  // Without "see everyone's records" a viewer always gets their own ICS;
+  // with it they may pass ?userId for someone else.
+  const targetId = can(authed, 'seeEveryonesRecords') && req.query.userId ? req.query.userId as string : authed.id;
   const user = db.users.find((u) => u.id === targetId);
   if (!user) throw new HttpError(404, 'User not found.');
   const mine = schedule.assignments.filter((a) => a.userId === user.id);
@@ -1051,7 +1055,7 @@ initDb()
     await ensureCredentialRows(pool, db.users.map((u) => u.id));
     // Bootstrap: if no admin has registered, print a one-time setup link.
     const map = await registeredMap(pool);
-    const admins = db.users.filter((u) => (u.roles || []).includes('role-admin'));
+    const admins = db.users.filter((u) => can(u, 'managePeople'));
     const anyAdminRegistered = admins.some((u) => map[u.id]);
     if (!anyAdminRegistered && admins.length > 0) {
       const firstAdmin = admins[0];
