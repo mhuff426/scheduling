@@ -5,10 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { initDb, readState, withMutation, newId, resetDbForTests, getPool } from './db.js';
 import type { CollectionKey } from './mysql.js';
-import {
-  generateSchedule, summarizeSchedule,
-} from './scheduler.js';
-import { ADMIN_REASSIGN_POLICY, needsConfirmation, parseConfirmedWarnings, scheduleEligibility } from './eligibility.js';
+import { needsConfirmation, parseConfirmedWarnings } from './eligibility.js';
 import { confirmationRefusal } from '../shared/confirmation.js';
 import type { ConfirmationRefusal, EligibilityWarning } from '../shared/confirmation.js';
 import {
@@ -22,11 +19,11 @@ import { createHoliday, editHoliday, deleteHoliday } from './holidays.js';
 import { createAwayTime, editAwayTime, deleteAwayTime } from './awayTime.js';
 import { buildIcs } from './ics.js';
 import { requestMustOff, withdrawMustOff } from './mustOff.js';
-import { buildSchedule } from './schedules.js';
 import { project, tradeSeenBy, type ReadRequest, type Refusal } from './projection.js';
 import { can, capabilitiesOf, type Capability } from './capabilities.js';
-import { isValidCadence, blockRange, currentBlockIndex, todayYmd } from '../shared/blocks.js';
 import type { Db, Trade, User } from '../shared/types.js';
+import { buildSchedule, deleteSchedule, reassignShift } from './schedules.js';
+import { isValidCadence, todayYmd } from '../shared/blocks.js';
 import {
   passwordProblem, verifyPassword, ensureCredentialRows, getCredential,
   setPassword, createInvite, findUserIdByInviteToken, registeredMap,
@@ -565,78 +562,11 @@ app.delete('/api/holidays/:id', handle((req, res) =>
 app.post('/api/schedules', handle((req, res) =>
   sendCommand(req, res, (db, ctx) => buildSchedule(db, ctx, req.body))));
 
-// Manual assignment editing: fill an open slot, hand a shift to someone else,
-// or unassign a shift back to open. Hard rules (one shift per day, 8h rest)
-// and affordable must-off days still block the receiving employee; an
-// unaffordable must-off day, or going past the shift maximum or
-// consecutive-night limit, needs `confirmedWarnings`.
-app.post('/api/schedules/:id/reassign', handle(async (req, res) => {
-  const schedule = await withMutation((db) => {
-    requireCapability(db, req, 'buildSchedules');
-    const schedule = db.schedules.find((s) => s.id === req.params.id);
-    if (!schedule) throw new HttpError(404, 'Schedule not found.');
-    const { date, shiftTypeId, fromUserId, toUserId } = req.body;
-    const confirmedWarnings = parseConfirmedWarnings(req.body.confirmedWarnings);
-    const st = db.shiftTypes.find((s) => s.id === shiftTypeId);
-    if (!st) throw new HttpError(400, 'Shift type no longer exists.');
+app.post('/api/schedules/:id/reassign', handle((req, res) =>
+  sendCommand(req, res, (db, ctx) => reassignShift(db, ctx, { ...req.body, id: req.params.id }))));
 
-    if (toUserId) {
-      const to = db.users.find((u) => u.id === toUserId);
-      if (!to) throw new HttpError(404, 'Employee not found.');
-      const moving = fromUserId
-        ? schedule.assignments.find(
-            (a) => a.date === date && a.shiftTypeId === shiftTypeId && a.userId === fromUserId
-          )
-        : null;
-      // Admin reassign policy (ADR 0001): hard rules and affordable must-off
-      // days block; an unaffordable must-off day, the consecutive-night limit
-      // and the shift maximum warn the admin, who confirms.
-      const r = scheduleEligibility(
-        db, schedule, { date, shiftTypeId }, to, ADMIN_REASSIGN_POLICY, moving ? [moving] : []
-      );
-      if (!r.eligible) throw new HttpError(400, r.reason);
-      requireConfirmed(r.warnings, confirmedWarnings);
-    }
-
-    if (!fromUserId) {
-      // Fill an open slot.
-      if (!toUserId) throw new HttpError(400, 'Pick an employee for the open shift.');
-      const idx = schedule.unfilled.findIndex(
-        (s) => s.date === date && s.shiftTypeId === shiftTypeId
-      );
-      if (idx === -1) throw new HttpError(404, 'Open shift not found.');
-      schedule.unfilled.splice(idx, 1);
-      schedule.assignments.push({ date, shiftTypeId, userId: toUserId });
-    } else {
-      const a = schedule.assignments.find(
-        (x) => x.date === date && x.shiftTypeId === shiftTypeId && x.userId === fromUserId
-      );
-      if (!a) throw new HttpError(404, 'Assignment not found.');
-      if (toUserId) {
-        a.userId = toUserId;
-      } else {
-        schedule.assignments.splice(schedule.assignments.indexOf(a), 1);
-        schedule.unfilled.push({ date, shiftTypeId });
-      }
-    }
-
-    const { counts, warnings } = summarizeSchedule(db, schedule);
-    schedule.counts = counts;
-    schedule.warnings = warnings;
-    return schedule;
-  });
-  res.json(schedule);
-}));
-
-app.delete('/api/schedules/:id', handle(async (req, res) => {
-  await withMutation((db) => {
-    requireCapability(db, req, 'buildSchedules');
-    const idx = db.schedules.findIndex((s) => s.id === req.params.id);
-    if (idx === -1) throw new HttpError(404, 'Schedule not found.');
-    db.schedules.splice(idx, 1);
-  });
-  res.json({ ok: true });
-}));
+app.delete('/api/schedules/:id', handle((req, res) =>
+  sendCommand(req, res, (db, ctx) => deleteSchedule(db, ctx, { id: req.params.id }))));
 
 // ---- shift trading ----
 // Trade commands (./trades.ts) run through sendCommand. The trade in a
