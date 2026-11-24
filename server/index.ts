@@ -17,7 +17,7 @@ import {
   setExtraElection, tradeOptions, swapPartners,
 } from './trades.js';
 import { buildIcs } from './ics.js';
-import { project, type ReadRequest, type Refusal } from './projection.js';
+import { project, tradeSeenBy, type ReadRequest, type Refusal } from './projection.js';
 import { can, capabilitiesOf, type Capability } from './capabilities.js';
 import { isValidCadence, blockRange, currentBlockIndex, todayYmd } from '../shared/blocks.js';
 import { isValidRecurrence } from '../shared/holidays.js';
@@ -899,57 +899,54 @@ const sendTradeResult = (res: Response, r: any) =>
     ? res.status(r.code || 400).json({ error: r.error, ...(r.code === 409 ? { code: 'conflict' } : {}) })
     : res.json(r.trade);
 
+// Runs a trade mutation as the signed-in user and sends its outcome. The
+// trade in the response is the one that viewer's projection would show, never
+// the raw row (an employee never receives a coworker's responses).
+const tradeMutation = async (req: Request, res: Response, act: (db: Db, authed: User) => any) =>
+  sendTradeResult(res, await withMutation((db) => {
+    const authed = authedUser(db, req);
+    const r = act(db, authed);
+    return r.trade ? { ...r, trade: tradeSeenBy(db, authed.id, r.trade) } : r;
+  }));
+
 // A trade request's body with its `confirmedWarnings` read into messages.
 const confirmableBody = (req: Request) => ({
   ...req.body, confirmedWarnings: parseConfirmedWarnings(req.body?.confirmedWarnings),
 });
 
-app.post('/api/trades', handle(async (req, res) =>
-  sendTradeResult(res, await withMutation((db) => {
-    const authed = authedUser(db, req);
-    return createTrade(db, { ...confirmableBody(req), fromUserId: authed.id });
-  }))));
+app.post('/api/trades', handle((req, res) =>
+  tradeMutation(req, res, (db, authed) =>
+    createTrade(db, { ...confirmableBody(req), fromUserId: authed.id }))));
 
-app.post('/api/trades/:id/respond', handle(async (req, res) =>
-  sendTradeResult(res, await withMutation((db) => {
-    const authed = authedUser(db, req);
-    return respondToOpenTrade(db, req.params.id, { ...confirmableBody(req), userId: authed.id });
-  }))));
+app.post('/api/trades/:id/respond', handle((req, res) =>
+  tradeMutation(req, res, (db, authed) =>
+    respondToOpenTrade(db, req.params.id, { ...confirmableBody(req), userId: authed.id }))));
 
-app.post('/api/trades/:id/withdraw', handle(async (req, res) =>
-  sendTradeResult(res, await withMutation((db) => {
-    const authed = authedUser(db, req);
-    return withdrawResponse(db, req.params.id, { ...req.body, userId: authed.id });
-  }))));
+app.post('/api/trades/:id/withdraw', handle((req, res) =>
+  tradeMutation(req, res, (db, authed) =>
+    withdrawResponse(db, req.params.id, { ...req.body, userId: authed.id }))));
 
-app.post('/api/trades/:id/accept', handle(async (req, res) =>
-  sendTradeResult(res, await withMutation((db) => {
-    const authed = authedUser(db, req);
+app.post('/api/trades/:id/accept', handle((req, res) =>
+  tradeMutation(req, res, (db, authed) => {
     const trade = db.trades.find((t) => t.id === req.params.id);
     if (!trade) return { error: 'Trade not found.', code: 404 };
     const body = { ...confirmableBody(req), userId: authed.id };
     return trade.type === 'open'
       ? acceptOpenResponse(db, req.params.id, body)
       : acceptDirect(db, req.params.id, body);
-  }))));
+  })));
 
-app.post('/api/trades/:id/reject', handle(async (req, res) =>
-  sendTradeResult(res, await withMutation((db) => {
-    const authed = authedUser(db, req);
-    return rejectDirect(db, req.params.id, { ...req.body, userId: authed.id });
-  }))));
+app.post('/api/trades/:id/reject', handle((req, res) =>
+  tradeMutation(req, res, (db, authed) =>
+    rejectDirect(db, req.params.id, { ...req.body, userId: authed.id }))));
 
-app.post('/api/trades/:id/claim', handle(async (req, res) =>
-  sendTradeResult(res, await withMutation((db) => {
-    const authed = authedUser(db, req);
-    return claimGiveaway(db, req.params.id, { ...confirmableBody(req), userId: authed.id });
-  }))));
+app.post('/api/trades/:id/claim', handle((req, res) =>
+  tradeMutation(req, res, (db, authed) =>
+    claimGiveaway(db, req.params.id, { ...confirmableBody(req), userId: authed.id }))));
 
-app.post('/api/trades/:id/cancel', handle(async (req, res) =>
-  sendTradeResult(res, await withMutation((db) => {
-    const authed = authedUser(db, req);
-    return cancelTrade(db, req.params.id, { ...req.body, userId: authed.id });
-  }))));
+app.post('/api/trades/:id/cancel', handle((req, res) =>
+  tradeMutation(req, res, (db, authed) =>
+    cancelTrade(db, req.params.id, { ...req.body, userId: authed.id }))));
 
 // Read-only eligibility lookups so the UI only offers feasible trades.
 app.get('/api/schedules/:id/trade-options', handle(async (req, res) => {
