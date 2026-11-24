@@ -636,7 +636,8 @@ app.post('/api/timeoff', handle(async (req, res) => {
     if (type === 'vacation') {
       const dayCount = vacationCountForDate(db, date);
       if (dayCount >= db.settings.maxVacationPerDay) {
-        throw new HttpError(400, `That day is full: ${dayCount} people already have it off (max ${db.settings.maxVacationPerDay}).`);
+        // Say only that the day is full: on a small team a headcount points to people (ADR 0002).
+        throw new HttpError(400, 'That day is full. Pick another day.');
       }
     }
 
