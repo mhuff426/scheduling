@@ -2,6 +2,19 @@
 
 Builds shift schedules for a team, lets employees trade shifts, and settles each schedule against everyone's required shifts and vacation.
 
+## Schedule blocks
+
+**Cadence**:
+How long each schedule runs and the date the first one starts. Once set, a changed cadence must start after today; the first cadence may start today.
+_Avoid_: Schedule length, period settings
+
+**Schedule block**:
+One run of the cadence. A schedule covers exactly one block, and each block has at most one schedule.
+_Avoid_: Period, cycle
+
+**Selectable window**:
+The current schedule block and the next four: the only blocks a schedule may be built for.
+
 ## Settlement
 
 **Settlement**:
@@ -92,6 +105,16 @@ _Avoid_: Deleted vacation request
 **Admin**:
 A person who may manage people, scheduling settings, away time and schedules, and see everyone's records. Everyone else sees their own records in full and coworkers only by name and colour.
 _Avoid_: Superuser, manager
+
+**Role**:
+A tag on a person that decides which shifts they may work. The Admin role also grants admin access.
+_Avoid_: Permission, group
+
+**Employee role**:
+The role every person has. It can't be removed.
+
+**Last admin**:
+The only person with the Admin role. They can't lose it or be removed until someone else is an admin.
 
 **Away time**:
 A stretch of days an admin marks a person as unavailable, with a label the person sees.
