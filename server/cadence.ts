@@ -1,8 +1,7 @@
 // The settings command (ADR 0003): the per-day limit for must-off days, the
 // holidays required per year, and the cadence. The cadence change rule is
 // shared with the Settings form (shared/blocks.ts).
-import { can } from './capabilities.js';
-import { ok, refuse, type CommandContext, type Outcome } from './outcome.js';
+import { ok, refuse, requireCan, type CommandContext, type Outcome } from './outcome.js';
 import { bumpVersion, staleRefusal } from './staleness.js';
 import { cadenceChangeProblem, isValidCadence } from '../shared/blocks.js';
 import type { Db, Settings } from '../shared/types.js';
@@ -15,7 +14,8 @@ export interface SettingsInput {
 }
 
 export function updateSettings(db: Db, { actor, today }: CommandContext, input: SettingsInput): Outcome<Settings> {
-  if (!can(actor, 'configureScheduling')) return refuse('forbidden', 'Admin access required.');
+  const no = requireCan(actor, 'configureScheduling');
+  if (no) return no;
   const settings = db.settings;
   const { expectedVersion, maxVacationPerDay, holidaysRequiredPerYear, cadence } = input;
   const stale = staleRefusal(settings, expectedVersion, 'Settings');

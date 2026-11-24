@@ -1,13 +1,11 @@
 // Away-time commands (ADR 0003): create, edit and delete, for whoever can
 // manage away time. Away time never counts against vacation.
 import { newId } from './db.js';
-import { can } from './capabilities.js';
-import { ok, refuse, type CommandContext, type Outcome } from './outcome.js';
+import { ok, refuse, requireCan, type CommandContext, type Outcome } from './outcome.js';
 import { staleRefusal, bumpVersion } from './staleness.js';
 import { isDate } from '../shared/blocks.js';
 import type { AwayTime, Db } from '../shared/types.js';
 
-const FORBIDDEN = 'Admin access required.';
 const NOT_FOUND = 'Away time not found.';
 const BAD_DATES = 'Away time needs a valid start and end date.';
 const END_BEFORE_START = 'The away end date must be on or after the start date.';
@@ -33,7 +31,8 @@ type AwayInput = { start?: unknown; end?: unknown; label?: unknown; memo?: unkno
 export function createAwayTime(
   db: Db, { actor }: CommandContext, input: AwayInput & { userId?: unknown }
 ): Outcome<AwayTime> {
-  if (!can(actor, 'manageAwayTime')) return refuse('forbidden', FORBIDDEN);
+  const no = requireCan(actor, 'manageAwayTime');
+  if (no) return no;
   const { userId, start, end } = input;
   const user = db.users.find((u) => u.id === userId);
   if (!user) return refuse('not_found', 'User not found.');
@@ -54,7 +53,8 @@ export function createAwayTime(
 export function editAwayTime(
   db: Db, { actor }: CommandContext, input: AwayInput & { id: string; expectedVersion?: unknown }
 ): Outcome<AwayTime> {
-  if (!can(actor, 'manageAwayTime')) return refuse('forbidden', FORBIDDEN);
+  const no = requireCan(actor, 'manageAwayTime');
+  if (no) return no;
   const entry = db.awayTime.find((a) => a.id === input.id);
   if (!entry) return refuse('not_found', NOT_FOUND);
   const stale = staleRefusal(entry, input.expectedVersion, 'This away-time range');
@@ -72,7 +72,8 @@ export function editAwayTime(
 }
 
 export function deleteAwayTime(db: Db, { actor }: CommandContext, { id }: { id: string }): Outcome<{ ok: true }> {
-  if (!can(actor, 'manageAwayTime')) return refuse('forbidden', FORBIDDEN);
+  const no = requireCan(actor, 'manageAwayTime');
+  if (no) return no;
   const idx = db.awayTime.findIndex((a) => a.id === id);
   if (idx === -1) return refuse('not_found', NOT_FOUND);
   db.awayTime.splice(idx, 1);
