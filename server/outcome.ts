@@ -90,10 +90,15 @@ class Rollback extends Error {
  * Runs `command` as the session user (`actorId`) inside `mutate`. No actor in
  * the data refuses as unauthenticated before the command runs. A refusal
  * without `persist` rolls back. Returns the status and body to send; a
- * success's body is its value.
+ * success's body is its value, or what `afterCommit` makes of it.
+ *
+ * `afterCommit` runs only once a success has committed, outside the
+ * transaction: work that must not happen for a refused or rolled-back command
+ * (credential rows, invites, auth-table cleanup). It may shape the response.
  */
 export async function runCommand<T>(
-  mutate: Mutate, actorId: string | null | undefined, today: string, command: Command<T>
+  mutate: Mutate, actorId: string | null | undefined, today: string, command: Command<T>,
+  afterCommit: (value: T) => unknown = (value) => value
 ): Promise<CommandResponse> {
   try {
     const outcome = await mutate((db) => {
@@ -103,7 +108,7 @@ export async function runCommand<T>(
       if (!o.ok && !o.refusal.persist) throw new Rollback(o.refusal);
       return o;
     });
-    return outcome.ok ? { status: 200, body: outcome.value } : refusalResponse(outcome.refusal);
+    return outcome.ok ? { status: 200, body: await afterCommit(outcome.value) } : refusalResponse(outcome.refusal);
   } catch (e) {
     if (e instanceof Rollback) return refusalResponse(e.refusal);
     throw e;

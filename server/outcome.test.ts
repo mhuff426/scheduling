@@ -83,6 +83,28 @@ async function main() {
     });
   }
 
+  // ---- afterCommit runs only after a successful commit, on the value, and shapes the body ----
+  {
+    const { store, mutate } = memoryStore(mkDb());
+    const seen: string[] = [];
+    const res = await runCommand(
+      mutate, 'a', TODAY,
+      (db) => { note(db, 'made'); return ok({ id: 'p1' }); },
+      async (value) => {
+        seen.push(`${value.id} committed=${store.db.notifications.length}`);
+        return { ...value, extra: true };
+      },
+    );
+    assert.deepStrictEqual(res, { status: 200, body: { id: 'p1', extra: true } });
+    assert.deepStrictEqual(seen, ['p1 committed=1'], 'ran once, after the commit');
+  }
+  for (const o of [refuse('invalid', 'No.'), refuse('conflict', 'Kept.', { persist: true })]) {
+    const { mutate } = memoryStore(mkDb());
+    let ran = false;
+    await runCommand(mutate, 'a', TODAY, () => o, () => { ran = true; });
+    assert.ok(!ran, 'afterCommit never runs on a refusal');
+  }
+
   // ---- a thrown error is not a refusal: it propagates (500/503 upstream) ----
   {
     const { mutate } = memoryStore(mkDb());
