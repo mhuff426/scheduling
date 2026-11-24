@@ -12,16 +12,16 @@ import { ADMIN_REASSIGN_POLICY, needsConfirmation, parseConfirmedWarnings, sched
 import { confirmationRefusal } from '../shared/confirmation.js';
 import type { ConfirmationRefusal, EligibilityWarning } from '../shared/confirmation.js';
 import {
-  createTrade, respondToOpenTrade, withdrawResponse,
-  acceptOpenResponse, acceptDirect, rejectDirect, claimGiveaway, cancelTrade,
+  createTrade, respondToOpenTrade, withdrawResponse, acceptTrade, rejectDirect, claimGiveaway, cancelTrade,
   setExtraElection, tradeOptions, swapPartners,
 } from './trades.js';
+import { runCommand, mapOutcome, type Command, type CommandContext, type Outcome } from './outcome.js';
 import { buildIcs } from './ics.js';
 import { project, tradeSeenBy, type ReadRequest, type Refusal } from './projection.js';
 import { can, capabilitiesOf, type Capability } from './capabilities.js';
 import { isValidCadence, blockRange, currentBlockIndex, todayYmd } from '../shared/blocks.js';
 import { isValidRecurrence } from '../shared/holidays.js';
-import type { Db, ShiftType, User } from '../shared/types.js';
+import type { Db, ShiftType, Trade, User } from '../shared/types.js';
 import {
   passwordProblem, verifyPassword, ensureCredentialRows, getCredential,
   setPassword, createInvite, findUserIdByInviteToken, registeredMap,
@@ -41,7 +41,7 @@ app.use((req: Request, res: Response, next) => {
 
 // Validation failures inside withMutation() THROW one of these (rolls the
 // transaction back — they always happen before any mutation). Business
-// outcomes that must persist even on failure (trades) use return values.
+// outcomes are domain commands returning an Outcome instead (see sendCommand).
 class HttpError extends Error {
   constructor(public status: number, message: string, public code?: string) {
     super(message);
@@ -80,6 +80,15 @@ const handle = (fn: (req: Request, res: Response) => Promise<unknown>) =>
       res.status(500).json({ error: 'Unexpected server error.' });
     });
   };
+
+// The route adapter for domain commands (ADR 0003): runs `command` in one
+// transaction as the session user, as of today, and sends its outcome. A
+// refusal rolls back unless it persists; outcome.ts maps reasons to statuses.
+// Call it inside handle(), which still turns thrown errors into 500/503.
+const sendCommand = async <T>(req: Request, res: Response, command: Command<T>) => {
+  const { status, body } = await runCommand(withMutation, sessionUserId(req), todayYmd(), command);
+  res.status(status).json(body);
+};
 
 // Optimistic-concurrency check: clients echo the `version` they read as
 // `expectedVersion`; a mismatch means someone else changed the record since.
@@ -887,72 +896,45 @@ app.delete('/api/schedules/:id', handle(async (req, res) => {
 }));
 
 // ---- shift trading ----
-// Trade functions mutate the db and return { trade } or { error, code }.
-// withMutation persists whatever changed even when the outcome is an error —
-// some failures (like expiring a stale trade) legitimately change state.
-// A failure with `warnings` is the confirmation contract's refusal (same body
-// as requireConfirmed).
-const sendTradeResult = (res: Response, r: any) =>
-  r.warnings
-    ? res.status(409).json(confirmationRefusal(r.warnings))
-    : r.error
-    ? res.status(r.code || 400).json({ error: r.error, ...(r.code === 409 ? { code: 'conflict' } : {}) })
-    : res.json(r.trade);
+// Trade commands (./trades.ts) run through sendCommand. The trade in a
+// response is the one the actor's projection would show, never the raw row
+// (an employee never receives a coworker's responses).
+const seenByActor = (db: Db, ctx: CommandContext, o: Outcome<Trade>) =>
+  mapOutcome(o, (trade) => tradeSeenBy(db, ctx.actor.id, trade));
 
-// Runs a trade mutation as the signed-in user and sends its outcome. The
-// trade in the response is the one that viewer's projection would show, never
-// the raw row (an employee never receives a coworker's responses).
-const tradeMutation = async (req: Request, res: Response, act: (db: Db, authed: User) => any) =>
-  sendTradeResult(res, await withMutation((db) => {
-    const authed = authedUser(db, req);
-    const r = act(db, authed);
-    return r.trade ? { ...r, trade: tradeSeenBy(db, authed.id, r.trade) } : r;
-  }));
-
-// A trade request's body with its `confirmedWarnings` read into messages.
-const confirmableBody = (req: Request) => ({
-  ...req.body, confirmedWarnings: parseConfirmedWarnings(req.body?.confirmedWarnings),
+// A trade request's body with its `confirmedWarnings` read into messages, and
+// the trade named in the path.
+const tradeInput = (req: Request) => ({
+  ...req.body, tradeId: req.params.id,
+  confirmedWarnings: parseConfirmedWarnings(req.body?.confirmedWarnings),
 });
 
 app.post('/api/trades', handle((req, res) =>
-  tradeMutation(req, res, (db, authed) =>
-    createTrade(db, { ...confirmableBody(req), fromUserId: authed.id }))));
+  sendCommand(req, res, (db, ctx) => seenByActor(db, ctx, createTrade(db, ctx, tradeInput(req))))));
 
 app.post('/api/trades/:id/respond', handle((req, res) =>
-  tradeMutation(req, res, (db, authed) =>
-    respondToOpenTrade(db, req.params.id, { ...confirmableBody(req), userId: authed.id }))));
+  sendCommand(req, res, (db, ctx) => seenByActor(db, ctx, respondToOpenTrade(db, ctx, tradeInput(req))))));
 
 app.post('/api/trades/:id/withdraw', handle((req, res) =>
-  tradeMutation(req, res, (db, authed) =>
-    withdrawResponse(db, req.params.id, { ...req.body, userId: authed.id }))));
+  sendCommand(req, res, (db, ctx) => seenByActor(db, ctx, withdrawResponse(db, ctx, tradeInput(req))))));
 
 app.post('/api/trades/:id/accept', handle((req, res) =>
-  tradeMutation(req, res, (db, authed) => {
-    const trade = db.trades.find((t) => t.id === req.params.id);
-    if (!trade) return { error: 'Trade not found.', code: 404 };
-    const body = { ...confirmableBody(req), userId: authed.id };
-    return trade.type === 'open'
-      ? acceptOpenResponse(db, req.params.id, body)
-      : acceptDirect(db, req.params.id, body);
-  })));
+  sendCommand(req, res, (db, ctx) => seenByActor(db, ctx, acceptTrade(db, ctx, tradeInput(req))))));
 
 app.post('/api/trades/:id/reject', handle((req, res) =>
-  tradeMutation(req, res, (db, authed) =>
-    rejectDirect(db, req.params.id, { ...req.body, userId: authed.id }))));
+  sendCommand(req, res, (db, ctx) => seenByActor(db, ctx, rejectDirect(db, ctx, tradeInput(req))))));
 
 app.post('/api/trades/:id/claim', handle((req, res) =>
-  tradeMutation(req, res, (db, authed) =>
-    claimGiveaway(db, req.params.id, { ...confirmableBody(req), userId: authed.id }))));
+  sendCommand(req, res, (db, ctx) => seenByActor(db, ctx, claimGiveaway(db, ctx, tradeInput(req))))));
 
 app.post('/api/trades/:id/cancel', handle((req, res) =>
-  tradeMutation(req, res, (db, authed) =>
-    cancelTrade(db, req.params.id, { ...req.body, userId: authed.id }))));
+  sendCommand(req, res, (db, ctx) => seenByActor(db, ctx, cancelTrade(db, ctx, tradeInput(req))))));
 
 // Read-only eligibility lookups so the UI only offers feasible trades.
 app.get('/api/schedules/:id/trade-options', handle(async (req, res) => {
   const db = await readState();
   const authed = authedUser(db, req);
-  return res.json(tradeOptions(db, req.params.id, authed.id));
+  return res.json(tradeOptions(db, req.params.id, authed.id, todayYmd()));
 }));
 
 app.get('/api/schedules/:id/swap-partners', handle(async (req, res) => {
@@ -962,19 +944,14 @@ app.get('/api/schedules/:id/swap-partners', handle(async (req, res) => {
     swapPartners(db, req.params.id, authed.id, {
       date: req.query.date as string,
       shiftTypeId: req.query.shiftTypeId as string,
-    })
+    }, todayYmd())
   );
 }));
 
 // Split your extra days (worked beyond required) into extra vacation and
 // incentive pay. Repeatable — the new split replaces the old one.
-app.put('/api/schedules/:id/extra-election', handle(async (req, res) => {
-  const r = await withMutation((db) => {
-    const authed = authedUser(db, req);
-    return setExtraElection(db, req.params.id, { ...req.body, userId: authed.id });
-  });
-  return r.error ? res.status((r as any).code || 400).json({ error: r.error }) : res.json(r.election);
-}));
+app.put('/api/schedules/:id/extra-election', handle((req, res) =>
+  sendCommand(req, res, (db, ctx) => setExtraElection(db, ctx, { ...req.body, scheduleId: req.params.id }))));
 
 app.put('/api/notifications/read', handle(async (req, res) => {
   await withMutation((db) => {
