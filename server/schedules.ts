@@ -8,8 +8,9 @@
 
 import { newId } from './db.js';
 import { can } from './capabilities.js';
-import { generateSchedule } from './scheduler.js';
-import { ok, refuse, type CommandContext, type Outcome } from './outcome.js';
+import { generateSchedule, summarizeSchedule } from './scheduler.js';
+import { ADMIN_REASSIGN_POLICY, needsConfirmation, parseConfirmedWarnings, scheduleEligibility } from './eligibility.js';
+import { ok, refuse, unconfirmed, type CommandContext, type Outcome } from './outcome.js';
 import { blockRange, currentBlockIndex } from '../shared/blocks.js';
 import type { Db, Schedule } from '../shared/types.js';
 
@@ -60,4 +61,73 @@ export function buildSchedule(
   db.schedules.push(schedule);
   db.meta.rotationCursor = nextRotationCursor;
   return ok(schedule);
+}
+
+export interface ReassignInput {
+  id: string;                 // the schedule
+  date: string;
+  shiftTypeId: string;
+  fromUserId?: string | null; // absent: fill an open shift
+  toUserId?: string | null;   // absent: unassign back to open
+  confirmedWarnings?: unknown; // the warning messages the admin confirmed
+}
+
+/**
+ * Manual assignment editing: fill an open shift, hand a shift to someone else,
+ * or unassign it back to open. Checked with the admin reassign policy (ADR
+ * 0001): hard rules and affordable must-off days block; an unaffordable
+ * must-off day, the shift maximum and the consecutive-night limit warn the
+ * admin, who confirms. Re-summarizes the schedule's counts and warnings.
+ */
+export function reassignShift(db: Db, { actor }: CommandContext, input: ReassignInput): Outcome<Schedule> {
+  if (!can(actor, 'buildSchedules')) return forbidden();
+  const schedule = db.schedules.find((s) => s.id === input.id);
+  if (!schedule) return refuse('not_found', 'Schedule not found.');
+  const { date, shiftTypeId, fromUserId, toUserId } = input;
+  const confirmedWarnings = parseConfirmedWarnings(input.confirmedWarnings);
+  if (!db.shiftTypes.some((s) => s.id === shiftTypeId)) return refuse('invalid', 'Shift type no longer exists.');
+
+  if (toUserId) {
+    const to = db.users.find((u) => u.id === toUserId);
+    if (!to) return refuse('not_found', 'Employee not found.');
+    const moving = fromUserId
+      ? schedule.assignments.find((a) => a.date === date && a.shiftTypeId === shiftTypeId && a.userId === fromUserId)
+      : null;
+    const r = scheduleEligibility(db, schedule, { date, shiftTypeId }, to, ADMIN_REASSIGN_POLICY, moving ? [moving] : []);
+    if (!r.eligible) return refuse('invalid', r.reason);
+    if (needsConfirmation(r.warnings, confirmedWarnings)) return unconfirmed(r.warnings);
+  }
+
+  if (!fromUserId) {
+    if (!toUserId) return refuse('invalid', 'Pick an employee for the open shift.');
+    const idx = schedule.unfilled.findIndex((s) => s.date === date && s.shiftTypeId === shiftTypeId);
+    if (idx === -1) return refuse('not_found', 'Open shift not found.');
+    schedule.unfilled.splice(idx, 1);
+    schedule.assignments.push({ date, shiftTypeId, userId: toUserId });
+  } else {
+    const a = schedule.assignments.find(
+      (x) => x.date === date && x.shiftTypeId === shiftTypeId && x.userId === fromUserId
+    );
+    if (!a) return refuse('not_found', 'Assignment not found.');
+    if (toUserId) {
+      a.userId = toUserId;
+    } else {
+      schedule.assignments.splice(schedule.assignments.indexOf(a), 1);
+      schedule.unfilled.push({ date, shiftTypeId });
+    }
+  }
+
+  const { counts, warnings } = summarizeSchedule(db, schedule);
+  schedule.counts = counts;
+  schedule.warnings = warnings;
+  return ok(schedule);
+}
+
+/** Removes a schedule. */
+export function deleteSchedule(db: Db, { actor }: CommandContext, { id }: { id: string }): Outcome<{ ok: true }> {
+  if (!can(actor, 'buildSchedules')) return forbidden();
+  const idx = db.schedules.findIndex((s) => s.id === id);
+  if (idx === -1) return refuse('not_found', 'Schedule not found.');
+  db.schedules.splice(idx, 1);
+  return ok({ ok: true });
 }
