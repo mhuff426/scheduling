@@ -97,7 +97,7 @@ _Avoid_: Soft off, downgraded must-off
 A day in a schedule, with at least one shift, where the person has started, isn't on away time and has no must-off day other than an unaffordable one.
 
 **Withdrawn must-off request**:
-A must-off request its owner took back. It no longer protects the day but stays on record with who withdrew it and when. Only the person who made the request can withdraw it.
+A must-off request that was taken back. It is removed outright, so the day is no longer protected and no record of the request is kept. The person who made the request can withdraw it, and so can anyone who may manage others' time off (today, an admin).
 _Avoid_: Deleted vacation request
 
 ## Access
